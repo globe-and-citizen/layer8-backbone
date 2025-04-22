@@ -1,7 +1,5 @@
-run tmux:
-	tmux new-session -d -s echo-server 'cd frontend && npm run dev' \; \
-	split-window -h 'cd proxy && cargo run' \; \
-	attach
+run-fp:
+	cd forward-proxy && cargo run
 
-run:
-	concurrently "cd frontend && npm run dev" "cd proxy && cargo run"
+run-frontend:
+	cd frontend && npm i && npm run dev
