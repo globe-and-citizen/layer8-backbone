@@ -17,5 +17,7 @@ target/
 .idea/
 .DS_Store/
 .vscode/
-/frontend/node_modules/
 **/log.txt
+
+# All node_modules
+node_modules/
