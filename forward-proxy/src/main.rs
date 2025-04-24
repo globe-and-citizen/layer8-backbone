@@ -1,26 +1,28 @@
-use std::fmt::Error;
 use async_trait::async_trait;
 use bytes::Bytes;
 use clap::Parser;
 use serde::{Deserialize, Serialize};
 use std::net::ToSocketAddrs;
 
-use pingora::server::configuration::Opt;
-use pingora::server::Server;
-use pingora::upstreams::peer::HttpPeer;
-use pingora::{Result};
-use pingora::http::{ResponseHeader, StatusCode, Method};
+use pingora::Result;
+use pingora::http::{Method, ResponseHeader, StatusCode};
 use pingora::proxy::{ProxyHttp, Session};
+use pingora::server::Server;
+use pingora::server::configuration::Opt;
+use pingora::upstreams::peer::HttpPeer;
 
-use env_logger;
 use chrono::Local;
+use env_logger;
 use log::*;
-use std::fs::{OpenOptions};
+use reqwest::Client;
+use std::collections::HashMap;
+use std::fs::OpenOptions;
 use std::io::Write;
 
 const UPSTREAM_HOST: &str = "localhost";
 const UPSTREAM_IP: &str = "0.0.0.0"; //"125.235.4.59"
 const UPSTREAM_PORT: u16 = 8000;
+const BACKEND_PORT: u16 = 3000;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct RequestBody {
@@ -37,7 +39,7 @@ pub struct EchoProxy {
 }
 
 pub struct MyCtx {
-    buffer: Vec<u8>,
+    _buffer: Vec<u8>,
 }
 
 impl EchoProxy {
@@ -61,9 +63,28 @@ impl EchoProxy {
         // convert to json
         match serde_json::de::from_slice::<RequestBody>(&body) {
             Ok(request_body) => {
-                debug!("Request body: {:?}", request_body);
-                // TODO manipulate body here
-                Ok(Some(ResponseBody { data: format!("Hello from echo server! - {}", request_body.data) }))
+                debug!("Request body: {:?}", request_body.data);
+                // println!("Request body data: {}", request_body.data); // For debugging
+
+                let client = Client::new();
+                let mut map = HashMap::new();
+                map.insert("data", request_body.data);
+                let res = client
+                    .post(format!("http://localhost:{}/test-endpoint", BACKEND_PORT))
+                    .json(&map)
+                    // .body(request_body.data)
+                    .send()
+                    .await
+                    .unwrap();
+                debug!(
+                    "POST /test-endpoint, Host: localhost:{}, response code: {}",
+                    BACKEND_PORT,
+                    res.status(),
+                );
+
+                Ok(Some(ResponseBody {
+                    data: format!("Hello from echo server! - {}", res.text().await.unwrap()),
+                }))
             }
             Err(err) => {
                 error!("ERROR: {err}");
@@ -72,14 +93,28 @@ impl EchoProxy {
         }
     }
 
-    async fn set_headers(response_status: StatusCode, body_bytes: &Vec<u8>, session: &mut Session) -> Result<()> {
+    async fn set_headers(
+        response_status: StatusCode,
+        body_bytes: &Vec<u8>,
+        session: &mut Session,
+    ) -> Result<()> {
         let mut header = ResponseHeader::build(response_status, None)?;
-        header.append_header("Content-Length", body_bytes.len().to_string()).unwrap();
+        header
+            .append_header("Content-Length", body_bytes.len().to_string())
+            .unwrap();
         // access headers below are needed to pass browser's policy
-        header.append_header("Access-Control-Allow-Origin", "*".to_string()).unwrap();
-        header.append_header("Access-Control-Allow-Methods", "POST".to_string()).unwrap();
-        header.append_header("Access-Control-Allow-Headers", "Content-Type".to_string()).unwrap();
-        header.append_header("Access-Control-Max-Age", "86400".to_string()).unwrap();
+        header
+            .append_header("Access-Control-Allow-Origin", "*".to_string())
+            .unwrap();
+        header
+            .append_header("Access-Control-Allow-Methods", "POST".to_string())
+            .unwrap();
+        header
+            .append_header("Access-Control-Allow-Headers", "Content-Type".to_string())
+            .unwrap();
+        header
+            .append_header("Access-Control-Max-Age", "86400".to_string())
+            .unwrap();
         session.write_response_header_ref(&header).await
     }
 }
@@ -88,7 +123,7 @@ impl EchoProxy {
 impl ProxyHttp for EchoProxy {
     type CTX = MyCtx;
     fn new_ctx(&self) -> Self::CTX {
-        MyCtx { buffer: vec![] }
+        MyCtx { _buffer: vec![] }
     }
 
     async fn upstream_peer(
@@ -96,15 +131,18 @@ impl ProxyHttp for EchoProxy {
         _session: &mut Session,
         _ctx: &mut Self::CTX,
     ) -> Result<Box<HttpPeer>> {
-        let peer: Box<HttpPeer> = Box::new(HttpPeer::new(self.addr, false, UPSTREAM_HOST.to_owned()));
+        let peer: Box<HttpPeer> =
+            Box::new(HttpPeer::new(self.addr, false, UPSTREAM_HOST.to_owned()));
         Ok(peer)
     }
 
-    async fn request_filter(&self, session: &mut Session, ctx: &mut Self::CTX) -> Result<bool>
+    async fn request_filter(&self, session: &mut Session, _ctx: &mut Self::CTX) -> Result<bool>
     where
         Self::CTX: Send + Sync,
     {
-        let mut response_body = ResponseBody { data: String::from("") };
+        let mut response_body = ResponseBody {
+            data: String::from(""),
+        };
         let mut response_status = StatusCode::OK;
 
         // get request method
@@ -130,7 +168,9 @@ impl ProxyHttp for EchoProxy {
         // convert json response to vec
         let response_body_bytes = serde_json::ser::to_vec(&response_body).unwrap();
         EchoProxy::set_headers(response_status, &response_body_bytes, session).await?;
-        session.write_response_body(Some(Bytes::from(response_body_bytes)), true).await?;
+        session
+            .write_response_body(Some(Bytes::from(response_body_bytes)), true)
+            .await?;
 
         Ok(true)
     }
@@ -145,7 +185,10 @@ impl ProxyHttp for EchoProxy {
             .response_written()
             .map_or(0, |resp| resp.status.as_u16());
         // access log
-        info!("{} response code: {response_code}", self.request_summary(session, ctx));
+        info!(
+            "{} response code: {response_code}",
+            self.request_summary(session, ctx)
+        );
     }
 }
 
@@ -187,7 +230,7 @@ fn main() {
                 .to_socket_addrs()
                 .unwrap()
                 .next()
-                .unwrap()
+                .unwrap(),
         },
     );
 
