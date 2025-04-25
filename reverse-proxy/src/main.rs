@@ -1,6 +1,6 @@
 use async_trait::async_trait;
-use pingora_core::prelude::{HttpPeer, Server};
-
+use pingora_core::prelude::*;
+use pingora_proxy::{ProxyHttp, Session};
 struct ReverseProxy;
 
 #[async_trait]
@@ -11,7 +11,7 @@ impl ProxyHttp for ReverseProxy {
 
     async fn upstream_peer(
         &self,
-        _session: &mut pingora_core::http::Session,
+        _session: &mut Session,
         _ctx: &mut Self::CTX,
     ) -> Result<Box<pingora_core::upstreams::peer::HttpPeer>> {
         Ok(Box::from(HttpPeer::new(

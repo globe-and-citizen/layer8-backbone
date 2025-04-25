@@ -7,3 +7,7 @@ edition = "2024"
 async-trait = "0.1.88"
 env_logger = "0.11.8"
 pingora-core = "0.4.0"
+pingora-proxy = "0.4.0"
+
+[patch.crates-io]
+sfv = { git = "https://github.com/undef1nd/sfv.git", tag = "v0.9.4" }
