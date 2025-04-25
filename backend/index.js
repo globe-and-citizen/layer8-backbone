@@ -12,6 +12,10 @@ app.use(
   })
 );
 
+app.get("/health", (req, res) => {
+  res.status(200).json({ status: "OK" });
+});
+
 app.post("/test-endpoint", (req, res) => {
   console.log("Received request:", req.body); // Log the entire request body
   if (!req.body) {
