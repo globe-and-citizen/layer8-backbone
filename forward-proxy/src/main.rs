@@ -22,7 +22,8 @@ use std::io::Write;
 const UPSTREAM_HOST: &str = "localhost";
 const UPSTREAM_IP: &str = "0.0.0.0"; //"125.235.4.59"
 const UPSTREAM_PORT: u16 = 8000;
-const BACKEND_PORT: u16 = 3000;
+// const BACKEND_PORT: u16 = 3000;
+const REVERSE_PROXY_PORT: u16 = 6193;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct RequestBody {
@@ -70,7 +71,7 @@ impl EchoProxy {
                 let mut map = HashMap::new();
                 map.insert("data", request_body.data);
                 let res = client
-                    .post(format!("http://localhost:{}/test-endpoint", BACKEND_PORT))
+                    .post(format!("http://localhost:{}/test-endpoint", REVERSE_PROXY_PORT))
                     .json(&map)
                     // .body(request_body.data)
                     .send()
@@ -78,7 +79,7 @@ impl EchoProxy {
                     .unwrap();
                 debug!(
                     "POST /test-endpoint, Host: localhost:{}, response code: {}",
-                    BACKEND_PORT,
+                    REVERSE_PROXY_PORT,
                     res.status(),
                 );
 
