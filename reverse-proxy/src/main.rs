@@ -1,6 +1,10 @@
 use async_trait::async_trait;
+use log::info;
 use pingora_core::prelude::*;
 use pingora_proxy::{ProxyHttp, Session};
+use std::fs;
+use simplelog::{ConfigBuilder, LevelFilter, WriteLogger};
+
 struct ReverseProxy;
 
 #[async_trait]
@@ -23,7 +27,12 @@ impl ProxyHttp for ReverseProxy {
 }
 
 fn main() {
-    env_logger::init();
+    // Initialize logger
+    let log_file = fs::File::create("log.txt").expect("Failed to create log file");
+    let config = ConfigBuilder::new().set_time_to_local(true).build();
+    WriteLogger::init(LevelFilter::Debug, config, log_file).expect("Failed to initialize logger");
+
+    info!("Starting server...");
 
     let mut server = Server::new(None).unwrap();
     server.bootstrap();
