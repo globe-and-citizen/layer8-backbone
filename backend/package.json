@@ -10,6 +10,9 @@
   "description": "",
   "dependencies": {
     "cors": "^2.8.5",
-    "express": "^5.1.0"
+    "express": "^5.1.0",
+    "express-winston": "^4.2.0",
+    "morgan": "^1.10.0",
+    "winston": "^3.17.0"
   }
 }
