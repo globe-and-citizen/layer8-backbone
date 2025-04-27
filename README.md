@@ -5,6 +5,8 @@ This repo is for where the layer8 backbone will be mocked: frontend, FP, RP, bac
 
 - One command to run all four services: (This requires concurrently to be installed, use the command `npm i -g concurrently` as root)
 
+- Note: Make sure you also have `cmake`, `libssl-dev`, and `pkg-config` installed (As tested on Linux amd64)
+
 ```bash
 make run
 ```
