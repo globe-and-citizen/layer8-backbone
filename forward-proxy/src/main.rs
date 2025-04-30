@@ -14,8 +14,6 @@ use pingora::upstreams::peer::HttpPeer;
 use chrono::Local;
 use env_logger;
 use log::*;
-use reqwest::Client;
-use std::collections::HashMap;
 use std::fs::OpenOptions;
 use std::io::Write;
 
