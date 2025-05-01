@@ -34,4 +34,4 @@ jobs:
           npm install
           sudo npm i -g cypress
           cypress install
-          npx cypress run
+          cypress run
