@@ -40,7 +40,9 @@ impl ProxyHttp for ForwardProxy {
     ) -> Result<()> {
         // Fixed CORS issue
         upstream_response.insert_header("Access-Control-Allow-Origin", "*")?;
-        upstream_response.insert_header("Vary", "Origin")?;
+        upstream_response.insert_header("Access-Control-Allow-Methods", "GET, POST")?;
+        upstream_response.insert_header("Access-Control-Allow-Headers", "Content-Type")?;
+        upstream_response.insert_header("User-Agent", "*")?;
         Ok(())
     }
 }
