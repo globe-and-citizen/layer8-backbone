@@ -11,10 +11,16 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "23.x"
+      - name: Build Forward Proxy
+        run: |
+          cd forward-proxy && cargo update && cargo build
+      - name: Build Reverse Proxy
+        run: |
+          cd reverse-proxy && cargo update && cargo build
       - name: Run services and do e2e tests
         run: |
           npm i -g concurrently && make run &
-          sleep 150
+          sleep 20
           cd test/cypress
           npm install
           sudo npm i -g cypress
