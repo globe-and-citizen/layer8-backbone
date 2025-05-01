@@ -16,21 +16,23 @@
 <script setup lang="ts">
 
 import {ref} from 'vue'
+import axios from "axios";
 
 const message = ref("")
 const answer = ref("")
-const PROXY_ADDR = "http://localhost:6191/test-endpoint"
+const PROXY_ADDR = "http://localhost:6193/test-endpoint"
 
 async function ask() {
-  let res = await window.fetch(PROXY_ADDR, {
-    method: "POST",
-    headers: {
-      'Content-Type': "application/json",
-      'Accept': "application/json",
-    },
-    body: JSON.stringify({data: message.value})
-  })
-  answer.value = await res.text()
+  let res = await axios.post(PROXY_ADDR,
+      {data: message.value},
+      {
+        headers: {
+          'Content-Type': "application/json",
+          'Accept': "application/json",
+        }
+      }
+  )
+  answer.value = res.data.data
 }
 
 function clear() {
