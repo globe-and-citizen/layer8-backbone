@@ -20,7 +20,7 @@ import axios from "axios";
 
 const message = ref("")
 const answer = ref("")
-const PROXY_ADDR = "http://localhost:6193/test-endpoint"
+const PROXY_ADDR = "http://localhost:6191/test-endpoint"
 
 async function ask() {
   let res = await axios.post(PROXY_ADDR,
