@@ -35,4 +35,4 @@ jobs:
           npm install
           sudo npm i -g cypress
           cypress install
-          cypress run --browser chrome
+          cypress run
