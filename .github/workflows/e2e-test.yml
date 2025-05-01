@@ -33,6 +33,7 @@ jobs:
           cargo run &
       - name: Run cypress tests
         run: |
+          sleep 30
           cd test/cypress
           npm i -g cypress
           cypress run
