@@ -20,7 +20,10 @@ jobs:
       - name: Run services and do e2e tests
         run: |
           npm i -g concurrently && make run &
-          sleep 20
+          for attempt in {1..20}; do sleep 2; if curl -s http://localhost:5173/ > /dev/null; then break; fi; done
+          for attempt in {1..20}; do sleep 2; if curl -s http://localhost:3000/ > /dev/null; then break; fi; done
+          for attempt in {1..20}; do sleep 2; if curl -s http://localhost:6191/ > /dev/null; then break; fi; done
+          for attempt in {1..20}; do sleep 2; if curl -s http://localhost:6193/ > /dev/null; then break; fi; done
           cd test/cypress
           npm install
           sudo npm i -g cypress
