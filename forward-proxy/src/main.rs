@@ -7,7 +7,7 @@ use std::fs;
 use serde::{Deserialize, Serialize};
 
 
-struct ReverseProxy;
+struct ForwardProxy;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct ResponseBody {
@@ -15,7 +15,7 @@ pub struct ResponseBody {
 }
 
 #[async_trait]
-impl ProxyHttp for ReverseProxy {
+impl ProxyHttp for ForwardProxy {
     type CTX = ();
 
     fn new_ctx(&self) -> Self::CTX {}
@@ -56,7 +56,7 @@ fn main() {
     let mut server = Server::new(None).unwrap();
     server.bootstrap();
 
-    let mut proxy = pingora_proxy::http_proxy_service(&server.configuration, ReverseProxy);
+    let mut proxy = pingora_proxy::http_proxy_service(&server.configuration, ForwardProxy);
 
     proxy.add_tcp("0.0.0.0:6191");
 
