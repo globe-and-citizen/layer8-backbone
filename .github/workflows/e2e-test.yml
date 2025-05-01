@@ -24,6 +24,7 @@ jobs:
           for attempt in {1..20}; do sleep 2; if curl -s http://localhost:3000/ > /dev/null; then break; fi; done
           for attempt in {1..20}; do sleep 2; if curl -s http://localhost:6191/ > /dev/null; then break; fi; done
           for attempt in {1..20}; do sleep 2; if curl -s http://localhost:6193/ > /dev/null; then break; fi; done
+          TERM="${TERM:-dumb}"
           curl --location 'http://localhost:6191/test-endpoint' \
           --header 'Content-Type: application/json' \
           --data '{
@@ -31,6 +32,5 @@ jobs:
           }'
           cd test/cypress
           npm install
-          sudo npm i -g cypress
           cypress install
-          cypress run
+          npx cypress run

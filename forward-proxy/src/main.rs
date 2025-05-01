@@ -38,11 +38,9 @@ impl ProxyHttp for ForwardProxy {
         upstream_response: &mut pingora_http::ResponseHeader,
         _ctx: &mut Self::CTX,
     ) -> Result<()> {
-        // Fixed CORS issue
         upstream_response.insert_header("Access-Control-Allow-Origin", "*")?;
         upstream_response.insert_header("Access-Control-Allow-Methods", "GET, POST")?;
         upstream_response.insert_header("Access-Control-Allow-Headers", "Content-Type")?;
-        upstream_response.insert_header("User-Agent", "*")?;
         Ok(())
     }
 }
