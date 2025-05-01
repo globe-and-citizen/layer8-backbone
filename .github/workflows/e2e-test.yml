@@ -1,4 +1,4 @@
-name: Simple Node.js app
+name: End-to-end tests for Frontend->FP->RP->Backend
 on: [pull_request]
 jobs:
   run-e2e-tests:
@@ -11,29 +11,12 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "23.x"
-      - name: Run frontend
+      - name: Run services and do e2e tests
         run: |
-          cd frontend
-          npm i
-          npm run dev &
-      - name: Run backend
-        run: |
-          cd backend
-          npm i
-          node index.js &
-      - name: Run Forward Proxy
-        run: |
-          cd forward-proxy
-          cargo update
-          cargo run &
-      - name: Run Reverse Proxy
-        run: |
-          cd reverse-proxy
-          cargo update
-          cargo run &
-      - name: Run cypress tests
-        run: |
-          sleep 30
+          npm i -g concurrently && make run &
+          sleep 100
           cd test/cypress
-          npm i -g cypress
+          npm install
+          sudo npm i -g cypress
+          cypress install
           cypress run
