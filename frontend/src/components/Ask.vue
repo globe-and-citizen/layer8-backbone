@@ -3,12 +3,12 @@
     <h2>Ask me anything</h2>
     <div class="input-question">
       <div class="input-container">
-        <input v-model="message" placeholder="Type your question here" @keyup.enter="ask()" />
+        <input name="question" v-model="message" placeholder="Type your question here" @keyup.enter="ask()" />
         <span v-if="message" class="clear-button" @click="clear()">×</span>
       </div>
 
       <p>Answer:</p>
-      <textarea v-model="answer" readonly></textarea>
+      <textarea name="answer" v-model="answer" readonly></textarea>
     </div>
   </div>
 </template>

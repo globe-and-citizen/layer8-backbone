@@ -1,0 +1,38 @@
+name: Simple Node.js app
+on: [pull_request]
+jobs:
+  run-e2e-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Upgrade node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "23.x"
+      - name: Run frontend
+        run: |
+          cd frontend
+          npm i
+          npm run dev &
+      - name: Run backend
+        run: |
+          cd backend
+          npm i
+          node index.js &
+      - name: Run Forward Proxy
+        run: |
+          cd forward-proxy
+          cargo update
+          cargo run &
+      - name: Run Reverse Proxy
+        run: |
+          cd reverse-proxy
+          cargo update
+          cargo run &
+      - name: Run cypress tests
+        run: |
+          cd test/cypress
+          npm i -g cypress
+          cypress run
