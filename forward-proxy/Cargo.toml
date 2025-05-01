@@ -1,0 +1,26 @@
+[package]
+name = "proxy"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+async-trait="0.1"
+bytes = "1.10.1"
+clap = { version = "3.2.25", features = ["derive"] }
+serde = { version = "1.0.219", features = ["derive"] }
+serde_json = "1.0.140"
+serde_yaml = "0.8.26"
+env_logger = "0.11.7"
+log = "0.4.27"
+chrono = "0.4.40"
+reqwest = { version = "0.11", features = ["json"] }
+tokio-rustls = "0.26.2"
+tokio = "1.44.2"
+pingora-core = "0.4.0"
+pingora-proxy = "0.4.0"
+simplelog = "0.10"
+pingora-http = "0.4.0"
+pingora = "0.4.0"
+
+[patch.crates-io]
+sfv = { git = "https://github.com/undef1nd/sfv.git", tag = "v0.9.4" }
