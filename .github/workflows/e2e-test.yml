@@ -14,7 +14,7 @@ jobs:
       - name: Run services and do e2e tests
         run: |
           npm i -g concurrently && make run &
-          sleep 100
+          sleep 150
           cd test/cypress
           npm install
           sudo npm i -g cypress
