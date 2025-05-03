@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use std::net::ToSocketAddrs;
 
 use pingora::Result;
-use pingora::http::{ResponseHeader, StatusCode};
+use pingora::http::{Method, ResponseHeader, StatusCode};
 use pingora::proxy::{ProxyHttp, Session};
 use pingora::server::Server;
 use pingora::server::configuration::Opt;
@@ -20,7 +20,7 @@ use std::fs::OpenOptions;
 use std::io::Write;
 
 const UPSTREAM_HOST: &str = "localhost";
-const UPSTREAM_IP: &str = "0.0.0.0";
+const UPSTREAM_IP: &str = "0.0.0.0"; //"125.235.4.59"
 const BACKEND_PORT: u16 = 3000;
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -33,16 +33,20 @@ pub struct ResponseBody {
     data: String,
 }
 
-pub struct EchoProxy {
+pub struct ReverseProxy {
     addr: std::net::SocketAddr,
 }
 
-pub struct MyCtx {
-    _buffer: Vec<u8>,
-}
+impl ReverseProxy {
+    fn get_method(session: &Session) -> String {
+        let request_summary = session.request_summary();
+        let tmp: Vec<&str> = request_summary.split(" ").collect();
+        let method: &str = tmp.get(0).unwrap();
+        method.to_string()
+    }
 
-impl EchoProxy {
     async fn handle_request(session: &mut Session) -> Result<Option<ResponseBody>> {
+        // read request body
         let mut body = Vec::new();
         loop {
             match session.read_request_body().await? {
@@ -51,8 +55,11 @@ impl EchoProxy {
             }
         }
 
+        // convert to json
         match serde_json::de::from_slice::<RequestBody>(&body) {
             Ok(request_body) => {
+                debug!("Request body: {:?}", request_body.data);
+                // println!("Request body data: {}", request_body.data); // For debugging
                 let request_url = session.req_header().uri.path().to_string();
                 debug!(
                     "Creating a new request to http://localhost:{}{}",
@@ -67,7 +74,6 @@ impl EchoProxy {
                     .send()
                     .await
                     .unwrap();
-
                 debug!(
                     "POST {}, Host: localhost:{}, response code: {}",
                     BACKEND_PORT,
@@ -93,6 +99,7 @@ impl EchoProxy {
         header
             .append_header("Content-Length", body_bytes.len().to_string())
             .unwrap();
+        // access headers below are needed to pass browser's policy
         header
             .append_header("Access-Control-Allow-Origin", "*".to_string())
             .unwrap();
@@ -110,11 +117,10 @@ impl EchoProxy {
 }
 
 #[async_trait]
-impl ProxyHttp for EchoProxy {
-    type CTX = MyCtx;
-    fn new_ctx(&self) -> Self::CTX {
-        MyCtx { _buffer: vec![] }
-    }
+impl ProxyHttp for ReverseProxy {
+    type CTX = ();
+
+    fn new_ctx(&self) -> Self::CTX {}
 
     async fn upstream_peer(
         &self,
@@ -135,22 +141,29 @@ impl ProxyHttp for EchoProxy {
         };
         let mut response_status = StatusCode::OK;
 
-        let res = EchoProxy::handle_request(session).await;
-        match res {
-            Ok(Some(res)) => {
-                response_body = res;
+        // get request method
+        let method = ReverseProxy::get_method(session);
+
+        // only POST method is allowed for now
+        if method == Method::POST.to_string() {
+            match ReverseProxy::handle_request(session).await? {
+                Some(res) => {
+                    response_body = res;
+                }
+                None => {
+                    response_status = StatusCode::BAD_REQUEST;
+                }
             }
-            Ok(None) => {
-                response_status = StatusCode::BAD_REQUEST;
-            }
-            Err(err) => {
-                error!("ERROR: {err}");
-                response_status = StatusCode::INTERNAL_SERVER_ERROR;
-            }
+            // browser always sends an OPTIONS request along with POST for 'application/json' content-type
+        } else if method == Method::OPTIONS.to_string() {
+            response_status = StatusCode::NO_CONTENT;
+        } else {
+            response_status = StatusCode::METHOD_NOT_ALLOWED;
         }
 
+        // convert json response to vec
         let response_body_bytes = serde_json::ser::to_vec(&response_body).unwrap();
-        EchoProxy::set_headers(response_status, &response_body_bytes, session).await?;
+        ReverseProxy::set_headers(response_status, &response_body_bytes, session).await?;
         session
             .write_response_body(Some(Bytes::from(response_body_bytes)), true)
             .await?;
@@ -175,7 +188,6 @@ impl ProxyHttp for EchoProxy {
     }
 }
 
-// RUST_LOG=INFO cargo run proxy
 fn main() {
     let file = OpenOptions::new()
         .append(true)
@@ -207,7 +219,7 @@ fn main() {
 
     let mut my_proxy = pingora::proxy::http_proxy_service(
         &my_server.configuration,
-        EchoProxy {
+        ReverseProxy {
             addr: (UPSTREAM_IP.to_owned(), BACKEND_PORT)
                 .to_socket_addrs()
                 .unwrap()

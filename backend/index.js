@@ -15,8 +15,8 @@ const logStream = fs.createWriteStream(path.join(__dirname, 'log.txt'), { flags:
 app.use(express.json());
 app.use(
   cors({
-    origin: "http://localhost:6193",
-    methods: "POST",
+    origin: "*",
+    methods: "*",
     allowedHeaders: ["Content-Type"],
   })
 );
