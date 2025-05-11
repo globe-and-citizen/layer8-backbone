@@ -15,7 +15,7 @@ import Ask from "@/components/Ask.vue";
 
   <main>
 <!--    <TheWelcome />-->
-    <ask/>
+    <!-- <ask/> -->
   </main>
 </template>
 
