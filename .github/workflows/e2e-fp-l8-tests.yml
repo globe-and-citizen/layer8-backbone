@@ -1,0 +1,74 @@
+name: End-to-end tests for Frontend->FP->RP->Backend
+on: [pull_request]
+jobs:
+  run-e2e-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Upgrade node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "23.x" # Recommend using LTS version (20.x) instead of 23.x
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libssl-dev pkg-config git make
+          # sudo usermod -a -G docker $USER
+          # newgrp docker
+
+      # - name: Build Forward Proxy
+      #   run: |
+      #     cd forward-proxy && cargo update && cargo build
+
+      # - name: Build Reverse Proxy
+      #   run: |
+      #     cd reverse-proxy && cargo update && cargo build
+
+      - name: Run services and test
+        run: |
+          # # Install dependencies
+          # npm i -g concurrently
+
+          # # Start services in background
+          # concurrently "cd forward-proxy && cargo run" "cd reverse-proxy && cargo run" "cd backend && npm i && node index.js" &
+
+          # # Wait for services to be fully ready with proper health checks
+          # echo "Waiting for services to start..."
+
+          # # Backend services
+          # curl --retry 20 --retry-delay 2 --retry-connrefused http://localhost:3000/health -s -o /dev/null
+          # curl --retry 20 --retry-delay 2 --retry-connrefused http://localhost:6191/health -s -o /dev/null
+          # curl --retry 20 --retry-delay 2 --retry-connrefused http://localhost:6193/health -s -o /dev/null
+
+          # # Test API connectivity
+          # echo "Testing API connectivity..."
+          # API_RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" \
+          #   --location 'http://localhost:6191/test-endpoint' \
+          #   --header 'Content-Type: application/json' \
+          #   --data '{"data": "Test Message"}')
+
+          # if [ "$API_RESPONSE" -ne 200 ]; then
+          #   echo "API test failed with status $API_RESPONSE"
+          #   exit 1
+          # fi
+
+          # echo "Successfully tested connection between FP->RP->Backend"
+
+          # curl --retry 20 --retry-delay 2 --retry-connrefused http://localhost:5001/health -s -o /dev/null
+
+          docker --version
+          sudo sed -i 's|secure_path="\(.*\)"|secure_path="\1:/usr/local/go/bin"|' /etc/sudoers
+          sudo go version
+
+          cd /home/runner
+          mkdir app-test
+          cd app-test
+          git clone https://github.com/globe-and-citizen/layer8.git
+          cd layer8
+          sudo make go_mod_tidy
+          cd /home/runner/app-test/layer8/infra/local && cat telegraf.conf
+          cd /home/runner/app-test/layer8
+          sudo make setup_and_run && sleep 5

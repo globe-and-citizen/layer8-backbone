@@ -59,6 +59,14 @@ app.post("/test-endpoint", (req, res) => {
   res.status(200).json({ data: responseData });
 });
 
+app.post("/init-tunnel", (req, res) => {
+  console.log("Received request:", req.body); // Log the entire request body to the console as well
+  if (!req.body) {
+    return res.status(400).json({ error: "Invalid request payload" });
+  }
+  res.status(200).json({ data: "OK" });
+});
+
 app.use(expressWinston.errorLogger({
   transports: [
     new winston.transports.Console(),

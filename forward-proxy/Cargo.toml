@@ -21,6 +21,9 @@ pingora-core = "0.4.0"
 pingora-proxy = "0.4.0"
 pingora-http = "0.4.0"
 pingora = "0.4.0"
+jsonwebtoken = "9.3.1"
+dotenv = "0.15.0"
+pingora-error = "0.4.0"
 
 [patch.crates-io]
 sfv = { git = "https://github.com/undef1nd/sfv.git", tag = "v0.9.4" }
