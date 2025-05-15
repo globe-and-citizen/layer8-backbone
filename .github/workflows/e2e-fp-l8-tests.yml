@@ -59,16 +59,23 @@ jobs:
 
           # curl --retry 20 --retry-delay 2 --retry-connrefused http://localhost:5001/health -s -o /dev/null
 
-          docker --version
-          sudo sed -i 's|secure_path="\(.*\)"|secure_path="\1:/usr/local/go/bin"|' /etc/sudoers
-          sudo go version
+          # docker --version
+          # sudo sed -i 's|secure_path="\(.*\)"|secure_path="\1:/usr/local/go/bin"|' /etc/sudoers
+          # sudo go version
 
           cd /home/runner
           mkdir app-test
           cd app-test
           git clone https://github.com/globe-and-citizen/layer8.git
           cd layer8
-          sudo make go_mod_tidy
-          cd /home/runner/app-test/layer8/infra/local && cat telegraf.conf
-          cd /home/runner/app-test/layer8
-          sudo make setup_and_run && sleep 5
+          # sudo make go_mod_tidy
+          make go_mod_tidy
+          # cd /home/runner/app-test/layer8/infra/local && cat telegraf.conf
+          # cd /home/runner/app-test/layer8
+          # sudo make setup_and_run && sleep 5
+          sed -i "s/TEST_CLIENT_BACKEND_URL=localhost:8000/TEST_CLIENT_BACKEND_URL=localhost:6001/g" server/.env.dev
+          sed -i "s/TEST_CLIENT_BACKEND_URI=http:\/\/localhost:8000/TEST_CLIENT_BACKEND_URI=http:\/\/localhost:6001/g" server/.env.dev
+          # sudo make setup_and_run &
+          make setup_and_run &
+          for attempt in {1..30}; do sleep 2; if curl -s http://localhost:5001/ > /dev/null; then break; fi; done
+          curl --location 'http://localhost:5001' -o /dev/null -w "%{http_code}\n" -s
