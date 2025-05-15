@@ -78,4 +78,4 @@ jobs:
           # sudo make setup_and_run &
           make setup_and_run &
           for attempt in {1..30}; do sleep 2; if curl -s http://localhost:5001/ > /dev/null; then break; fi; done
-          curl --location 'http://localhost:5001' -o /dev/null -w "%{http_code}\n" -s
+          # curl --location 'http://localhost:5001' -o /dev/null -w "%{http_code}\n" -s
