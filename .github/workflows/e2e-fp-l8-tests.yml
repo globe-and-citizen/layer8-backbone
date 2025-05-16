@@ -21,7 +21,7 @@ jobs:
 
       - name: Build Forward Proxy
         run: |
-          cd forward-proxy && cargo update && cargo build
+          cd forward-proxy && cargo update && cargo build && touch .env && echo "JWT_SECRET_KEY=ThisIsASecret" > .env
 
       - name: Build Reverse Proxy
         run: |
@@ -33,8 +33,6 @@ jobs:
           npm i -g concurrently
 
           # Start services in background
-          # Set .env file in the forward-proxy directory with JWT_SECRET_KEY=secret variable
-          cd forward-proxy && touch .env && echo "JWT_SECRET_KEY=ThisIsASecret" > .env
           concurrently "cd forward-proxy && cargo run" "cd reverse-proxy && cargo run" "cd backend && npm i && node index.js" &
 
           # Wait for services to be fully ready with proper health checks
