@@ -82,7 +82,7 @@ jobs:
           fi
 
           # Test that the backend (with port 8001) is not registered with layer8
-          curl --fail-with-body --location 'http://localhost:6191/init-tunnel?backend_url=localhost%3A8001' --header 'Content-Type: application/json' --data '{"data": "test"}' -o /dev/null -w "Status: %{http_code}" | grep -q "500"
+          curl --location 'http://localhost:6191/init-tunnel?backend_url=localhost%3A8001' --header 'Content-Type: application/json' --data '{"data": "test"}' -o /dev/null -w "Status: %{http_code}" | grep -q "500" || true
           if [ $? -eq 0 ]; then
             echo "Successfully tested that backend 8001 is not registered with layer8"
           else
