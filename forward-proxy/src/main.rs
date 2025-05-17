@@ -68,7 +68,7 @@ impl ProxyHttp for ForwardProxy {
                 .unwrap();
             println!("res status: {}", res.status().as_u16());
             // res status will either be: 500 or 401 or 200
-            if res.status().as_u16() == 500 || res.status().as_u16() == 401 {
+            if res.status().as_u16() != 200 {
                 // NOTE: error message not printing
                 return Err(pingora_core::Error::explain(
                     ErrorType::ConnectProxyFailure,

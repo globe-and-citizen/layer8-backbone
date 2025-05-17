@@ -49,33 +49,43 @@ jobs:
             --location 'http://localhost:6191/test-endpoint' \
             --header 'Content-Type: application/json' \
             --data '{"data": "Test Message"}')
-
           if [ "$API_RESPONSE" -ne 200 ]; then
             echo "API test failed with status $API_RESPONSE"
             exit 1
           fi
-
           echo "Successfully tested connection between FP->RP->Backend"
 
-          # docker --version
-          # sudo sed -i 's|secure_path="\(.*\)"|secure_path="\1:/usr/local/go/bin"|' /etc/sudoers
-          # sudo go version
-
+          # Clone layer8 Repo
           cd /home/runner
           mkdir app-test
           cd app-test
           git clone https://github.com/globe-and-citizen/layer8.git
+
+          # Setup layer8
           cd layer8
-          # sudo make go_mod_tidy
           make go_mod_tidy
-          # cd /home/runner/app-test/layer8/infra/local && cat telegraf.conf
-          # cd /home/runner/app-test/layer8
-          # sudo make setup_and_run && sleep 5
           sed -i "s/TEST_CLIENT_BACKEND_URL=localhost:8000/TEST_CLIENT_BACKEND_URL=localhost:6001/g" server/.env.dev
           sed -i "s/TEST_CLIENT_BACKEND_URI=http:\/\/localhost:8000/TEST_CLIENT_BACKEND_URI=http:\/\/localhost:6001/g" server/.env.dev
-          # sudo make setup_and_run &
           make setup_and_run &
+
+          # Wait for service to be fully ready with proper health checks
           for attempt in {1..30}; do sleep 2; if curl -s http://localhost:5001/ > /dev/null; then break; fi; done
           sleep 15
-          curl --location 'http://localhost:5001' -o /dev/null -w "Status: %{http_code}"
-          curl --location 'http://localhost:6191/init-tunnel?backend_url=localhost%3A8000' --header 'Content-Type: application/json' -o /dev/null -w "Status: %{http_code}"
+
+          # Test that the backend (with port 8000) is registered with layer8
+          curl --location 'http://localhost:6191/init-tunnel?backend_url=localhost%3A8000' --header 'Content-Type: application/json' --data '{"data": "test"}' -o /dev/null -w "Status: %{http_code}" | grep -q "200"
+          if [ $? -eq 0 ]; then
+            echo "Successfully tested connection between FP->L8->FP->RP->Backend"
+          else
+            echo "Failed to test connection between RP->L8"
+            exit 1
+          fi
+
+          # Test that the backend (with port 8001) is not registered with layer8
+          curl --location 'http://localhost:6191/init-tunnel?backend_url=localhost%3A8001' --header 'Content-Type: application/json' --data '{"data": "test"}' -o /dev/null -w "Status: %{http_code}" | grep -q "500"
+          if [ $? -eq 0 ]; then
+            echo "Successfully tested that backend with port 8001 does not exist"
+          else
+            echo "Failed to test that backend with port 8001 does not exist"
+            exit 1
+          fi
