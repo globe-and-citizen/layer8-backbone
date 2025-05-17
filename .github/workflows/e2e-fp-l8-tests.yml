@@ -66,8 +66,6 @@ jobs:
           # TODO:Temporary usage of sp-pub-key branch, to use main onece merged
           git switch hmk/sp-pub-key
           make go_mod_tidy
-          sed -i "s/TEST_CLIENT_BACKEND_URL=localhost:8000/TEST_CLIENT_BACKEND_URL=localhost:6001/g" server/.env.dev
-          sed -i "s/TEST_CLIENT_BACKEND_URI=http:\/\/localhost:8000/TEST_CLIENT_BACKEND_URI=http:\/\/localhost:6001/g" server/.env.dev
           make setup_and_run &
 
           # Wait for service to be fully ready with proper health checks
