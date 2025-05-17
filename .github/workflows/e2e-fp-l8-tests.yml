@@ -63,6 +63,8 @@ jobs:
 
           # Setup layer8
           cd layer8
+          # TODO:Temporary usage of sp-pub-key branch, to use main onece merged
+          git switch hmk/sp-pub-key
           make go_mod_tidy
           sed -i "s/TEST_CLIENT_BACKEND_URL=localhost:8000/TEST_CLIENT_BACKEND_URL=localhost:6001/g" server/.env.dev
           sed -i "s/TEST_CLIENT_BACKEND_URI=http:\/\/localhost:8000/TEST_CLIENT_BACKEND_URI=http:\/\/localhost:6001/g" server/.env.dev
@@ -78,5 +80,14 @@ jobs:
             echo "Successfully tested connection between FP->L8->FP->RP->Backend"
           else
             echo "Failed to test connection between RP->L8"
+            exit 1
+          fi
+
+          # Test that the backend (with port 8001) is not registered with layer8
+          curl --location 'http://localhost:6191/init-tunnel?backend_url=localhost%3A8001' --header 'Content-Type: application/json' --data '{"data": "test"}' -o /dev/null -w "Status: %{http_code}" | grep -q "500" || true
+          if [ $? -eq 0 ]; then
+            echo "Successfully tested that backend 8001 is not registered with layer8"
+          else
+            echo "Failed to test that backend 8001 is not registered with layer8"
             exit 1
           fi
