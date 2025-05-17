@@ -25,6 +25,21 @@ jobs:
         run: |
           cd reverse-proxy && cargo update && cargo build
 
+      - name: Set up Chrome and ChromeDriver
+        run: |
+          wget https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
+          sudo dpkg -i google-chrome-stable_current_amd64.deb || true
+          sudo apt-get install -f -y
+          curl https://chromedriver.storage.googleapis.com/LATEST_RELEASE > /tmp/chromedriver_version.txt
+          CHROME_DRIVER_VERSION=$(cat /tmp/chromedriver_version.txt)
+          wget https://chromedriver.storage.googleapis.com/$CHROME_DRIVER_VERSION/chromedriver_linux64.zip
+          unzip chromedriver_linux64.zip -d /usr/local/bin/
+          chmod +x /usr/local/bin/chromedriver
+
+      - name: Install Puppeteer and dependencies
+        run: |
+          npm i puppeteer --save-dev
+
       - name: Run services and test
         run: |
           # Install dependencies
@@ -58,9 +73,5 @@ jobs:
 
           echo "Successfully tested connection between FP->RP->Backend"
 
-          # Run Cypress tests
-          cd test/cypress
-          npm install
-          sudo npm i -g cypress
-          cypress install
-          cypress run
+          # Run Puppeteer tests in headless mode
+          node test/puppeteer-test.js
