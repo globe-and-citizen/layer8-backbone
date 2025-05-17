@@ -74,4 +74,4 @@ jobs:
           echo "Successfully tested connection between FP->RP->Backend"
 
           # Run Puppeteer tests in headless mode
-          node test/puppeteer-test.js
+          node test/e2e-test.js
