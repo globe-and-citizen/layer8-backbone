@@ -64,7 +64,7 @@ app.post("/init-tunnel", (req, res) => {
   if (!req.body) {
     return res.status(400).json({ error: "Invalid request payload" });
   }
-  res.status(200).json({ data: "OK" });
+  res.status(200).json({ data: "Tunnel established succesfully" });
 });
 
 app.use(expressWinston.errorLogger({

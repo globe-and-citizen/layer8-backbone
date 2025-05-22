@@ -78,7 +78,9 @@ impl ProxyHttp for ForwardProxy {
                     ),
                 ));
             } else {
-                println!("Bakcend is registered");
+                // FOR LATER: Return public key here
+                // FOR NOW: return here a specific message
+                println!("Backend is registered");
             }
         }
         Ok(false)
