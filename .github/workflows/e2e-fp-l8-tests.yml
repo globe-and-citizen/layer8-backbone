@@ -63,8 +63,6 @@ jobs:
 
           # Setup layer8
           cd layer8
-          # TODO:Temporary usage of sp-pub-key branch, to use main onece merged
-          git switch hmk/sp-pub-key
           make go_mod_tidy
           make setup_and_run &
 
