@@ -71,11 +71,11 @@ jobs:
           sleep 15
 
           # Test that the backend (with port 8000) is registered with layer8
-          curl --location 'http://localhost:6191/init-tunnel?backend_url=localhost%3A8000' --header 'Content-Type: application/json' --data '{"data": "test"}' -o /dev/null -w "Status: %{http_code}" | grep -q "200"
-          if [ $? -eq 0 ]; then
-            echo "Successfully tested connection between FP->L8->FP->RP->Backend"
+          response=$(curl --silent --location 'http://localhost:6191/init-tunnel?backend_url=localhost%3A8000' --header 'Content-Type: application/json' --data '{"data": "test"}')
+          # Check if response contains the expected message
+          if echo "$response" | jq -e '.data == "Tunnel established succesfully"' > /dev/null; then
+              echo "Successfully tested connection between FP->L8->FP->RP->Backend"
           else
-            echo "Failed to test connection between RP->L8"
-            exit 1
+              echo "Failed to test connection between RP->L8"
+              exit 1
           fi
-
