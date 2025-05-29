@@ -11,6 +11,7 @@ use chrono::Utc;
 use reqwest::Client;
 
 const LAYER8_URL: &str = "http://127.0.0.1:5001";
+const RP_URL: &str = "http://127.0.0.1:6193";
 struct ForwardProxy;
 
 // Get SECRET_KEY from environment variable
@@ -81,6 +82,22 @@ impl ProxyHttp for ForwardProxy {
                 // FOR LATER: Return public key here
                 // FOR NOW: return here a specific message
                 println!("Backend is registered");
+
+                // Create a new request with no headers
+                let old_request_body = session.read_request_body().await?;
+                let client = Client::new();
+                let mut map = HashMap::new();
+                map.insert("fp_request_body_init", old_request_body);
+                let res = client
+                    .post(format!("{}{}", RP_URL, "/init-tunnel"))
+                    .header("x-fp-request-header-init", "request-header-forward-proxy-init")
+                    .json(&map)
+                    .send()
+                    .await
+                    .unwrap();
+                println!("res status: {}", res.status().as_u16());
+                if res.status().as_u16() != 200 {
+
             }
         }
         Ok(false)
