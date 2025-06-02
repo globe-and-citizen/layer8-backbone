@@ -314,7 +314,7 @@ fn main() {
 
     // Listen on both endpoints
     my_proxy.add_tcp("0.0.0.0:6193");  // Publicly accessible
-    // my_proxy.add_tcp("127.0.0.1:6194"); // Localhost only
+    my_proxy.add_tcp("127.0.0.1:6194"); // Localhost only
 
     my_server.add_service(my_proxy);
     my_server.run_forever();
