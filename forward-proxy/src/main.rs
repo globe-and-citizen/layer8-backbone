@@ -3,7 +3,7 @@ use chrono::Utc;
 use jsonwebtoken::{EncodingKey, Header, encode};
 use log::info;
 use pingora_core::prelude::*;
-use pingora_error::{ErrorType, Result};
+use pingora_error::Result;
 use pingora_proxy::{ProxyHttp, Session};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -58,7 +58,6 @@ struct FpHealthcheckSuccess {
 struct FpHealthcheckError {
     fp_healthcheck_error: String,
 }
-
 
 #[async_trait]
 impl ProxyHttp for ForwardProxy {
@@ -148,6 +147,44 @@ impl ProxyHttp for ForwardProxy {
 
             println!("Backend is registered");
         }
+
+        // healthcheck?error=true|false
+        if request_url.contains("healthcheck") {
+            let query_params = session.req_header().uri.query();
+            let params: Vec<&str> = query_params.unwrap().split("=").collect();
+            let error = params.get(1).unwrap();
+            if *error == "true" {
+                let mut header = pingora_http::ResponseHeader::build(418, None)?;
+                header.insert_header("Content-Type", "application/json")?;
+                header.insert_header("x-fp-healthcheck-error", "response-header-error")?;
+                let response_body = serde_json::json!({
+                    "fp_healthcheck_error": "this is placeholder for a custom error"
+                });
+                header.insert_header("Content-Length", response_body.to_string().len())?;
+                session
+                    .write_response_header(Box::new(header), false)
+                    .await?;
+                session
+                    .write_response_body(Some(bytes::Bytes::from(response_body.to_string())), true)
+                    .await?;
+                return Ok(true);
+            }
+            let mut header = pingora_http::ResponseHeader::build(200, None)?;
+            header.insert_header("Content-Type", "application/json")?;
+            header.insert_header("x-fp-healthcheck-success", "response-header-success")?;
+            let response_body = serde_json::json!({
+                "fp_healthcheck_success": "this is placeholder for a custom body"
+            });
+            header.insert_header("Content-Length", response_body.to_string().len())?;
+            session
+                .write_response_header(Box::new(header), false)
+                .await?;
+            session
+                .write_response_body(Some(bytes::Bytes::from(response_body.to_string())), true)
+                .await?;
+            return Ok(true);
+        }
+
         Ok(false)
     }
 
