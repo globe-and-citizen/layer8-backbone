@@ -1,14 +1,14 @@
 use async_trait::async_trait;
-use chrono::Utc;
-use jsonwebtoken::{EncodingKey, Header, encode};
 use log::info;
 use pingora_core::prelude::*;
 use pingora_error::{ErrorType, Result};
 use pingora_proxy::{ProxyHttp, Session};
-use reqwest::Client;
-use serde::{Deserialize, Serialize};
 use simplelog::{ConfigBuilder, LevelFilter, WriteLogger};
 use std::fs;
+use serde::{Deserialize, Serialize};
+use jsonwebtoken::{encode, Header, EncodingKey};
+use chrono::Utc;
+use reqwest::Client;
 
 const LAYER8_URL: &str = "http://127.0.0.1:5001";
 struct ForwardProxy;
@@ -28,37 +28,6 @@ pub struct ResponseBody {
 struct Claims {
     exp: usize,
 }
-
-#[derive(Serialize, Deserialize, Debug)]
-struct FpRequestBodyInit {
-    fp_request_body_init: String,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-struct FpResponseBodyInit {
-    fp_response_body_init: String,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-struct FpRequestBodyProxied {
-    fp_request_body_proxied: String,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-struct FpResponseBodyProxied {
-    fp_response_body_proxied: String,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-struct FpHealthcheckSuccess {
-    fp_healthcheck_success: String,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-struct FpHealthcheckError {
-    fp_healthcheck_error: String,
-}
-
 
 #[async_trait]
 impl ProxyHttp for ForwardProxy {
@@ -90,63 +59,29 @@ impl ProxyHttp for ForwardProxy {
             let secret_key = get_secret_key();
             let token = generate_standard_token(&secret_key).unwrap();
             let client = Client::new();
-
-            let res = match client
-                .get(format!(
-                    "{}{}?backend_url={}",
-                    LAYER8_URL, "/sp-pub-key", backend_url
-                ))
+            println!("token: {}", token);
+            let res = client
+                .get(format!("{}{}?backend_url={}", LAYER8_URL, "/sp-pub-key", backend_url))
                 .header("Authorization", format!("Bearer {}", token))
                 .send()
                 .await
-            {
-                Ok(res) => res,
-                Err(e) => {
-                    let response_body = serde_json::json!({
-                        "error": format!("Failed to connect to layer8: {}", e)
-                    });
-
-                    let mut header = pingora_http::ResponseHeader::build(500, None)?;
-                    header.insert_header("Content-Type", "application/json")?;
-
-                    // Single response with headers and body
-                    session
-                        .write_response_header(Box::new(header), false)
-                        .await?;
-                    session
-                        .write_response_body(
-                            Some(bytes::Bytes::from(response_body.to_string())),
-                            true,
-                        )
-                        .await?;
-                    return Ok(true);
-                }
-            };
-
-            if !res.status().is_success() {
-                let response_body = serde_json::json!({
-                    "error": format!("Failed to get public key from layer8, status code: {}", res.status().as_u16())
-                });
-                info!("Sending error response: {}", response_body);
-
-                let mut header = pingora_http::ResponseHeader::build(
-                    res.status().as_u16().try_into().unwrap_or(400),
-                    None,
-                )?;
-                header.insert_header("Content-Type", "application/json")?;
-                header.insert_header("Connection", "close")?; // Ensure connection closes
-                header.insert_header("Content-Length", response_body.to_string().len())?;
-                // Single response with headers and body
-                session
-                    .write_response_header(Box::new(header), false)
-                    .await?;
-                session
-                    .write_response_body(Some(bytes::Bytes::from(response_body.to_string())), true)
-                    .await?;
-                return Ok(true);
+                .unwrap();
+            println!("res status: {}", res.status().as_u16());
+            // res status will either be: 500 or 401 or 200
+            if res.status().as_u16() != 200 {
+                // NOTE: error message not printing
+                return Err(pingora_core::Error::explain(
+                    ErrorType::ConnectProxyFailure,
+                    format!(
+                        "Failed to get public key from layer8, status code: {}",
+                        res.status().as_u16()
+                    ),
+                ));
+            } else {
+                // FOR LATER: Return public key here
+                // FOR NOW: return here a specific message
+                println!("Backend is registered");
             }
-
-            println!("Backend is registered");
         }
         Ok(false)
     }
