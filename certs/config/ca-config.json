@@ -1,0 +1,25 @@
+{
+    "signing": {
+        "default": {
+            "expiry": "87600h"
+        },
+        "profiles": {
+            "forward_proxy": {
+                "expiry": "87600h",
+                "usages": [
+                    "signing",
+                    "key encipherment",
+                    "server auth"
+                ]
+            },
+            "reverse_proxy": {
+                "expiry": "87600h",
+                "usages": [
+                    "signing",
+                    "key encipherment",
+                    "server auth"
+                ]
+            }
+        }
+    }
+}

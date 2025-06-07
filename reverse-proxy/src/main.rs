@@ -12,7 +12,7 @@ use pingora::server::configuration::Opt;
 use pingora::upstreams::peer::HttpPeer;
 
 use chrono::Local;
-use env_logger;
+use env_logger::{self, Env, Target};
 use log::*;
 use reqwest::Client;
 use std::collections::HashMap;
@@ -34,7 +34,7 @@ pub struct ResponseBody {
 }
 
 pub struct ReverseProxy {
-    addr: std::net::SocketAddr,
+    // addr: std::net::SocketAddr,
 }
 
 impl ReverseProxy {
@@ -127,8 +127,11 @@ impl ProxyHttp for ReverseProxy {
         _session: &mut Session,
         _ctx: &mut Self::CTX,
     ) -> Result<Box<HttpPeer>> {
-        let peer: Box<HttpPeer> =
-            Box::new(HttpPeer::new(self.addr, false, UPSTREAM_HOST.to_owned()));
+        let peer: Box<HttpPeer> = Box::new(HttpPeer::new(
+            String::from("localhost:6191"),
+            true,
+            String::from(""),
+        ));
         Ok(peer)
     }
 
@@ -189,46 +192,66 @@ impl ProxyHttp for ReverseProxy {
 }
 
 fn main() {
-    let file = OpenOptions::new()
-        .append(true)
-        .create(true)
-        .open("log.txt")
-        .expect("Can't create file!");
+    // let file = OpenOptions::new()
+    //     .append(true)
+    //     .create(true)
+    //     .open("log.txt")
+    //     .expect("Can't create file!");
 
-    let target = Box::new(file);
+    // let target = Box::new(file);
 
-    env_logger::Builder::new()
-        .target(env_logger::Target::Pipe(target))
-        .filter(None, LevelFilter::Debug)
-        .format(|buf, record| {
-            writeln!(
-                buf,
-                "[{} {} {}:{}] {}",
-                Local::now().format("%Y-%m-%d %H:%M:%S%.3f"),
-                record.level(),
-                record.file().unwrap_or("unknown"),
-                record.line().unwrap_or(0),
-                record.args()
-            )
-        })
+    // env_logger::Builder::new()
+    //     .target(env_logger::Target::Pipe(target))
+    //     .filter(None, LevelFilter::Debug)
+    //     .format(|buf, record| {
+    //         writeln!(
+    //             buf,
+    //             "[{} {} {}:{}] {}",
+    //             Local::now().format("%Y-%m-%d %H:%M:%S%.3f"),
+    //             record.level(),
+    //             record.file().unwrap_or("unknown"),
+    //             record.line().unwrap_or(0),
+    //             record.args()
+    //         )
+    //     })
+    //     .init();
+    env_logger::Builder::from_env(Env::default().write_style_or("RUST_LOG_STYLE", "always"))
+        .format_file(true)
+        .format_line_number(true)
+        .target(Target::Stdout)
         .init();
 
-    let opt = Opt::parse();
-    let mut my_server = Server::new(Some(opt)).unwrap();
+    // let opt = Opt::parse();
+    // let mut my_server = Server::new(Some(opt)).unwrap();
+    let mut my_server = Server::new(Some(Opt {
+        conf: Some(format!(
+            "{}/../forward-proxy/server_conf.yml",
+            env!("CARGO_MANIFEST_DIR")
+        )),
+        ..Default::default()
+    }))
+    .unwrap();
+
     my_server.bootstrap();
 
-    let mut my_proxy = pingora::proxy::http_proxy_service(
-        &my_server.configuration,
-        ReverseProxy {
-            addr: (UPSTREAM_IP.to_owned(), BACKEND_PORT)
-                .to_socket_addrs()
-                .unwrap()
-                .next()
-                .unwrap(),
-        },
-    );
+    let mut my_proxy =
+        pingora::proxy::http_proxy_service(&my_server.configuration, ReverseProxy {});
 
-    my_proxy.add_tcp("127.0.0.1:6193");
+    // fixme; figure out how to dynamically get certs paths in a real network, maybe an endpoint behind an API key...
+    {
+        let server_pem = format!(
+            "{}/../certs/generated/reverse_proxy.pem",
+            env!("CARGO_MANIFEST_DIR")
+        );
+        let server_key = format!(
+            "{}/../certs/generated/reverse_proxy-key.pem",
+            env!("CARGO_MANIFEST_DIR")
+        );
+
+        my_proxy
+            .add_tls("localhost:6193", &server_pem, &server_key)
+            .expect("Failed to add TLS endpoint");
+    }
 
     my_server.add_service(my_proxy);
     my_server.run_forever();

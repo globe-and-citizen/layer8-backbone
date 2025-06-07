@@ -1,14 +1,16 @@
 use async_trait::async_trait;
-use log::info;
+use bytes::Bytes;
+use chrono::Utc;
+use env_logger::{Env, Target};
+use jsonwebtoken::{EncodingKey, Header, encode};
+use log::{info, trace};
 use pingora_core::prelude::*;
 use pingora_error::{ErrorType, Result};
+use pingora_http::{RequestHeader, ResponseHeader};
 use pingora_proxy::{ProxyHttp, Session};
-use simplelog::{ConfigBuilder, LevelFilter, WriteLogger};
-use std::fs;
-use serde::{Deserialize, Serialize};
-use jsonwebtoken::{encode, Header, EncodingKey};
-use chrono::Utc;
 use reqwest::Client;
+use serde::{Deserialize, Serialize};
+use std::env;
 
 const LAYER8_URL: &str = "http://127.0.0.1:5001";
 struct ForwardProxy;
@@ -41,8 +43,8 @@ impl ProxyHttp for ForwardProxy {
         _ctx: &mut Self::CTX,
     ) -> Result<Box<pingora_core::upstreams::peer::HttpPeer>> {
         Ok(Box::from(HttpPeer::new(
-            String::from("127.0.0.1:6193"),
-            false,
+            String::from("localhost:6193"),
+            true,
             String::from(""),
         )))
     }
@@ -61,11 +63,19 @@ impl ProxyHttp for ForwardProxy {
             let client = Client::new();
             println!("token: {}", token);
             let res = client
-                .get(format!("{}{}?backend_url={}", LAYER8_URL, "/sp-pub-key", backend_url))
+                .get(format!(
+                    "{}{}?backend_url={}",
+                    LAYER8_URL, "/sp-pub-key", backend_url
+                ))
                 .header("Authorization", format!("Bearer {}", token))
                 .send()
                 .await
                 .unwrap();
+
+            println!("=---------------------");
+            println!("THIS IS OK");
+            println!("=---------------------");
+
             println!("res status: {}", res.status().as_u16());
             // res status will either be: 500 or 401 or 200
             if res.status().as_u16() != 200 {
@@ -118,20 +128,44 @@ fn main() {
     // Load environment variables from .env file
     dotenv::dotenv().ok();
     // Initialize logger
-    let log_file = fs::File::create("log.txt").expect("Failed to create log file");
-    let config = ConfigBuilder::new().set_time_to_local(true).build();
-    WriteLogger::init(LevelFilter::Debug, config, log_file).expect("Failed to initialize logger");
+    // let log_file = fs::File::create("log.txt").expect("Failed to create log file");
+    // let config = ConfigBuilder::new().set_time_to_local(true).build();
+    // WriteLogger::init(LevelFilter::Debug, config, log_file).expect("Failed to initialize logger");
+    env_logger::Builder::from_env(Env::default().write_style_or("RUST_LOG_STYLE", "always"))
+        .format_file(true)
+        .format_line_number(true)
+        .target(Target::Stdout)
+        .init();
 
     info!("Starting server...");
-
-    let mut server = Server::new(None).unwrap();
+    let mut server = Server::new(Some(Opt {
+        conf: Some(format!("{}/server_conf.yml", env!("CARGO_MANIFEST_DIR"))),
+        ..Default::default()
+    }))
+    .unwrap();
     server.bootstrap();
 
     let mut proxy = pingora_proxy::http_proxy_service(&server.configuration, ForwardProxy);
 
-    proxy.add_tcp("0.0.0.0:6191");
+    // testing certs data; fixme to be dynamic
+    {
+        let server_pem = format!(
+            "{}/../certs/generated/forward_proxy.pem",
+            env!("CARGO_MANIFEST_DIR")
+        );
+        let server_key = format!(
+            "{}/../certs/generated/forward_proxy-key.pem",
+            env!("CARGO_MANIFEST_DIR")
+        );
+
+        let mut tls_settings =
+            pingora_core::listeners::tls::TlsSettings::intermediate(&server_pem, &server_key)
+                .unwrap();
+        tls_settings.enable_h2();
+        proxy.add_tls_with_settings("localhost:6191", None, tls_settings);
+        info!("Proxy service added with TLS endpoint on");
+    }
 
     server.add_service(proxy);
-
     server.run_forever();
 }
