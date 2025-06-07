@@ -11,6 +11,7 @@ use simplelog::{ConfigBuilder, LevelFilter, WriteLogger};
 use std::fs;
 
 const LAYER8_URL: &str = "http://127.0.0.1:5001";
+const RP_URL: &str = "http://127.0.0.1:6193";
 struct ForwardProxy;
 
 // Get SECRET_KEY from environment variable
@@ -82,6 +83,15 @@ impl ProxyHttp for ForwardProxy {
         Self::CTX: Send + Sync,
     {
         let request_url = session.req_header().uri.to_string();
+        let mut body = Vec::new();
+        loop {
+            match session.read_request_body().await? {
+                Some(chunk) => body.extend_from_slice(&chunk),
+                None => break,
+            }
+        }
+
+        let body_string = String::from_utf8_lossy(&body).to_string();
         if request_url.contains("init-tunnel") {
             let query_params = session.req_header().uri.query();
             let params: Vec<&str> = query_params.unwrap().split("=").collect();
@@ -145,7 +155,64 @@ impl ProxyHttp for ForwardProxy {
                 return Ok(true);
             }
 
-            println!("Backend is registered");
+            let fp_request_body_init = FpRequestBodyInit {
+                fp_request_body_init: body_string.to_string(),
+            };
+            let fp_request_body_init_json = serde_json::to_string(&fp_request_body_init).unwrap();
+            let client = Client::new();
+            let res = match client
+                .post(format!(
+                    "{}{}",
+                    RP_URL, "/init-tunnel"
+                ))
+                .header("Content-Type", "application/json")
+                .header("Content-Length", fp_request_body_init_json.len())
+                .body(fp_request_body_init_json)
+                .send()
+                .await
+            {
+                Ok(res) => res,
+                Err(e) => {
+                    let response_body = serde_json::json!({
+                        "error": format!("Failed to connect to reverse-proxy: {}", e)
+                    });
+                    let mut header = pingora_http::ResponseHeader::build(500, None)?;
+                    header.insert_header("Content-Type", "application/json")?;
+                    header.insert_header("Content-Length", response_body.to_string().len())?;
+                    session
+                        .write_response_header(Box::new(header), false)
+                        .await?;
+                    session
+                        .write_response_body(
+                            Some(bytes::Bytes::from(response_body.to_string())),
+                            true,
+                        )
+                        .await?;
+                    return Ok(true);
+                }
+            };
+            if !res.status().is_success() {
+                let response_body = serde_json::json!({
+                    "error": format!("Failed to init tunnel, status code: {}", res.status().as_u16())
+                });
+                info!("Sending error response: {}", response_body);
+
+                let mut header = pingora_http::ResponseHeader::build(
+                    res.status().as_u16().try_into().unwrap_or(400),
+                    None,
+                )?;
+                header.insert_header("Content-Type", "application/json")?;
+                header.insert_header("Connection", "close")?; // Ensure connection closes
+                header.insert_header("Content-Length", response_body.to_string().len())?;
+                // Single response with headers and body
+                session
+                    .write_response_header(Box::new(header), false)
+                    .await?;
+                session
+                    .write_response_body(Some(bytes::Bytes::from(response_body.to_string())), true)
+                    .await?;
+                return Ok(true);
+            };
         }
 
         // healthcheck?error=true|false
