@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use chrono::Utc;
 use jsonwebtoken::{EncodingKey, Header, encode};
-use log::info;
+use log::{error, info};
 use pingora_core::prelude::*;
 use pingora_error::Result;
 use pingora_proxy::{ProxyHttp, Session};
@@ -16,8 +16,7 @@ struct ForwardProxy;
 
 // Get SECRET_KEY from environment variable
 fn get_secret_key() -> String {
-    let secret_key = std::env::var("JWT_SECRET_KEY").expect("JWT_SECRET_KEY must be set");
-    secret_key
+    std::env::var("JWT_SECRET_KEY").expect("JWT_SECRET_KEY must be set")
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -92,6 +91,7 @@ impl ProxyHttp for ForwardProxy {
         }
 
         let body_string = String::from_utf8_lossy(&body).to_string();
+
         if request_url.contains("init-tunnel") {
             let query_params = session.req_header().uri.query();
             let params: Vec<&str> = query_params.unwrap().split("=").collect();
@@ -155,68 +155,182 @@ impl ProxyHttp for ForwardProxy {
                 return Ok(true);
             }
 
-            let fp_request_body_init = FpRequestBodyInit {
-                fp_request_body_init: body_string.to_string(),
-            };
-            let fp_request_body_init_json = serde_json::to_string(&fp_request_body_init).unwrap();
             let client = Client::new();
-            let res = match client
-                .post(format!(
-                    "{}{}",
-                    RP_URL, "/init-tunnel"
-                ))
+            let response = client
+                .post(format!("{}/init-tunnel", RP_URL))
+                .header(
+                    "x-fp-request-header-init",
+                    "request-header-forward-proxy-init",
+                )
                 .header("Content-Type", "application/json")
-                .header("Content-Length", fp_request_body_init_json.len())
-                .body(fp_request_body_init_json)
+                .body(body_string.clone())
                 .send()
-                .await
-            {
-                Ok(res) => res,
-                Err(e) => {
-                    let response_body = serde_json::json!({
-                        "error": format!("Failed to connect to reverse-proxy: {}", e)
-                    });
-                    let mut header = pingora_http::ResponseHeader::build(500, None)?;
+                .await;
+
+            match response {
+                Ok(res) if res.status().is_success() => {
+                    let response_body = res.text().await.unwrap_or_default();
+                    let mut header = pingora_http::ResponseHeader::build(200, None)?;
+                    header.insert_header(
+                        "x-fp-response-header-init",
+                        "response-header-forward-proxy-init",
+                    )?;
                     header.insert_header("Content-Type", "application/json")?;
                     header.insert_header("Content-Length", response_body.to_string().len())?;
+                    let response_json = FpResponseBodyInit {
+                        fp_response_body_init: response_body.clone(),
+                    };
+
                     session
                         .write_response_header(Box::new(header), false)
                         .await?;
                     session
                         .write_response_body(
-                            Some(bytes::Bytes::from(response_body.to_string())),
+                            Some(bytes::Bytes::from(
+                                serde_json::to_string(&response_json).unwrap(),
+                            )),
                             true,
                         )
                         .await?;
                     return Ok(true);
                 }
-            };
-            if !res.status().is_success() {
-                let response_body = serde_json::json!({
-                    "error": format!("Failed to init tunnel, status code: {}", res.status().as_u16())
-                });
-                info!("Sending error response: {}", response_body);
+                Ok(res) => {
+                    // Handle 4xx/5xx errors
+                    let status = res.status();
+                    let error_body = res.text().await.unwrap_or_default();
 
-                let mut header = pingora_http::ResponseHeader::build(
-                    res.status().as_u16().try_into().unwrap_or(400),
-                    None,
-                )?;
-                header.insert_header("Content-Type", "application/json")?;
-                header.insert_header("Connection", "close")?; // Ensure connection closes
-                header.insert_header("Content-Length", response_body.to_string().len())?;
-                // Single response with headers and body
-                session
-                    .write_response_header(Box::new(header), false)
-                    .await?;
-                session
-                    .write_response_body(Some(bytes::Bytes::from(response_body.to_string())), true)
-                    .await?;
-                return Ok(true);
-            };
-        }
+                    let mut header = pingora_http::ResponseHeader::build(status.as_u16(), None)?;
+                    header.insert_header("Content-Type", "application/json")?;
+                    header.insert_header("Content-Length", error_body.to_string().len())?;
 
-        // healthcheck?error=true|false
-        if request_url.contains("healthcheck") {
+                    session
+                        .write_response_header(Box::new(header), false)
+                        .await?;
+                    session
+                        .write_response_body(Some(bytes::Bytes::from(error_body)), true)
+                        .await?;
+                    return Ok(true);
+                }
+                Err(e) => {
+                    error!("Failed to forward request to RP: {}", e);
+                    let mut header = pingora_http::ResponseHeader::build(500, None)?;
+                    header.insert_header("Content-Type", "application/json")?;
+                    header.insert_header("Content-Length", e.to_string().len())?;
+
+                    session
+                        .write_response_header(Box::new(header), false)
+                        .await?;
+                    session
+                        .write_response_body(
+                            Some(bytes::Bytes::from(
+                                serde_json::json!({
+                                    "error": format!("Failed to forward request: {}", e)
+                                })
+                                .to_string(),
+                            )),
+                            true,
+                        )
+                        .await?;
+                    return Ok(true);
+                }
+            }
+        } else if request_url.contains("proxy") {
+            // Handle proxy endpoint
+            let client = Client::new();
+            // let request_body = FpRequestBodyProxied {
+            //     fp_request_body_proxied: body_string.clone(),
+            // };
+
+            let response = client
+                .post(format!("{}/proxy", RP_URL))
+                .header(
+                    "x-fp-request-header-proxied",
+                    "request-header-forward-proxied",
+                )
+                // .json(&request_body)
+                .body(body_string.clone())
+                .send()
+                .await;
+
+            match response {
+                Ok(res) if res.status().is_success() => {
+                    let headers = res.headers().clone();
+                    let response_body = res.text().await.unwrap_or_default();
+
+                    let mut header = pingora_http::ResponseHeader::build(200, None)?;
+                    header.insert_header(
+                        "x-fp-response-header-proxied",
+                        "response-header-forward-proxied",
+                    )?;
+
+                    if let Some(rp_header) = headers.get("x-rp-response-header-proxied") {
+                        header.insert_header(
+                            "x-rp-response-header-proxied",
+                            rp_header.to_str().unwrap_or(""),
+                        )?;
+                    }
+
+                    header.insert_header("Content-Type", "application/json")?;
+                    header.insert_header("Content-Length", response_body.to_string().len())?;
+
+                    let response_json = FpResponseBodyProxied {
+                        fp_response_body_proxied: response_body.clone(),
+                    };
+
+                    session
+                        .write_response_header(Box::new(header), false)
+                        .await?;
+                    session
+                        .write_response_body(
+                            Some(bytes::Bytes::from(
+                                serde_json::to_string(&response_json).unwrap(),
+                            )),
+                            true,
+                        )
+                        .await?;
+                    return Ok(true);
+                }
+                Ok(res) => {
+                    // Handle 4xx/5xx errors
+                    let status = res.status();
+                    let error_body = res.text().await.unwrap_or_default();
+
+                    let mut header = pingora_http::ResponseHeader::build(status.as_u16(), None)?;
+                    header.insert_header("Content-Type", "application/json")?;
+                    header.insert_header("Content-Length", error_body.to_string().len())?;
+
+                    session
+                        .write_response_header(Box::new(header), false)
+                        .await?;
+                    session
+                        .write_response_body(Some(bytes::Bytes::from(error_body)), true)
+                        .await?;
+                    return Ok(true);
+                }
+                Err(e) => {
+                    error!("Failed to proxy request: {}", e);
+                    let mut header = pingora_http::ResponseHeader::build(500, None)?;
+                    header.insert_header("Content-Type", "application/json")?;
+                    header.insert_header("Content-Length", e.to_string().len())?;
+
+                    session
+                        .write_response_header(Box::new(header), false)
+                        .await?;
+                    session
+                        .write_response_body(
+                            Some(bytes::Bytes::from(
+                                serde_json::json!({
+                                    "error": format!("Failed to proxy request: {}", e)
+                                })
+                                .to_string(),
+                            )),
+                            true,
+                        )
+                        .await?;
+                    return Ok(true);
+                }
+            }
+        } else if request_url.contains("healthcheck") {
             let query_params = session.req_header().uri.query();
             let params: Vec<&str> = query_params.unwrap().split("=").collect();
             let error = params.get(1).unwrap();
