@@ -176,7 +176,9 @@ impl ProxyHttp for ForwardProxy {
                         "response-header-forward-proxy-init",
                     )?;
                     header.insert_header("Content-Type", "application/json")?;
-                    header.insert_header("Content-Length", response_body.to_string().len())?;
+                    // header.insert_header("Content-Length", response_body.to_string().len())?;
+                    header.insert_header("Content-Length", 2048)?;
+
                     let response_json = FpResponseBodyInit {
                         fp_response_body_init: response_body.clone(),
                     };
@@ -271,7 +273,8 @@ impl ProxyHttp for ForwardProxy {
                     }
 
                     header.insert_header("Content-Type", "application/json")?;
-                    header.insert_header("Content-Length", response_body.to_string().len())?;
+                    // header.insert_header("Content-Length", response_body.to_string().len())?;
+                    header.insert_header("Content-Length", 2048)?;
 
                     let response_json = FpResponseBodyProxied {
                         fp_response_body_proxied: response_body.clone(),
