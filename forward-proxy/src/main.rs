@@ -1,14 +1,14 @@
 mod utils;
 mod proxy;
-mod message;
 mod router;
+mod handler;
 
 use pingora::prelude::*;
 use simplelog::{ConfigBuilder, LevelFilter, WriteLogger};
 use std::fs;
 use log::info;
 use proxy::ForwardProxy;
-use crate::message::ForwardHandler;
+use crate::handler::ForwardHandler;
 
 fn main() {
     // Load environment variables from .env file
