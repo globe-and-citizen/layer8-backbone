@@ -331,7 +331,22 @@ impl ProxyHttp for ForwardProxy {
             return handle_healthcheck(session).await
         }
 
-        Ok(false)
+        // set headers
+        let mut header = ResponseHeader::build(handler_response.status, None).unwrap();
+        for (key, val) in ctx.get_response_header().iter() {
+            header.append_header(key.into(), val).unwrap()?
+        };
+
+        let mut response_bytes = vec![];
+        if let Some(body_bytes) = handler_response.body {
+            header.append_header("Content-length", &body_bytes.len().to_string()).unwrap()?;
+            response_bytes = body_bytes.clone()
+        };
+
+        session.write_response_header_ref(&header).await?;
+        session.write_response_body(Some(Bytes::from(response_bytes)), true).await?;
+
+        Ok(true)
     }
 
     async fn response_filter(

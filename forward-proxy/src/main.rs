@@ -1,15 +1,14 @@
-mod proxy;
-mod types;
 mod utils;
+mod proxy;
+mod message;
+mod router;
 
 use pingora::prelude::*;
 use simplelog::{ConfigBuilder, LevelFilter, WriteLogger};
 use std::fs;
 use log::info;
 use proxy::ForwardProxy;
-
-const LAYER8_URL: &str = "http://127.0.0.1:5001";
-const RP_URL: &str = "http://127.0.0.1:6193";
+use crate::message::ForwardHandler;
 
 fn main() {
     // Load environment variables from .env file
@@ -24,7 +23,9 @@ fn main() {
     let mut server = Server::new(None).unwrap();
     server.bootstrap();
 
-    let mut proxy = http_proxy_service(&server.configuration, ForwardProxy);
+    let fp_handler = ForwardHandler {};
+    let mut router = router::Router::new(fp_handler);
+    let mut proxy = http_proxy_service(&server.configuration, ForwardProxy::new(router));
 
     proxy.add_tcp("0.0.0.0:6191");
 
