@@ -16,4 +16,6 @@ chrono = "0.4.40"
 reqwest = { version = "0.11", features = ["json"] }
 tokio-rustls = "0.26.2"
 tokio = "1.44.2"
-pingora = { version = "0.5.0", features = ["lb", "openssl"] }
+pingora = { version = "0.5.0", features = ["lb", "boringssl"] }
+pingora-core = { version = "0.5.0", features = ["boringssl"] }
+boring = "4.17.0"

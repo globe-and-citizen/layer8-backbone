@@ -1,23 +1,24 @@
+use std::{collections::HashMap, sync::Arc};
+
 use async_trait::async_trait;
+use boring::x509::X509;
 use bytes::Bytes;
-use clap::Parser;
-use serde::{Deserialize, Serialize};
-use std::net::ToSocketAddrs;
-
-use pingora::Result;
-use pingora::http::{Method, ResponseHeader, StatusCode};
-use pingora::proxy::{ProxyHttp, Session};
-use pingora::server::Server;
-use pingora::server::configuration::Opt;
-use pingora::upstreams::peer::HttpPeer;
-
-use chrono::Local;
 use env_logger::{self, Env, Target};
 use log::*;
+use pingora::Result;
+use pingora::server::configuration::Opt;
+use pingora::upstreams::peer::HttpPeer;
+use pingora::{OrErr, server::Server};
+use pingora::{
+    http::{Method, ResponseHeader, StatusCode},
+    listeners::tls::TLS_CONF_ERR,
+};
+use pingora::{
+    proxy::{ProxyHttp, Session},
+    utils::tls::CertKey,
+};
 use reqwest::Client;
-use std::collections::HashMap;
-use std::fs::OpenOptions;
-use std::io::Write;
+use serde::{Deserialize, Serialize};
 
 const UPSTREAM_HOST: &str = "localhost";
 const UPSTREAM_IP: &str = "0.0.0.0"; //"125.235.4.59"
@@ -127,12 +128,38 @@ impl ProxyHttp for ReverseProxy {
         _session: &mut Session,
         _ctx: &mut Self::CTX,
     ) -> Result<Box<HttpPeer>> {
-        let peer: Box<HttpPeer> = Box::new(HttpPeer::new(
-            String::from("localhost:6191"),
-            true,
-            String::from(""),
-        ));
-        Ok(peer)
+        // testing certs data; fixme to be dynamic
+
+        // mTLS Steps:
+        // 1. Client connects to server
+        // 2. Server presents its TLS certificate
+        // 3. Client verifies the server's certificate
+        // 4. Client presents its TLS certificate
+        // 5. Server verifies the client's certificate
+        // 6. Server grants access
+        // 7. Client and server exchange information over encrypted TLS connection
+        //
+        // Code below is for step 2(this a a server to FP), presenting the servers's TLS certificate.
+        let mut peer = HttpPeer::new(String::from("localhost:6191"), true, String::from(""));
+        {
+            let cert = X509::from_pem(include_bytes!("../../certs/generated/reverse_proxy.pem"))
+                .or_err(TLS_CONF_ERR, "Failed to load CA certificate")?;
+
+            let ca_cert = X509::from_pem(include_bytes!("../../certs/generated/ca.pem"))
+                .or_err(TLS_CONF_ERR, "Failed to load CA certificate")?;
+
+            let key = boring::pkey::PKey::private_key_from_pem(include_bytes!(
+                "../../certs/generated/reverse_proxy-key.pem"
+            ))
+            .or_err(TLS_CONF_ERR, "Failed to load private key")?;
+
+            // The certificate to present in mTLS connections to upstream
+            // The organization implementing mTLS acts as its own certificate authority.
+            let cert_key = CertKey::new(vec![cert, ca_cert], key);
+            peer.client_cert_key = Some(Arc::new(cert_key));
+        }
+
+        Ok(Box::new(peer))
     }
 
     async fn request_filter(&self, session: &mut Session, _ctx: &mut Self::CTX) -> Result<bool>
@@ -250,7 +277,7 @@ fn main() {
 
         my_proxy
             .add_tls("localhost:6193", &server_pem, &server_key)
-            .expect("Failed to add TLS endpoint");
+            .unwrap();
     }
 
     my_server.add_service(my_proxy);

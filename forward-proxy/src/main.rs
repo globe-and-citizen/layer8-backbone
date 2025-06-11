@@ -1,16 +1,17 @@
+use std::{env, sync::Arc};
+
 use async_trait::async_trait;
-use bytes::Bytes;
+use boring::x509::X509;
 use chrono::Utc;
 use env_logger::{Env, Target};
 use jsonwebtoken::{EncodingKey, Header, encode};
-use log::{info, trace};
+use log::info;
+use pingora::{listeners::tls::TLS_CONF_ERR, utils::tls::CertKey};
 use pingora_core::prelude::*;
 use pingora_error::{ErrorType, Result};
-use pingora_http::{RequestHeader, ResponseHeader};
 use pingora_proxy::{ProxyHttp, Session};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use std::env;
 
 const LAYER8_URL: &str = "http://127.0.0.1:5001";
 struct ForwardProxy;
@@ -42,11 +43,38 @@ impl ProxyHttp for ForwardProxy {
         _session: &mut Session,
         _ctx: &mut Self::CTX,
     ) -> Result<Box<pingora_core::upstreams::peer::HttpPeer>> {
-        Ok(Box::from(HttpPeer::new(
-            String::from("localhost:6193"),
-            true,
-            String::from(""),
-        )))
+        // testing certs data; fixme to be dynamic
+
+        // mTLS Steps:
+        // 1. Client connects to server
+        // 2. Server presents its TLS certificate
+        // 3. Client verifies the server's certificate
+        // 4. Client presents its TLS certificate
+        // 5. Server verifies the client's certificate
+        // 6. Server grants access
+        // 7. Client and server exchange information over encrypted TLS connection
+        //
+        // Code below is for step 4(this is a client to RP), presenting the client's TLS certificate.
+        let mut peer = HttpPeer::new(String::from("localhost:6193"), true, String::from(""));
+        {
+            let cert = X509::from_pem(include_bytes!("../../certs/generated/forward_proxy.pem"))
+                .or_err(TLS_CONF_ERR, "Failed to load CA certificate")?;
+
+            let ca_cert = X509::from_pem(include_bytes!("../../certs/generated/ca.pem"))
+                .or_err(TLS_CONF_ERR, "Failed to load CA certificate")?;
+
+            let key = boring::pkey::PKey::private_key_from_pem(include_bytes!(
+                "../../certs/generated/forward_proxy-key.pem"
+            ))
+            .or_err(TLS_CONF_ERR, "Failed to load private key")?;
+
+            // The certificate to present in mTLS connections to upstream
+            // The organization implementing mTLS acts as its own certificate authority.
+            let cert_key = CertKey::new(vec![cert, ca_cert], key);
+            peer.client_cert_key = Some(Arc::new(cert_key));
+        }
+
+        Ok(Box::new(peer))
     }
 
     async fn request_filter(&self, session: &mut Session, _ctx: &mut Self::CTX) -> Result<bool>
@@ -71,10 +99,6 @@ impl ProxyHttp for ForwardProxy {
                 .send()
                 .await
                 .unwrap();
-
-            println!("=---------------------");
-            println!("THIS IS OK");
-            println!("=---------------------");
 
             println!("res status: {}", res.status().as_u16());
             // res status will either be: 500 or 401 or 200
@@ -158,12 +182,9 @@ fn main() {
             env!("CARGO_MANIFEST_DIR")
         );
 
-        let mut tls_settings =
-            pingora_core::listeners::tls::TlsSettings::intermediate(&server_pem, &server_key)
-                .unwrap();
-        tls_settings.enable_h2();
-        proxy.add_tls_with_settings("localhost:6191", None, tls_settings);
-        info!("Proxy service added with TLS endpoint on");
+        proxy
+            .add_tls("localhost:6191", &server_pem, &server_key)
+            .unwrap();
     }
 
     server.add_service(proxy);

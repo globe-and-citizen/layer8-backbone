@@ -17,13 +17,11 @@ reqwest = { version = "0.11", features = ["json"] }
 tokio-rustls = "0.26.2"
 tokio = "1.44.2"
 simplelog = "0.10"
-pingora-core = "0.5.0"
+pingora-core = { version = "0.5.0", features = ["boringssl"] }
 pingora-proxy = "0.5.0"
 pingora-http = "0.5.0"
-pingora = { version = "0.5.0", features = ["lb", "openssl"] }
+pingora = { version = "0.5.0", features = ["lb", "boringssl"] }
 jsonwebtoken = "9.3.1"
 dotenv = "0.15.0"
 pingora-error = "0.5.0"
-
-# [patch.crates-io]
-# sfv = { git = "https://github.com/undef1nd/sfv.git", tag = "v0.9.4" }
+boring = "4.17.0"
