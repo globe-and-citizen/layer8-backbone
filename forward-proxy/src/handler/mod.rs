@@ -35,7 +35,6 @@ impl ForwardHandler {
                 let response_body = ErrorResponse {
                     error: format!("Failed to connect to layer8: {}", e)
                 };
-                ctx.insert_response_header("Content-Type", "application/json");
 
                 return APIHandlerResponse {
                     status: StatusCode::INTERNAL_SERVER_ERROR,
@@ -50,9 +49,7 @@ impl ForwardHandler {
             };
             info!("Sending error response: {:?}", response_body);
             let response_body_bytes = response_body.to_bytes();
-            ctx.insert_response_header("Content-Type", "application/json");
             ctx.insert_response_header("Connection", "close"); // Ensure connection closes
-            ctx.insert_response_header("Content-Length", &response_body_bytes.len().to_string()); // todo this header can be set later
 
             return APIHandlerResponse {
                 status: StatusCode::BAD_REQUEST,
@@ -81,8 +78,6 @@ impl ForwardHandler {
                     fp_response_body_init: response_body.clone(),
                 }.to_bytes();
                 ctx.insert_response_header("x-fp-response-header-init", "response-header-forward-proxy-init");
-                ctx.insert_response_header("Content-Type", "application/json");
-                ctx.insert_response_header("Content-Length", &response_bytes.len().to_string());
 
                 return APIHandlerResponse {
                     status: StatusCode::OK,
@@ -97,8 +92,6 @@ impl ForwardHandler {
                 let response_body_bytes = ErrorResponse {
                     error: error_body,
                 }.to_bytes();
-                ctx.insert_response_header("Content-Type", "application/json");
-                ctx.insert_response_header("Content-Length", &response_body_bytes.len().to_string());
 
                 return APIHandlerResponse {
                     status: StatusCode::try_from(status.as_u16()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
@@ -111,9 +104,6 @@ impl ForwardHandler {
                 let response_body_bytes = ErrorResponse {
                     error: e.to_string(),
                 }.to_bytes();
-
-                ctx.insert_response_header("Content-Type", "application/json");
-                ctx.insert_response_header("Content-Length", &response_body_bytes.len().to_string());
 
                 return APIHandlerResponse {
                     status: StatusCode::INTERNAL_SERVER_ERROR,
@@ -157,9 +147,6 @@ impl ForwardHandler {
                     ctx.insert_response_header("x-rp-response-header-proxied", rp_header.to_str().unwrap_or(""));
                 }
 
-                ctx.insert_response_header("Content-Type", "application/json");
-                ctx.insert_response_header("Content-Length", &response_body_bytes.len().to_string());
-
                 return APIHandlerResponse {
                     status: StatusCode::OK,
                     body: Some(response_body_bytes),
@@ -174,9 +161,6 @@ impl ForwardHandler {
                     error: error_body
                 }.to_bytes();
 
-                ctx.insert_response_header("Content-Type", "application/json");
-                ctx.insert_response_header("Content-Length", &response_bytes.len().to_string());
-
                 return APIHandlerResponse {
                     status: StatusCode::try_from(status.as_u16()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
                     body: Some(response_bytes),
@@ -188,9 +172,6 @@ impl ForwardHandler {
                 let response_bytes = ErrorResponse {
                     error: e.to_string()
                 }.to_bytes();
-
-                ctx.insert_response_header("Content-Type", "application/json");
-                ctx.insert_response_header("Content-Length", &response_bytes.len().to_string());
 
                 return APIHandlerResponse {
                     status: StatusCode::INTERNAL_SERVER_ERROR,
@@ -208,10 +189,7 @@ impl ForwardHandler {
                 fp_healthcheck_error: "this is placeholder for a custom error".to_string()
             }.to_bytes();
 
-            ctx.insert_response_header("Content-Type", "application/json");
             ctx.insert_response_header("x-fp-healthcheck-error", "response-header-error");
-            ctx.insert_response_header("Content-Length", &response_bytes.len().to_string());
-
             return APIHandlerResponse {
                 status: StatusCode::IM_A_TEAPOT,
                 body: Some(response_bytes),
@@ -222,9 +200,7 @@ impl ForwardHandler {
             fp_healthcheck_success: "this is placeholder for a custom body".to_string(),
         }.to_bytes();
 
-        ctx.insert_response_header("Content-Type", "application/json");
         ctx.insert_response_header("x-fp-healthcheck-success", "response-header-success");
-        ctx.insert_response_header("Content-Length", &response_bytes.len().to_string());
 
         return APIHandlerResponse {
             status: StatusCode::OK,

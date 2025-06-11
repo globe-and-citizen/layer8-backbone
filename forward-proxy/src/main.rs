@@ -41,9 +41,9 @@ fn main() {
         async move { h.handle_healthcheck(ctx).await }.boxed()
     });
 
-    router.post("init-tunnel?backend_url={}".to_string(), Box::new([handle_init_tunnel]));
-    router.post("proxy".to_string(), Box::new([handle_proxy]));
-    router.get("healthcheck?error={}".to_string(), Box::new([handle_healthcheck]));
+    router.post("/init-tunnel?backend_url={}".to_string(), Box::new([handle_init_tunnel]));
+    router.post("/proxy".to_string(), Box::new([handle_proxy]));
+    router.get("/healthcheck?error={}".to_string(), Box::new([handle_healthcheck]));
 
     let mut proxy = http_proxy_service(&server.configuration, ForwardProxy::new(router));
 

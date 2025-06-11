@@ -1,5 +1,6 @@
 use async_trait::async_trait;
 use bytes::Bytes;
+use log::debug;
 use pingora::prelude::{HttpPeer, ProxyHttp, Session};
 use pingora::http::{ResponseHeader, StatusCode};
 use crate::router::Router;
@@ -48,20 +49,27 @@ impl<T: Sync> ProxyHttp for ForwardProxy<T> {
         if handler_response.status == StatusCode::NOT_FOUND && handler_response.body == None {
             return Ok(false)
         }
+        debug!("handler_response: {:?}", handler_response);
 
         // set headers
         let mut header = ResponseHeader::build(handler_response.status, None)?;
         let response_header = ctx.get_response_header().clone();
+        debug!("handler response_header: {:?}", response_header);
         for (key, val) in response_header.iter() {
             header.insert_header(key.clone(), val.clone()).unwrap();
         };
 
+        ctx.insert_response_header("Content-Type", "application/json");
+        let mut response_bytes = vec![];
         if let Some(body_bytes) = handler_response.body {
             header.insert_header("Content-length", &body_bytes.len().to_string()).unwrap();
-            session.write_response_body(Some(Bytes::from(body_bytes)), true).await?;
+            response_bytes = body_bytes;
+            debug!("response data: {:?}", String::from_utf8_lossy(&*response_bytes));
         };
 
         session.write_response_header_ref(&header).await?;
+        session.write_response_body(Some(Bytes::from(response_bytes)), true).await?;
+
         Ok(true)
     }
 

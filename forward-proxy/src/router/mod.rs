@@ -7,6 +7,25 @@ use pingora::http::{Method, StatusCode};
 use crate::router::ctx::{Layer8Context, Layer8ContextTrait};
 use crate::router::others::{APIHandler, APIHandlerResponse};
 
+/// `Router` is a generic struct that manages HTTP route registration and handler dispatching.
+///
+/// # Type Parameters
+/// - `T`: The type of the main handler object, typically shared across all route handlers.
+///
+/// # Fields
+/// - `handler`: The main handler instance shared with all route handlers.
+/// - `_groups`: Reserved for future use (e.g., route grouping or middleware).
+/// - `posts`, `gets`, `puts`, `deletes`: Maps of HTTP method and path to arrays of handler functions.
+///
+/// # Usage
+/// Register handlers for specific HTTP methods and paths using the `post`, `get`, `put`, and `delete` methods.
+/// Call `call_handler` to dispatch a request to the appropriate handler(s) based on method and path.
+///
+/// # Example
+/// ```rust
+/// let mut router = Router::new(handler);
+/// router.post("/example".to_string(), Box::new([example_handler]));
+/// ```
 pub struct Router<T> {
     handler: T,
     _groups: Vec<String>, // placeholder for later use
@@ -28,6 +47,17 @@ impl<T> Router<T> {
         }
     }
 
+    /// Checks if the router contains a handler for the given HTTP method and path.
+    ///
+    /// # Arguments
+    ///
+    /// * `method` - The HTTP method to check (e.g., GET, POST).
+    /// * `path` - The request path to check.
+    ///
+    /// # Returns
+    ///
+    /// `true` if a handler exists for the specified method and path, or if the method is OPTIONS;
+    /// otherwise, `false`.
     pub fn contains(&self, method: &Method, path: &str) -> bool {
         match *method {
             Method::POST => self.posts.contains_key(path),
