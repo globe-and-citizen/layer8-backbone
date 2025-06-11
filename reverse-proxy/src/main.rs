@@ -1,9 +1,10 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, fs::OpenOptions, io::Write, sync::Arc};
 
 use async_trait::async_trait;
 use boring::x509::X509;
 use bytes::Bytes;
-use env_logger::{self, Env, Target};
+use chrono::Local;
+use env_logger;
 use log::*;
 use pingora::Result;
 use pingora::server::configuration::Opt;
@@ -219,40 +220,41 @@ impl ProxyHttp for ReverseProxy {
 }
 
 fn main() {
-    // let file = OpenOptions::new()
-    //     .append(true)
-    //     .create(true)
-    //     .open("log.txt")
-    //     .expect("Can't create file!");
+    let file = OpenOptions::new()
+        .append(true)
+        .create(true)
+        .open("log.txt")
+        .expect("Can't create file!");
 
-    // let target = Box::new(file);
+    let target = Box::new(file);
 
-    // env_logger::Builder::new()
-    //     .target(env_logger::Target::Pipe(target))
-    //     .filter(None, LevelFilter::Debug)
-    //     .format(|buf, record| {
-    //         writeln!(
-    //             buf,
-    //             "[{} {} {}:{}] {}",
-    //             Local::now().format("%Y-%m-%d %H:%M:%S%.3f"),
-    //             record.level(),
-    //             record.file().unwrap_or("unknown"),
-    //             record.line().unwrap_or(0),
-    //             record.args()
-    //         )
-    //     })
-    //     .init();
-    env_logger::Builder::from_env(Env::default().write_style_or("RUST_LOG_STYLE", "always"))
-        .format_file(true)
-        .format_line_number(true)
-        .target(Target::Stdout)
+    env_logger::Builder::new()
+        .target(env_logger::Target::Pipe(target))
+        .filter(None, LevelFilter::Debug)
+        .format(|buf, record| {
+            writeln!(
+                buf,
+                "[{} {} {}:{}] {}",
+                Local::now().format("%Y-%m-%d %H:%M:%S%.3f"),
+                record.level(),
+                record.file().unwrap_or("unknown"),
+                record.line().unwrap_or(0),
+                record.args()
+            )
+        })
         .init();
+
+    // env_logger::Builder::from_env(Env::default().write_style_or("RUST_LOG_STYLE", "always"))
+    //     .format_file(true)
+    //     .format_line_number(true)
+    //     .target(Target::Stdout)
+    //     .init();
 
     // let opt = Opt::parse();
     // let mut my_server = Server::new(Some(opt)).unwrap();
     let mut my_server = Server::new(Some(Opt {
         conf: Some(format!(
-            "{}/../forward-proxy/server_conf.yml",
+            "{}/../server_conf.yml",
             env!("CARGO_MANIFEST_DIR")
         )),
         ..Default::default()

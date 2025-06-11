@@ -163,7 +163,7 @@ fn main() {
 
     info!("Starting server...");
     let mut server = Server::new(Some(Opt {
-        conf: Some(format!("{}/server_conf.yml", env!("CARGO_MANIFEST_DIR"))),
+        conf: Some(format!("{}/../server_conf.yml", env!("CARGO_MANIFEST_DIR"))),
         ..Default::default()
     }))
     .unwrap();
