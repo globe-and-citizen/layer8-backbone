@@ -2,9 +2,10 @@ use std::collections::HashMap;
 use pingora::http::{Method, RequestHeader};
 use pingora::proxy::Session;
 use crate::router::others::Layer8Header;
+use crate::router::utils::get_request_body;
 
 #[derive(Debug, Clone, Default)]
-pub struct Layer8ContextRequestSummary {
+pub(crate) struct Layer8ContextRequestSummary {
     pub method: Method,
     pub path: String,
     pub params: HashMap<String, String>,
@@ -35,14 +36,14 @@ impl Layer8ContextRequestSummary {
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct Layer8ContextRequest {
+pub(crate) struct Layer8ContextRequest {
     summary: Layer8ContextRequestSummary,
     header: Layer8Header,
     body: Vec<u8>,
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct Layer8ContextResponse {
+pub(crate) struct Layer8ContextResponse {
     header: Layer8Header,
     body: Vec<u8>,
 }
@@ -52,6 +53,23 @@ pub struct Layer8Context {
     request: Layer8ContextRequest,
     response: Layer8ContextResponse,
     memory: HashMap<String, String>,
+}
+
+impl Layer8Context {
+    pub async fn update(&mut self, session: &mut Session) -> pingora::Result<bool> {
+        self.request.summary = Layer8ContextRequestSummary::from(session);
+
+        return match get_request_body(session).await {
+            Ok(body) => {
+                self.request.body = body;
+                Ok(true)
+            }
+            Err(err) => Err(err)
+        }
+
+        // take anything as needed later
+    }
+
 }
 
 impl Layer8ContextTrait for Layer8Context {

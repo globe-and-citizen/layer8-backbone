@@ -1661,6 +1661,7 @@ dependencies = [
  "chrono",
  "clap",
  "dotenv",
+ "futures",
  "jsonwebtoken",
  "log",
  "pingora",

@@ -1,11 +1,11 @@
 pub mod ctx;
 pub mod others;
+pub(crate) mod utils;
 
 use std::collections::HashMap;
 use pingora::http::{Method, StatusCode};
-use crate::router::ctx::{Layer8ContextTrait};
+use crate::router::ctx::{Layer8Context, Layer8ContextTrait};
 use crate::router::others::{APIHandler, APIHandlerResponse};
-
 
 pub struct Router<T> {
     handler: T,
@@ -49,7 +49,7 @@ impl<T> Router<T> {
         }
     }
 
-    pub fn call_handler(&self, ctx: &mut dyn Layer8ContextTrait) -> APIHandlerResponse {
+    pub async fn call_handler(&self, ctx: &mut Layer8Context) -> APIHandlerResponse {
         let method = ctx.method();
         let path = ctx.path();
 
@@ -60,7 +60,7 @@ impl<T> Router<T> {
         if let Some(handlers) = self.get_handlers(&method, &path) {
             let mut response = APIHandlerResponse::new(StatusCode::OK, None);
             for handler in handlers.iter() {
-                response = handler(&self.handler, ctx);
+                response = handler(&self.handler, ctx).await;
                 if response.status != StatusCode::OK {
                     return response;
                 }
