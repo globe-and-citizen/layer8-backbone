@@ -1,11 +1,7 @@
-pub mod ctx;
-pub mod others;
-pub(crate) mod utils;
-
 use std::collections::HashMap;
 use pingora::http::{Method, StatusCode};
-use crate::router::ctx::{Layer8Context, Layer8ContextTrait};
-use crate::router::others::{APIHandler, APIHandlerResponse};
+use crate::ctx::{Layer8Context, Layer8ContextTrait};
+use crate::handler::{APIHandler, APIHandlerResponse};
 
 /// `Router` is a generic struct that manages HTTP route registration and handler dispatching.
 ///

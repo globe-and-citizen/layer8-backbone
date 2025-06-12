@@ -1,10 +1,10 @@
 use log::{error, info};
 use pingora::http::StatusCode;
 use reqwest::Client;
+use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
+use pingora_router::handler::APIHandlerResponse;
 use crate::handler::types::response::{ErrorResponse, FpHealthcheckError, FpHealthcheckSuccess, FpResponseBodyInit, FpResponseBodyProxied};
-use crate::handler::types::ResponseBodyTrait;
-use crate::router::ctx::{Layer8Context, Layer8ContextTrait};
-use crate::router::others::{APIHandlerResponse};
+use pingora_router::handler::ResponseBodyTrait;
 
 pub mod types;
 mod utils;

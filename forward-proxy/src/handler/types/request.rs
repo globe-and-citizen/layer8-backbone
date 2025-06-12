@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use crate::handler::types::RequestBodyTrait;
+use pingora_router::handler::RequestBodyTrait;
 
 #[derive(Serialize, Deserialize, Debug)]
 struct FpRequestBodyInit {

@@ -2,8 +2,7 @@ use std::collections::HashMap;
 use log::debug;
 use pingora::http::{Method, RequestHeader};
 use pingora::proxy::Session;
-use crate::router::others::Layer8Header;
-use crate::router::utils::get_request_body;
+use crate::utils::get_request_body;
 
 /*
  *  Each type in this crate serves a specific purpose and may be updated as requirements evolve.
@@ -165,7 +164,7 @@ impl Layer8ContextTrait for Layer8Context {
 /// This trait appears to be redundant and could potentially be removed,
 /// as it is only implemented for `Layer8Context` and not used elsewhere.
 /// Considering...
-pub(crate) trait Layer8ContextTrait {
+pub trait Layer8ContextTrait {
     fn method(&self) -> Method;
     fn path(&self) -> String;
     fn params(&self) -> &HashMap<String, String>;
@@ -182,3 +181,13 @@ pub(crate) trait Layer8ContextTrait {
     fn set(&mut self, key: String, value: String);
     fn set_request_summary(&mut self, summary: Layer8ContextRequestSummary);
 }
+
+/// `Layer8Header` is a type alias for a map of HTTP header key-value pairs used
+/// throughout the proxy context.
+///
+/// - Keys and values are both `String`.
+/// - Only string-representable header values are currently supported.
+/// - This may need to be updated in the future to support non-string header values
+/// (e.g., binary or multi-valued headers).
+/// - Used for both request and response headers in `Layer8Context`.
+pub type Layer8Header = HashMap<String, String>;

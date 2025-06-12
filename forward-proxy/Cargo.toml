@@ -18,6 +18,7 @@ pingora = { version = "0.4.0", features = ["lb"] }
 jsonwebtoken = "9.3.1"
 dotenv = "0.15.0"
 futures = "0.3.31"
+pingora-router = { path = "../pingora-router" }
 
 [patch.crates-io]
 sfv = { git = "https://github.com/undef1nd/sfv.git", tag = "v0.9.4" }

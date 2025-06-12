@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use crate::handler::types::ResponseBodyTrait;
+use pingora_router::handler::ResponseBodyTrait;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct ErrorResponse {

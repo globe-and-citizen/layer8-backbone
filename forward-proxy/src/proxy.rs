@@ -3,8 +3,8 @@ use bytes::Bytes;
 use log::debug;
 use pingora::prelude::{HttpPeer, ProxyHttp, Session};
 use pingora::http::{ResponseHeader, StatusCode};
-use crate::router::Router;
-use crate::router::ctx::{Layer8Context, Layer8ContextTrait};
+use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
+use pingora_router::router::Router;
 
 pub struct ForwardProxy<T> {
     router: Router<T>,
@@ -68,6 +68,8 @@ impl<T: Sync> ProxyHttp for ForwardProxy<T> {
         };
 
         session.write_response_header_ref(&header).await?;
+
+        // Write the response body to the session after setting headers
         session.write_response_body(Some(Bytes::from(response_bytes)), true).await?;
 
         Ok(true)

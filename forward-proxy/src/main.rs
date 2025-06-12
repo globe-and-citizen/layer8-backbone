@@ -1,5 +1,4 @@
 mod proxy;
-mod router;
 mod handler;
 
 use pingora::prelude::*;
@@ -10,8 +9,8 @@ use futures::FutureExt;
 use log::info;
 use proxy::ForwardProxy;
 use crate::handler::ForwardHandler;
-use crate::router::others::{APIHandler};
-use crate::router::Router;
+use pingora_router::handler::{APIHandler};
+use pingora_router::router::Router;
 
 fn main() {
     // Load environment variables from .env file
