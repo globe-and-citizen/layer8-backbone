@@ -14,3 +14,6 @@ run-backend:
 	cd backend && npm i && node index.js
 run-tests:
 	cd test/cypress && npm i && npx cypress run
+
+run-spa-frontend:
+	cd spa/frontend && npm i && npm run dev
