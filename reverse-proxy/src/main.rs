@@ -1,4 +1,5 @@
-use std::{collections::HashMap, fs::OpenOptions, io::Write, sync::Arc};
+use std::sync::Arc;
+use std::{collections::HashMap, fs::OpenOptions, io::Write};
 
 use async_trait::async_trait;
 use boring::x509::X509;
@@ -6,18 +7,14 @@ use bytes::Bytes;
 use chrono::Local;
 use env_logger;
 use log::*;
-use pingora::Result;
+use pingora::http::{Method, ResponseHeader, StatusCode};
+use pingora::listeners::tls::TLS_CONF_ERR;
+use pingora::proxy::{ProxyHttp, Session};
+use pingora::server::Server;
 use pingora::server::configuration::Opt;
 use pingora::upstreams::peer::HttpPeer;
-use pingora::{OrErr, server::Server};
-use pingora::{
-    http::{Method, ResponseHeader, StatusCode},
-    listeners::tls::TLS_CONF_ERR,
-};
-use pingora::{
-    proxy::{ProxyHttp, Session},
-    utils::tls::CertKey,
-};
+use pingora::utils::tls::CertKey;
+use pingora::{OrErr, Result};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
@@ -129,37 +126,8 @@ impl ProxyHttp for ReverseProxy {
         _session: &mut Session,
         _ctx: &mut Self::CTX,
     ) -> Result<Box<HttpPeer>> {
-        // testing certs data; fixme to be dynamic
-
-        // mTLS Steps:
-        // 1. Client connects to server
-        // 2. Server presents its TLS certificate
-        // 3. Client verifies the server's certificate
-        // 4. Client presents its TLS certificate
-        // 5. Server verifies the client's certificate
-        // 6. Server grants access
-        // 7. Client and server exchange information over encrypted TLS connection
-        //
-        // Code below is for step 2(this a a server to FP), presenting the servers's TLS certificate.
-        let mut peer = HttpPeer::new(String::from("localhost:6191"), true, String::from(""));
-        {
-            let cert = X509::from_pem(include_bytes!("../../certs/generated/reverse_proxy.pem"))
-                .or_err(TLS_CONF_ERR, "Failed to load CA certificate")?;
-
-            let ca_cert = X509::from_pem(include_bytes!("../../certs/generated/ca.pem"))
-                .or_err(TLS_CONF_ERR, "Failed to load CA certificate")?;
-
-            let key = boring::pkey::PKey::private_key_from_pem(include_bytes!(
-                "../../certs/generated/reverse_proxy-key.pem"
-            ))
-            .or_err(TLS_CONF_ERR, "Failed to load private key")?;
-
-            // The certificate to present in mTLS connections to upstream
-            // The organization implementing mTLS acts as its own certificate authority.
-            let cert_key = CertKey::new(vec![cert, ca_cert], key);
-            peer.client_cert_key = Some(Arc::new(cert_key));
-        }
-
+        // we never use this as the client; no need to setup mTLS
+        let peer = HttpPeer::new(String::from("localhost:3000"), false, String::from(""));
         Ok(Box::new(peer))
     }
 
@@ -244,19 +212,10 @@ fn main() {
         })
         .init();
 
-    // env_logger::Builder::from_env(Env::default().write_style_or("RUST_LOG_STYLE", "always"))
-    //     .format_file(true)
-    //     .format_line_number(true)
-    //     .target(Target::Stdout)
-    //     .init();
-
     // let opt = Opt::parse();
     // let mut my_server = Server::new(Some(opt)).unwrap();
     let mut my_server = Server::new(Some(Opt {
-        conf: Some(format!(
-            "{}/../server_conf.yml",
-            env!("CARGO_MANIFEST_DIR")
-        )),
+        conf: Some(format!("{}/../server_conf.yml", env!("CARGO_MANIFEST_DIR"))),
         ..Default::default()
     }))
     .unwrap();

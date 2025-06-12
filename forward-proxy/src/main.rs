@@ -1,12 +1,16 @@
-use std::{env, sync::Arc};
+use std::{env, io::Write, sync::Arc};
 
 use async_trait::async_trait;
 use boring::x509::X509;
-use chrono::Utc;
+use chrono::{Local, Utc};
 use env_logger::{Env, Target};
 use jsonwebtoken::{EncodingKey, Header, encode};
 use log::info;
-use pingora::{listeners::tls::TLS_CONF_ERR, utils::tls::CertKey};
+use pingora::{
+    listeners::tls::TLS_CONF_ERR,
+    upstreams::peer::{Peer, PeerOptions},
+    utils::tls::CertKey,
+};
 use pingora_core::prelude::*;
 use pingora_error::{ErrorType, Result};
 use pingora_proxy::{ProxyHttp, Session};
@@ -55,7 +59,11 @@ impl ProxyHttp for ForwardProxy {
         // 7. Client and server exchange information over encrypted TLS connection
         //
         // Code below is for step 4(this is a client to RP), presenting the client's TLS certificate.
-        let mut peer = HttpPeer::new(String::from("localhost:6193"), true, String::from(""));
+        let mut peer = HttpPeer::new(
+            String::from("localhost:6193"),
+            true,
+            "localhost".to_string(),
+        );
         {
             let cert = X509::from_pem(include_bytes!("../../certs/generated/forward_proxy.pem"))
                 .or_err(TLS_CONF_ERR, "Failed to load CA certificate")?;
@@ -70,8 +78,18 @@ impl ProxyHttp for ForwardProxy {
 
             // The certificate to present in mTLS connections to upstream
             // The organization implementing mTLS acts as its own certificate authority.
-            let cert_key = CertKey::new(vec![cert, ca_cert], key);
+            let cert_key = CertKey::new(vec![cert, ca_cert.clone()], key);
+
+            // Providing Peer Options
+            let mut peer_options = PeerOptions::new();
+            {
+                peer_options.verify_cert = true; // Verify the server's certificate
+                peer_options.ca = Some(Arc::new(Box::new([ca_cert])));
+                peer_options.verify_hostname = true; // Whether to check if upstream server cert's Host matches the SNI
+            }
+
             peer.client_cert_key = Some(Arc::new(cert_key));
+            peer.options = peer_options;
         }
 
         Ok(Box::new(peer))
@@ -151,6 +169,11 @@ fn generate_standard_token(secret_key: &str) -> Result<String, Box<dyn std::erro
 fn main() {
     // Load environment variables from .env file
     dotenv::dotenv().ok();
+
+    unsafe {
+        env::set_var("RUST_LOG", "trace");
+    }
+
     // Initialize logger
     // let log_file = fs::File::create("log.txt").expect("Failed to create log file");
     // let config = ConfigBuilder::new().set_time_to_local(true).build();

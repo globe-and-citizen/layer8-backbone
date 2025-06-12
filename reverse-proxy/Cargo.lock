@@ -1997,27 +1997,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "106dd99e98437432fed6519dedecfade6a06a73bb7b2a1e019fdd2bee5778d94"
 
 [[package]]
-name = "proxy"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "boring",
- "bytes",
- "chrono",
- "clap",
- "env_logger",
- "log",
- "pingora",
- "pingora-core",
- "reqwest",
- "serde",
- "serde_json",
- "serde_yaml",
- "tokio",
- "tokio-rustls",
-]
-
-[[package]]
 name = "quote"
 version = "1.0.40"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2138,6 +2117,27 @@ dependencies = [
  "wasm-bindgen-futures",
  "web-sys",
  "winreg",
+]
+
+[[package]]
+name = "reverse-proxy"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "boring",
+ "bytes",
+ "chrono",
+ "clap",
+ "env_logger",
+ "log",
+ "pingora",
+ "pingora-core",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "tokio",
+ "tokio-rustls",
 ]
 
 [[package]]
