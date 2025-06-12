@@ -19,12 +19,12 @@ pub struct ResponseBody {
 }
 
 impl ResponseBodyTrait for ResponseBody {
-    fn from_json_err(err: Error) -> Self {
-        ResponseBody {
+    fn from_json_err(err: Error) -> Option<ResponseBody> {
+        Some(ResponseBody {
             rp_response_body_init_proxied: None,
             rp_request_body_proxied: None,
             fp_request_body_proxied: None,
             error: Some(err.to_string()),
-        }
+        })
     }
 }
