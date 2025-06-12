@@ -1,3 +1,5 @@
+mod handler;
+
 use async_trait::async_trait;
 use bytes::Bytes;
 use clap::Parser;
@@ -18,27 +20,19 @@ use reqwest::Client;
 use std::collections::HashMap;
 use std::fs::OpenOptions;
 use std::io::Write;
+use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
+use pingora_router::handler::{APIHandlerResponse, DefaultHandlerTrait, ResponseBodyTrait};
+use crate::handler::types::{RequestBody, ResponseBody};
 
 const UPSTREAM_HOST: &str = "localhost";
 const UPSTREAM_IP: &str = "0.0.0.0";
 const BACKEND_PORT: u16 = 3000;
 
-#[derive(Serialize, Deserialize, Debug)]
-pub struct RequestBody {
-    data: String,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct ResponseBody {
-    rp_response_body_init_proxied: Option<String>,
-    rp_request_body_proxied: Option<String>,
-    fp_request_body_proxied: Option<String>,
-    error: Option<String>,
-}
-
 pub struct ReverseProxy {
     addr: std::net::SocketAddr,
 }
+
+impl DefaultHandlerTrait for ReverseProxy {}
 
 impl ReverseProxy {
     fn get_method(session: &Session) -> String {
@@ -48,82 +42,121 @@ impl ReverseProxy {
         method.to_string()
     }
 
-    async fn handle_init_tunnel(session: &mut Session) -> Result<Option<ResponseBody>> {
+    async fn handle_init_tunnel(&self, ctx: &mut Layer8Context) -> APIHandlerResponse {
         let response = ResponseBody {
             rp_response_body_init_proxied: Some("response body init, reverse proxy".to_string()),
             rp_request_body_proxied: None,
             fp_request_body_proxied: None,
             error: None,
         };
-        Ok(Some(response))
+
+        // todo if is_init_tunnel {
+        //     header
+        //         .append_header("x-rp-response-header-init", "response-header-init-reverse-proxy")
+        //         .unwrap();
+        // } => OK
+        ctx.insert_response_header("x-rp-response-header-init", "response-header-init-reverse-proxy");
+
+        APIHandlerResponse {
+            status: StatusCode::OK,
+            body: Some(response.to_bytes()),
+        }
     }
 
-    async fn handle_proxy_request(session: &mut Session) -> Result<Option<ResponseBody>> {
-        // read request body
-        let mut body = Vec::new();
-        loop {
-            match session.read_request_body().await? {
-                Some(chunk) => body.extend_from_slice(&chunk),
-                None => break,
+    async fn handle_proxy_request(&self, ctx: &mut Layer8Context) -> APIHandlerResponse {
+        let body = ctx.get_request_body();
+
+        // todo
+        // // Endpoint-specific headers
+        // if is_init_tunnel {
+        //     header
+        //         .append_header("x-rp-response-header-init", "response-header-init-reverse-proxy")
+        //         .unwrap();
+        // } else {
+        //     header
+        //         .append_header("x-rp-response-header-added", "response-header-forward-proxied")
+        //         .unwrap();
+        // } => OK
+        ctx.insert_response_header("x-rp-response-header-added", "response-header-forward-proxied");
+
+        let (request_body, err, status) = ReverseProxy::parse_request_body::<RequestBody, ResponseBody>(&body);
+
+        if let Some(mut err_response) = err {
+            error!("Error parsing request body: {:?}", err_response.error);
+            err_response.error = Some("Invalid request body".to_string());
+
+            return APIHandlerResponse {
+                status,
+                body: Some(err_response.to_bytes()),
             }
         }
 
-        // convert to json
-        match serde_json::de::from_slice::<RequestBody>(&body) {
-            Ok(request_body) => {
-                debug!("Request body: {:?}", request_body.data);
-                let request_url = session.req_header().uri.path().to_string();
-                debug!(
+        if let Some(request_body) = request_body {
+            debug!("Request body: {:?}", request_body.data);
+            let request_url = ctx.path();
+            debug!(
                     "Creating a new request to http://localhost:{}{}",
                     BACKEND_PORT, request_url
                 );
-                
-                let client = Client::new();
-                let mut map = HashMap::new();
-                map.insert("fp_request_body_proxied", request_body.data);
-                
-                let res = client
-                    .post(format!("http://localhost:{}{}", BACKEND_PORT, request_url))
-                    .header("x-fp-request-header-proxied", "request-header-forward-proxied")
-                    .header("x-rp-request-header-proxied", "request-header-reverse-proxy")
-                    .json(&map)
-                    .send()
-                    .await;
-                
-                match res {
-                    Ok(response) => {
-                        debug!(
+
+            let client = Client::new();
+            let mut map = HashMap::new();
+            map.insert("fp_request_body_proxied", request_body.data);
+
+            let res = client
+                .post(format!("http://localhost:{}{}", BACKEND_PORT, request_url))
+                .header("x-fp-request-header-proxied", "request-header-forward-proxied")
+                .header("x-rp-request-header-proxied", "request-header-reverse-proxy")
+                .json(&map)
+                .send()
+                .await;
+
+            match res {
+                Ok(response) => {
+                    debug!(
                             "POST {}, Host: localhost:{}, response code: {}",
                             request_url,
                             BACKEND_PORT,
                             response.status()
                         );
 
-                        let mut response_body: ResponseBody = response.json().await.unwrap();
-                        response_body.rp_request_body_proxied = Some("data copied by reverse proxy".to_string());
-                        Ok(Some(response_body))
+                    let mut response_body: ResponseBody = response.json().await.unwrap();
+                    response_body.rp_request_body_proxied = Some("data copied by reverse proxy".to_string());
+
+                    return APIHandlerResponse {
+                        status,
+                        body: Some(response_body.to_bytes()),
                     }
-                    Err(err) => {
-                        error!("Error forwarding request to backend: {}", err);
-                        let status = err.status().unwrap_or(reqwest::StatusCode::INTERNAL_SERVER_ERROR);
-                        Ok(Some(ResponseBody {
-                            rp_response_body_init_proxied: None,
-                            rp_request_body_proxied: None,
-                            fp_request_body_proxied: None,
-                            error: Some(format!("Backend error: {}", status)),
-                        }))
+                }
+                Err(err) => {
+                    error!("Error forwarding request to backend: {:?}", err);
+                    let status = err.status().unwrap_or(reqwest::StatusCode::INTERNAL_SERVER_ERROR);
+                    let response_body = ResponseBody {
+                        rp_response_body_init_proxied: None,
+                        rp_request_body_proxied: None,
+                        fp_request_body_proxied: None,
+                        error: Some(format!("Backend error: {}", status)),
+                    };
+
+                    // todo if response_body.error.is_some() {
+                    //     response_status = match response_body.error.as_ref().unwrap().contains("Backend error") {
+                    //         true => StatusCode::BAD_GATEWAY,
+                    //         false => StatusCode::BAD_REQUEST,
+                    //     };
+                    // } => OK
+
+                    return APIHandlerResponse {
+                        status: StatusCode::BAD_GATEWAY,
+                        body: Some(response_body.to_bytes()),
                     }
                 }
             }
-            Err(err) => {
-                error!("Error parsing request body: {}", err);
-                Ok(Some(ResponseBody {
-                    rp_response_body_init_proxied: None,
-                    rp_request_body_proxied: None,
-                    fp_request_body_proxied: None,
-                    error: Some("Invalid request body".to_string()),
-                }))
-            }
+        };
+
+        // This line should be unreachable unless `parse_request_body` fails unexpectedly or logic above changes
+        return APIHandlerResponse {
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+            body: None,
         }
     }
 
@@ -131,7 +164,6 @@ impl ReverseProxy {
         response_status: StatusCode,
         body_bytes: &Vec<u8>,
         session: &mut Session,
-        is_init_tunnel: bool,
     ) -> Result<()> {
         let mut header = ResponseHeader::build(response_status, None)?;
         header
@@ -152,16 +184,17 @@ impl ReverseProxy {
             .append_header("Access-Control-Max-Age", "86400")
             .unwrap();
         
-        // Endpoint-specific headers
-        if is_init_tunnel {
-            header
-                .append_header("x-rp-response-header-init", "response-header-init-reverse-proxy")
-                .unwrap();
-        } else {
-            header
-                .append_header("x-rp-response-header-added", "response-header-forward-proxied")
-                .unwrap();
-        }
+        // // Endpoint-specific headers
+        // if is_init_tunnel {
+        //     header
+        //         .append_header("x-rp-response-header-init", "response-header-init-reverse-proxy")
+        //         .unwrap();
+        // } else {
+        //     header
+        //         .append_header("x-rp-response-header-added", "response-header-forward-proxied")
+        //         .unwrap();
+        // }
+        // ==> moved to handlers
         
         session.write_response_header_ref(&header).await
     }
@@ -238,16 +271,17 @@ impl ProxyHttp for ReverseProxy {
         }
 
         // Handle error responses
-        if response_body.error.is_some() {
-            response_status = match response_body.error.as_ref().unwrap().contains("Backend error") {
-                true => StatusCode::BAD_GATEWAY,
-                false => StatusCode::BAD_REQUEST,
-            };
-        }
+        // if response_body.error.is_some() {
+        //     response_status = match response_body.error.as_ref().unwrap().contains("Backend error") {
+        //         true => StatusCode::BAD_GATEWAY,
+        //         false => StatusCode::BAD_REQUEST,
+        //     };
+        // }
+        // ==>> moved to handlers
 
         // convert json response to vec
         let response_body_bytes = serde_json::ser::to_vec(&response_body).unwrap();
-        ReverseProxy::set_headers(response_status, &response_body_bytes, session, is_init_tunnel).await?;
+        ReverseProxy::set_headers(response_status, &response_body_bytes, session).await?;
         session
             .write_response_body(Some(Bytes::from(response_body_bytes)), true)
             .await?;
