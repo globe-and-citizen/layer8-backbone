@@ -2,87 +2,118 @@ use log::{error, info};
 use pingora::http::StatusCode;
 use reqwest::Client;
 use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
-use pingora_router::handler::APIHandlerResponse;
-use crate::handler::types::response::{ErrorResponse, FpHealthcheckError, FpHealthcheckSuccess, FpResponseBodyInit, FpResponseBodyProxied};
+use pingora_router::handler::{APIHandlerResponse};
+use crate::handler::types::response::{ErrorResponse, FpHealthcheckError, FpHealthcheckSuccess, InitEncryptedTunnelResponse, FpResponseBodyProxied};
 use pingora_router::handler::ResponseBodyTrait;
+use crate::handler::consts::ForwardHeaderKeys::{FpHeaderRequestKey, FpHeaderResponseKey};
+use crate::handler::consts::{LAYER8_GET_CERTIFICATE_PATH, RP_INIT_ENCRYPTED_TUNNEL_PATH, RP_PROXY_PATH};
 
 pub mod types;
 mod utils;
-
-const LAYER8_URL: &str = "http://127.0.0.1:5001";
-const RP_URL: &str = "http://127.0.0.1:6193";
+mod consts;
 
 pub struct ForwardHandler {
     // add later
 }
 
+type NTorPublicKey = Vec<u8>;
+
 impl ForwardHandler {
-    pub async fn handle_init_tunnel(&self, ctx: &mut Layer8Context) -> APIHandlerResponse {
-        let params = ctx.params();
-        let backend_url = params.get("backend_url").unwrap();
+    async fn get_public_key(&self, backend_url: String, ctx: &mut Layer8Context) -> Result<NTorPublicKey, APIHandlerResponse> {
         let secret_key = utils::get_secret_key();
         let token = utils::generate_standard_token(&secret_key).unwrap();
         let client = Client::new();
 
-        let res = match client
-            .get(format!("{}{}?backend_url={}", LAYER8_URL, "/sp-pub-key", backend_url))
+        return match client
+            .get(format!("{}{}", LAYER8_GET_CERTIFICATE_PATH.as_str(), backend_url))
             .header("Authorization", format!("Bearer {}", token))
             .send()
             .await
         {
-            Ok(res) => res,
+            Ok(res) => {
+                if !res.status().is_success() {
+                    let response_body = ErrorResponse {
+                        error: format!("Failed to get public key from layer8, status code: {}", res.status().as_u16()),
+                    };
+                    info!("Sending error response: {:?}", response_body);
+
+                    ctx.insert_response_header("Connection", "close"); // Ensure connection closes???
+
+                    Err(APIHandlerResponse {
+                        status: StatusCode::BAD_REQUEST,
+                        body: Some(response_body.to_bytes()),
+                    })
+                } else {
+                    // todo extract public key from response
+                    Ok(vec![])
+                }
+            }
             Err(e) => {
                 let response_body = ErrorResponse {
                     error: format!("Failed to connect to layer8: {}", e)
                 };
 
-                return APIHandlerResponse {
+                Err(APIHandlerResponse {
                     status: StatusCode::INTERNAL_SERVER_ERROR,
                     body: Some(response_body.to_bytes()),
-                };
+                })
             }
         };
+    }
 
-        if !res.status().is_success() {
-            let response_body = ErrorResponse {
-                error: format!("Failed to get public key from layer8, status code: {}", res.status().as_u16()),
-            };
-            info!("Sending error response: {:?}", response_body);
-            let response_body_bytes = response_body.to_bytes();
-            ctx.insert_response_header("Connection", "close"); // Ensure connection closes
+    pub async fn handle_init_encrypted_tunnel(&self, ctx: &mut Layer8Context) -> APIHandlerResponse {
+        let backend_url = match ctx.param("backend_url") {
+            Some(url) => url.clone(),
+            None => "".to_string()
+        };
 
-            return APIHandlerResponse {
-                status: StatusCode::BAD_REQUEST,
-                body: Some(response_body_bytes),
-            };
-        }
+        let _public_key = self.get_public_key(backend_url.to_string(), ctx).await;
+        // todo use public key
 
         let body_string = String::from_utf8_lossy(&ctx.get_request_body()).to_string();
+
+        // copy all origin header to new request
+        let origin_headers = ctx.get_request_header().clone();
+        let mut reqwest_header_map = utils::to_reqwest_header(origin_headers);
+
+        // add forward proxy header
+        reqwest_header_map.insert(
+            FpHeaderRequestKey.as_str(),
+            FpHeaderRequestKey.placeholder_value().parse().unwrap(),
+        );
+
         let client = Client::new();
-        let response = client
-            .post(format!("{}/init-tunnel", RP_URL))
-            .header(
-                "x-fp-request-header-init",
-                "request-header-forward-proxy-init",
-            )
-            .header("Content-Type", "application/json")
+        let response = client.post(RP_INIT_ENCRYPTED_TUNNEL_PATH.as_str())
+            .headers(reqwest_header_map.into())
             .body(body_string.clone())
             .send()
             .await;
 
-        match response {
+        return match response {
             Ok(res) if res.status().is_success() => {
-                let response_body = res.text().await.unwrap_or_default();
+                let rp_response_body = res.bytes().await.unwrap_or_default();
 
-                let response_bytes = FpResponseBodyInit {
-                    fp_response_body_init: response_body.clone(),
-                }.to_bytes();
-                ctx.insert_response_header("x-fp-response-header-init", "response-header-forward-proxy-init");
+                match utils::bytes_to_json::<InitEncryptedTunnelResponse>(rp_response_body.to_vec()) {
+                    Err(e) => {
+                        error!("Error parsing RP response: {:?}", e);
+                        APIHandlerResponse {
+                            status: StatusCode::INTERNAL_SERVER_ERROR,
+                            body: None,
+                        }
+                    }
+                    _ => {
+                        // add forward proxy response header
+                        ctx.insert_response_header(
+                            FpHeaderResponseKey.as_str(),
+                            FpHeaderResponseKey.placeholder_value(),
+                        );
 
-                return APIHandlerResponse {
-                    status: StatusCode::OK,
-                    body: Some(response_bytes),
-                };
+                        APIHandlerResponse {
+                            status: StatusCode::OK,
+                            body: Some(rp_response_body.to_vec()),
+                        }
+                    }
+                }
             }
             Ok(res) => {
                 // Handle 4xx/5xx errors
@@ -93,10 +124,10 @@ impl ForwardHandler {
                     error: error_body,
                 }.to_bytes();
 
-                return APIHandlerResponse {
+                APIHandlerResponse {
                     status: StatusCode::try_from(status.as_u16()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
                     body: Some(response_body_bytes),
-                };
+                }
             }
             Err(e) => {
                 error!("Failed to forward request to RP: {}", e);
@@ -105,12 +136,12 @@ impl ForwardHandler {
                     error: e.to_string(),
                 }.to_bytes();
 
-                return APIHandlerResponse {
+                APIHandlerResponse {
                     status: StatusCode::INTERNAL_SERVER_ERROR,
                     body: Some(response_body_bytes),
-                };
+                }
             }
-        }
+        };
     }
 
     pub async fn handle_proxy(&self, ctx: &mut Layer8Context) -> APIHandlerResponse {
@@ -119,7 +150,7 @@ impl ForwardHandler {
 
         let body_string = String::from_utf8_lossy(&ctx.get_request_body()).to_string();
         let response = client
-            .post(format!("{}/proxy", RP_URL))
+            .post(RP_PROXY_PATH.as_str())
             .header(
                 "x-fp-request-header-proxied",
                 "request-header-forward-proxied",
@@ -190,7 +221,7 @@ impl ForwardHandler {
             return APIHandlerResponse {
                 status: StatusCode::IM_A_TEAPOT,
                 body: Some(response_bytes),
-            }
+            };
         }
 
         let response_bytes = FpHealthcheckSuccess {
@@ -202,6 +233,6 @@ impl ForwardHandler {
         return APIHandlerResponse {
             status: StatusCode::OK,
             body: Some(response_bytes),
-        }
+        };
     }
 }

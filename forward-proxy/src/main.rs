@@ -29,7 +29,7 @@ fn main() {
     let mut router: Router<Arc<ForwardHandler>> = Router::new(fp_handler.clone());
 
     let handle_init_tunnel: APIHandler<Arc<ForwardHandler>> = Box::new(|h, ctx| {
-        async move { h.handle_init_tunnel(ctx).await }.boxed()
+        async move { h.handle_init_encrypted_tunnel(ctx).await }.boxed()
     });
 
     let handle_proxy: APIHandler<Arc<ForwardHandler>> = Box::new(|h, ctx| {

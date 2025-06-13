@@ -9,11 +9,11 @@ pub struct ErrorResponse {
 impl ResponseBodyTrait for ErrorResponse {}
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct FpResponseBodyInit {
-    pub fp_response_body_init: String,
+pub struct InitEncryptedTunnelResponse { // this struct should match ReverseProxy's Response
+    pub placeholder: String,
 }
 
-impl ResponseBodyTrait for FpResponseBodyInit {}
+impl ResponseBodyTrait for InitEncryptedTunnelResponse {}
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct FpResponseBodyProxied {
