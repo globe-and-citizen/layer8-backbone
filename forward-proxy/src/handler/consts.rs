@@ -1,5 +1,6 @@
 use once_cell::sync::Lazy;
 
+// can be replaced by constants, will see
 pub enum ForwardHeaderKeys {
     FpHeaderRequestKey,
     FpHeaderResponseKey,

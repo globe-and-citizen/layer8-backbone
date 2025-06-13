@@ -1,13 +1,11 @@
-use futures::StreamExt;
 use log::{error, info};
 use pingora::http::StatusCode;
-use reqwest::{Client, Response};
+use reqwest::{Client};
 use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
 use pingora_router::handler::{APIHandlerResponse, DefaultHandlerTrait};
 use crate::handler::types::response::{ErrorResponse, FpHealthcheckError, FpHealthcheckSuccess, InitEncryptedTunnelResponse, ProxyResponse};
 use pingora_router::handler::ResponseBodyTrait;
 use reqwest::header::HeaderMap;
-use serde_json::Error;
 use crate::handler::consts::ForwardHeaderKeys::{FpHeaderRequestKey, FpHeaderResponseKey};
 use crate::handler::consts::{LAYER8_GET_CERTIFICATE_PATH, RP_INIT_ENCRYPTED_TUNNEL_PATH, RP_PROXY_PATH};
 use crate::handler::types::request::{InitEncryptedTunnelRequest, ProxyRequest};
@@ -78,16 +76,21 @@ impl ForwardHandler {
     pub async fn handle_init_encrypted_tunnel(&self, ctx: &mut Layer8Context) -> APIHandlerResponse {
         // validate request body
         let init_request_body_bytes = ctx.get_request_body();
-        let (_ignore_now, err, status) =
-            ForwardHandler::parse_request_body::<
+        match ForwardHandler::parse_request_body::<
                 InitEncryptedTunnelRequest,
                 ErrorResponse
-            >(&init_request_body_bytes);
+            >(&init_request_body_bytes) {
+            Ok(_) => {}
+            Err(err) => {
+                let body = match err {
+                    None => None,
+                    Some(e) => Some(e.to_bytes())
+                };
 
-        if let Some(err) = err {
-            return APIHandlerResponse {
-                status,
-                body: Some(err.to_bytes())
+                return APIHandlerResponse {
+                    status: StatusCode::BAD_REQUEST,
+                    body
+                }
             }
         }
 
@@ -98,6 +101,7 @@ impl ForwardHandler {
 
         //todo uncomment below line and make use of public_key, for now - assuming we've got it done
         // let public_key = self.get_public_key(backend_url.to_string(), ctx).await;
+        // println!("public_key: {:?}", public_key);
 
         // copy all origin header to new request
         let origin_headers = ctx.get_request_header().clone();
@@ -181,12 +185,18 @@ impl ForwardHandler {
     pub async fn handle_proxy(&self, ctx: &mut Layer8Context) -> APIHandlerResponse {
         // validate request body
         let origin_req_body_bytes = ctx.get_request_body();
-        let (_, err, status) =
-            ForwardHandler::parse_request_body::<ProxyRequest, ErrorResponse>(&origin_req_body_bytes);
-        if let Some(err) = err {
-            return APIHandlerResponse {
-                status,
-                body: Some(err.to_bytes()),
+        match ForwardHandler::parse_request_body::<ProxyRequest, ErrorResponse>(&origin_req_body_bytes) {
+            Ok(_) => {}
+            Err(err) => {
+                let body = match err {
+                    None => None,
+                    Some(body) => Some(body.to_bytes())
+                };
+
+                return APIHandlerResponse {
+                    status: StatusCode::BAD_REQUEST,
+                    body,
+                }
             }
         }
 

@@ -35,77 +35,73 @@ impl ReverseHandler {
 
         ctx.insert_response_header("x-rp-response-header-added", "response-header-forward-proxied");
 
-        let (request_body, err, status) = ReverseHandler::parse_request_body::<RequestBody, ResponseBody>(&body);
+        let request_body = match ReverseHandler::parse_request_body::<RequestBody, ResponseBody>(&body) {
+            Ok(request_body) => request_body,
+            Err(err) => {
+                let body = match err {
+                    None => None,
+                    Some(mut err_response) => {
+                        error!("Error parsing request body: {:?}", err_response.error);
+                        err_response.error = Some("Invalid request body".to_string());
+                        Some(err_response.to_bytes())
+                    }
+                };
 
-        if let Some(mut err_response) = err {
-            error!("Error parsing request body: {:?}", err_response.error);
-            err_response.error = Some("Invalid request body".to_string());
-
-            return APIHandlerResponse {
-                status,
-                body: Some(err_response.to_bytes()),
+                return APIHandlerResponse {
+                    status: StatusCode::BAD_REQUEST,
+                    body,
+                };
             }
-        }
+        };
 
-        if let Some(request_body) = request_body {
-            debug!("Request body: {:?}", request_body.data);
-            let request_url = ctx.path();
-            debug!(
-                    "Creating a new request to http://localhost:{}{}",
-                    BACKEND_PORT, request_url
-                );
+        debug!("Request body: {:?}", request_body.data);
+        let request_url = ctx.path();
+        debug!("Creating a new request to http://localhost:{}{}", BACKEND_PORT, request_url);
 
-            let client = Client::new();
-            let mut map = HashMap::new();
-            map.insert("fp_request_body_proxied", request_body.data);
+        let client = Client::new();
+        let mut map = HashMap::new();
+        map.insert("fp_request_body_proxied", request_body.data);
 
-            let res = client
-                .post(format!("http://localhost:{}{}", BACKEND_PORT, request_url))
-                .header("x-fp-request-header-proxied", "request-header-forward-proxied")
-                .header("x-rp-request-header-proxied", "request-header-reverse-proxy")
-                .json(&map)
-                .send()
-                .await;
+        let res = client
+            .post(format!("http://localhost:{}{}", BACKEND_PORT, request_url))
+            .header("x-fp-request-header-proxied", "request-header-forward-proxied")
+            .header("x-rp-request-header-proxied", "request-header-reverse-proxy")
+            .json(&map)
+            .send()
+            .await;
 
-            match res {
-                Ok(response) => {
-                    debug!(
+        match res {
+            Ok(response) => {
+                debug!(
                             "POST {}, Host: localhost:{}, response code: {}",
                             request_url,
                             BACKEND_PORT,
                             response.status()
                         );
 
-                    let mut response_body: ResponseBody = response.json().await.unwrap();
-                    response_body.rp_request_body_proxied = Some("data copied by reverse proxy".to_string());
+                let mut response_body: ResponseBody = response.json().await.unwrap();
+                response_body.rp_request_body_proxied = Some("data copied by reverse proxy".to_string());
 
-                    return APIHandlerResponse {
-                        status,
-                        body: Some(response_body.to_bytes()),
-                    }
-                }
-                Err(err) => {
-                    error!("Error forwarding request to backend: {:?}", err);
-                    let status = err.status().unwrap_or(reqwest::StatusCode::INTERNAL_SERVER_ERROR);
-                    let response_body = ResponseBody {
-                        rp_response_body_init_proxied: None,
-                        rp_request_body_proxied: None,
-                        fp_request_body_proxied: None,
-                        error: Some(format!("Backend error: {}", status)),
-                    };
-
-                    return APIHandlerResponse {
-                        status: StatusCode::BAD_GATEWAY,
-                        body: Some(response_body.to_bytes()),
-                    }
+                APIHandlerResponse {
+                    status: StatusCode::OK,
+                    body: Some(response_body.to_bytes()),
                 }
             }
-        };
+            Err(err) => {
+                error!("Error forwarding request to backend: {:?}", err);
+                let status = err.status().unwrap_or(reqwest::StatusCode::INTERNAL_SERVER_ERROR);
+                let response_body = ResponseBody {
+                    rp_response_body_init_proxied: None,
+                    rp_request_body_proxied: None,
+                    fp_request_body_proxied: None,
+                    error: Some(format!("Backend error: {}", status)),
+                };
 
-        // This line should be unreachable unless `parse_request_body` fails unexpectedly or logic above changes
-        return APIHandlerResponse {
-            status: StatusCode::INTERNAL_SERVER_ERROR,
-            body: None,
+                APIHandlerResponse {
+                    status: StatusCode::BAD_GATEWAY,
+                    body: Some(response_body.to_bytes()),
+                }
+            }
         }
     }
 }

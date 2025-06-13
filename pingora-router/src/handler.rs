@@ -99,14 +99,11 @@ pub trait RequestBodyTrait: Serialize + for<'de> Deserialize<'de> + Debug {
 /// If deserialization fails, it returns no body, an error response of type `E: impl
 /// ResponseBodyTrait` (constructed from the JSON error), and a 400 Bad Request status.
 pub trait DefaultHandlerTrait {
-    fn parse_request_body<T: RequestBodyTrait, E: ResponseBodyTrait>(data: &Vec<u8>)
-        -> (Option<Box<T>>, Option<Box<E>>, StatusCode)
+    fn parse_request_body<T: RequestBodyTrait, E: ResponseBodyTrait>(data: &Vec<u8>) -> Result<T, Option<E>>
     {
         match T::from_bytes(data.clone()) {
-            Ok(body) => (Some(body), None, StatusCode::OK),
-            Err(e) => {
-                (None, Some(Box::new(E::from_json_err(e).unwrap())), StatusCode::BAD_REQUEST)
-            }
+            Ok(body) => Ok(*body),
+            Err(e) => Err(E::from_json_err(e))
         }
     }
 }
