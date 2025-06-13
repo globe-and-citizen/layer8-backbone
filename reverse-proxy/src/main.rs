@@ -1,3 +1,4 @@
+use std::env;
 use std::sync::Arc;
 use std::{collections::HashMap, fs::OpenOptions, io::Write};
 
@@ -5,10 +6,10 @@ use async_trait::async_trait;
 use boring::x509::X509;
 use bytes::Bytes;
 use chrono::Local;
-use env_logger;
+use env_logger::{self, Env, Target};
 use log::*;
 use pingora::http::{Method, ResponseHeader, StatusCode};
-use pingora::listeners::tls::TLS_CONF_ERR;
+use pingora::listeners::tls::{TLS_CONF_ERR, TlsSettings};
 use pingora::proxy::{ProxyHttp, Session};
 use pingora::server::Server;
 use pingora::server::configuration::Opt;
@@ -17,6 +18,8 @@ use pingora::utils::tls::CertKey;
 use pingora::{OrErr, Result};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
+
+use crate::tls_conf::TlsConfig;
 
 const UPSTREAM_HOST: &str = "localhost";
 const UPSTREAM_IP: &str = "0.0.0.0"; //"125.235.4.59"
@@ -115,6 +118,8 @@ impl ReverseProxy {
     }
 }
 
+mod tls_conf;
+
 #[async_trait]
 impl ProxyHttp for ReverseProxy {
     type CTX = ();
@@ -188,28 +193,45 @@ impl ProxyHttp for ReverseProxy {
 }
 
 fn main() {
-    let file = OpenOptions::new()
-        .append(true)
-        .create(true)
-        .open("log.txt")
-        .expect("Can't create file!");
+    // let file = OpenOptions::new()
+    //     .append(true)
+    //     .create(true)
+    //     .open("log.txt")
+    //     .expect("Can't create file!");
 
-    let target = Box::new(file);
+    // let target = Box::new(file);
 
-    env_logger::Builder::new()
-        .target(env_logger::Target::Pipe(target))
-        .filter(None, LevelFilter::Debug)
-        .format(|buf, record| {
-            writeln!(
-                buf,
-                "[{} {} {}:{}] {}",
-                Local::now().format("%Y-%m-%d %H:%M:%S%.3f"),
-                record.level(),
-                record.file().unwrap_or("unknown"),
-                record.line().unwrap_or(0),
-                record.args()
-            )
-        })
+    // env_logger::Builder::new()
+    //     .target(env_logger::Target::Pipe(target))
+    //     .filter(None, LevelFilter::Debug)
+    //     .format(|buf, record| {
+    //         writeln!(
+    //             buf,
+    //             "[{} {} {}:{}] {}",
+    //             Local::now().format("%Y-%m-%d %H:%M:%S%.3f"),
+    //             record.level(),
+    //             record.file().unwrap_or("unknown"),
+    //             record.line().unwrap_or(0),
+    //             record.args()
+    //         )
+    //     })
+    //     .init();
+
+    // Load environment variables from .env file
+    // dotenv::dotenv().ok();
+
+    unsafe {
+        env::set_var("RUST_LOG", "trace");
+    }
+
+    // Initialize logger
+    // let log_file = fs::File::create("log.txt").expect("Failed to create log file");
+    // let config = ConfigBuilder::new().set_time_to_local(true).build();
+    // WriteLogger::init(LevelFilter::Debug, config, log_file).expect("Failed to initialize logger");
+    env_logger::Builder::from_env(Env::default().write_style_or("RUST_LOG_STYLE", "always"))
+        .format_file(true)
+        .format_line_number(true)
+        .target(Target::Stdout)
         .init();
 
     // let opt = Opt::parse();
@@ -225,21 +247,11 @@ fn main() {
     let mut my_proxy =
         pingora::proxy::http_proxy_service(&my_server.configuration, ReverseProxy {});
 
-    // fixme; figure out how to dynamically get certs paths in a real network, maybe an endpoint behind an API key...
-    {
-        let server_pem = format!(
-            "{}/../certs/generated/reverse_proxy.pem",
-            env!("CARGO_MANIFEST_DIR")
-        );
-        let server_key = format!(
-            "{}/../certs/generated/reverse_proxy-key.pem",
-            env!("CARGO_MANIFEST_DIR")
-        );
-
-        my_proxy
-            .add_tls("localhost:6193", &server_pem, &server_key)
-            .unwrap();
-    }
+    my_proxy.add_tls_with_settings(
+        "localhost:6193",
+        None,
+        TlsSettings::with_callbacks(Box::new(TlsConfig)).unwrap(),
+    );
 
     my_server.add_service(my_proxy);
     my_server.run_forever();

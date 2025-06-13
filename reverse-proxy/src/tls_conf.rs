@@ -1,0 +1,144 @@
+use boring::{
+    pkey::{PKey, Public},
+    ssl::{SslAlert, SslRef, SslVerifyError, SslVerifyMode},
+};
+use log::debug;
+use pingora::{listeners::TlsAccept, protocols::tls::TlsRef};
+
+pub struct TlsConfig;
+
+const CA_PEM: &[u8] = include_bytes!("../../certs/generated/ca.pem");
+
+#[async_trait::async_trait]
+impl TlsAccept for TlsConfig {
+    async fn certificate_callback(&self, ssl: &mut TlsRef) {
+        let server_pem = include_bytes!("../../certs/generated/reverse_proxy.pem");
+        let server_key = include_bytes!("../../certs/generated/reverse_proxy-key.pem");
+
+        // set the hostname for the SSL context
+        ssl.set_hostname("localhost")
+            .inspect_err(|e| {
+                log::error!("Failed to set hostname: {}", e);
+            })
+            .unwrap();
+
+        // provide the private key
+        {
+            let key = PKey::private_key_from_pem(server_key)
+                .inspect_err(|e| {
+                    log::error!("Failed to parse server private key: {}", e);
+                })
+                .unwrap();
+            ssl.set_private_key(&key)
+                .inspect_err(|e| {
+                    log::error!("Failed to set server private key: {}", e);
+                })
+                .unwrap();
+        }
+
+        // provide the certificate chain file
+        {
+            let cert = boring::x509::X509::from_pem(server_pem)
+                .inspect_err(|e| {
+                    log::error!("Failed to parse server certificate: {}", e);
+                })
+                .unwrap();
+
+            ssl.set_certificate(&cert)
+                .inspect_err(|e| {
+                    log::error!("Failed to set server certificate: {}", e);
+                })
+                .unwrap();
+        }
+
+        // add the CA certificate to the SSL context
+        let ca_cert = boring::x509::X509::from_pem(CA_PEM)
+            .inspect_err(|e| {
+                log::error!("Failed to parse CA certificate: {}", e);
+            })
+            .unwrap();
+        {
+            ssl.add_chain_cert(&ca_cert)
+                .inspect_err(|e| {
+                    log::error!("Failed to add CA certificate: {}", e);
+                })
+                .unwrap();
+        }
+
+        ssl.set_custom_verify_callback(
+            SslVerifyMode::PEER,
+            Self::verify_callback(ca_cert.public_key().unwrap()),
+        );
+    }
+}
+
+impl TlsConfig {
+    fn verify_callback(
+        ca_cert_pub_key: PKey<Public>,
+    ) -> Box<dyn Fn(&mut SslRef) -> Result<(), SslVerifyError> + 'static + Sync + Send> {
+        Box::new(move |ssl| -> Result<(), SslVerifyError> {
+            Self::verify_client_file(&ca_cert_pub_key, ssl)
+        })
+    }
+
+    fn verify_client_file(
+        server_ca_public_key: &PKey<Public>,
+        ssl: &mut TlsRef,
+    ) -> Result<(), SslVerifyError> {
+        if ssl.verify_mode() != SslVerifyMode::PEER {
+            log::error!("SSL verify mode is not set to PEER, cannot verify client certificate");
+            return Err(SslVerifyError::Invalid(SslAlert::INTERNAL_ERROR));
+        }
+
+        let client_cert = match ssl.peer_certificate() {
+            Some(val) => val,
+            None => {
+                log::error!("Failed to get client certificate");
+                return Err(SslVerifyError::Invalid(SslAlert::NO_CERTIFICATE));
+            }
+        };
+
+        // Making sure the client CN is "forward_proxy"
+        debug!("Debug Client certificate: {:?}", client_cert.subject_name());
+
+        // On the client side, the chain includes the leaf certificate, but on the server side it does
+        // not. Fun!
+        let client_ca_cert = match ssl.peer_cert_chain() {
+            Some(chain) => chain.get(0).unwrap(),
+            None => {
+                log::error!("Failed to get client certificate chain");
+                return Err(SslVerifyError::Invalid(SslAlert::NO_CERTIFICATE));
+            }
+        };
+
+        // Making sure the client CA CN is "ca"
+        debug!(
+            "Debug Client CA certificate: {:?}",
+            client_ca_cert.subject_name()
+        );
+
+        //  Get the CA public key
+        let client_ca_pub_key = client_ca_cert
+            .public_key()
+            .inspect_err(|e| {
+                log::error!("Failed to get CA public key: {}", e);
+            })
+            .unwrap();
+
+        // We expect the client CA public key to be the same as the one we have
+        if !client_ca_pub_key.public_eq(server_ca_public_key) {
+            log::error!("Client CA public key does not match server CA public key");
+            return Err(SslVerifyError::Invalid(SslAlert::BAD_CERTIFICATE));
+        }
+        debug!("Client CA public key matches server CA public key");
+
+        // Verify the client certificate against it own CA
+        if !client_cert.verify(&server_ca_public_key).unwrap() {
+            log::error!("Client certificate verification failed");
+            return Err(SslVerifyError::Invalid(SslAlert::BAD_CERTIFICATE));
+        }
+        debug!("Client certificate verification succeeded");
+
+        Ok(())
+    }
+}
