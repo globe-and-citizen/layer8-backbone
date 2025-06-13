@@ -70,7 +70,7 @@ pub trait ResponseBodyTrait: Serialize + for<'de> Deserialize<'de> + Debug {
 
     /// Override this method to handle error serialization if your handler implements
     /// the `DefaultHandler` trait.
-    fn from_json_err(err: serde_json::Error) -> Option<Self> {None}
+    fn from_json_err(_err: serde_json::Error) -> Option<Self> {None}
 }
 
 /// `RequestBodyTrait` provides a default method to deserialize the request body bytes

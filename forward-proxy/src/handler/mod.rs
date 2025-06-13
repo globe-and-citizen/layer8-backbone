@@ -116,9 +116,6 @@ impl ForwardHandler {
     pub async fn handle_proxy(&self, ctx: &mut Layer8Context) -> APIHandlerResponse {
         // Handle proxy endpoint
         let client = Client::new();
-        // let request_body = FpRequestBodyProxied {
-        //     fp_request_body_proxied: body_string.clone(),
-        // };
 
         let body_string = String::from_utf8_lossy(&ctx.get_request_body()).to_string();
         let response = client

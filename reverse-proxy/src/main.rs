@@ -2,10 +2,9 @@ mod handler;
 mod proxy;
 
 use clap::Parser;
-use serde::{Deserialize, Serialize};
 use std::net::ToSocketAddrs;
 
-use pingora::prelude::{http_proxy_service, ProxyHttp};
+use pingora::prelude::{http_proxy_service};
 use pingora::server::Server;
 use pingora::server::configuration::Opt;
 
@@ -15,11 +14,11 @@ use log::*;
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::sync::Arc;
-use pingora_router::ctx::Layer8ContextTrait;
-use pingora_router::handler::{APIHandler, DefaultHandlerTrait, ResponseBodyTrait};
+use pingora_router::handler::{APIHandler};
 use pingora_router::router::Router;
 use proxy::{BACKEND_PORT, ReverseProxy, UPSTREAM_IP};
 use crate::handler::ReverseHandler;
+use futures::FutureExt;
 
 fn main() {
     let file = OpenOptions::new()
@@ -55,7 +54,7 @@ fn main() {
     });
 
     let handle_proxy: APIHandler<Arc<ReverseHandler>> = Box::new(|h, ctx| {
-        async move { h.handle_proxy(ctx).await }.boxed()
+        async move { h.handle_proxy_request(ctx).await }.boxed()
     });
 
     let rp_handler = Arc::new(ReverseHandler{});

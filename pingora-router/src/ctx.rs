@@ -10,7 +10,7 @@ use crate::utils::get_request_body;
 
 /// `Layer8ContextRequestSummary` is expected to contain all request's metadata
 #[derive(Debug, Clone, Default)]
-pub(crate) struct Layer8ContextRequestSummary {
+pub struct Layer8ContextRequestSummary {
     pub method: Method,
     pub path: String,
     pub params: HashMap<String, String>,
