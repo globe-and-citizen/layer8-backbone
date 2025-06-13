@@ -20,8 +20,8 @@ impl HeaderKeys {
 
     pub fn placeholder_value(&self) -> &'static str {
         match self {
-            HeaderKeys::RpHeaderRequestKey => "placeholder value",
-            HeaderKeys::RpHeaderResponseKey => "placeholder value",
+            HeaderKeys::RpHeaderRequestKey => "added in ReverseProxy",
+            HeaderKeys::RpHeaderResponseKey => "added in ReverseProxy",
             _ => ""
         }
     }

@@ -44,7 +44,7 @@ impl ReverseHandler {
 
         // ReverseProxy's response body
         let response = InitEncryptedTunnelResponse {
-            rp_response_body: "placeholder for ReverseProxy's body".to_string(),
+            rp_response_body: "body added in ReverseProxy".to_string(),
         };
 
         APIHandlerResponse {
@@ -53,49 +53,23 @@ impl ReverseHandler {
         }
     }
 
-    /// get spa_request_body from received request body
-    /// send spa body to backend with ReverseProxy header
+    /// - get spa_request_body from received request body
+    /// - send spa body to backend with ReverseProxy header
     async fn send_proxy_to_backend(&self, headers: HashMap<String, String>, body: ProxyRequest)
         -> Result<Response, reqwest::Error>
     {
         let new_headers = utils::to_reqwest_header(headers);
         let new_body = body.to_backend_body();
         let new_body_string = String::from_utf8_lossy(&new_body.to_bytes()).to_string();
+        debug!("proxy to backend body: {}", new_body_string);
 
         let client = Client::new();
         client.post(PROXY_TO_BACKEND_PATH.as_str())
+            .header("Content-Type", "application/json")
             .headers(new_headers)
             .body(new_body_string)
             .send()
             .await
-    }
-
-    async fn handle_proxy_backend_response(&self, response: Result<Response, reqwest::Error>) -> APIHandlerResponse {
-        return match response {
-            Ok(reqw_response) => {
-                let be_response: ProxyResponseFromBackend = reqw_response.json().await.unwrap();
-
-                // create new response body from backend's response
-                let proxy_response = be_response.to_proxy_response("ReverseProxy added body".to_string());
-
-                APIHandlerResponse {
-                    status: StatusCode::OK,
-                    body: Some(proxy_response.to_bytes()),
-                }
-            }
-            Err(err) => {
-                error!("Error forwarding request to backend: {:?}", err);
-                let status = err.status().unwrap_or(reqwest::StatusCode::INTERNAL_SERVER_ERROR);
-                let err_body = ErrorResponse {
-                    error: format!("Backend error: {}", status),
-                };
-
-                APIHandlerResponse {
-                    status: StatusCode::BAD_GATEWAY,
-                    body: Some(err_body.to_bytes()),
-                }
-            }
-        }
     }
 
     pub async fn handle_proxy_request(&self, ctx: &mut Layer8Context) -> APIHandlerResponse {
@@ -128,11 +102,63 @@ impl ReverseHandler {
 
         let be_request_header = HashMap::from([
             (SpaHeaderRequestKey.as_str().to_string(), spa_request_header),
-            (RpHeaderResponseKey.as_str().to_string(), "this header was generated in ReverseProxy".to_string())
+            (RpHeaderResponseKey.as_str().to_string(), RpHeaderResponseKey.placeholder_value().to_string())
         ]);
 
-        let be_response = self.send_proxy_to_backend(be_request_header, request_body).await;
+        return match self.send_proxy_to_backend(be_request_header, request_body).await {
+            Ok(reqw_response) if reqw_response.status().is_success() => {
+                debug!("req_response: {:?}", reqw_response);
+                let be_response: ProxyResponseFromBackend = match reqw_response.json().await {
+                    Ok(res) => res,
+                    Err(err) => {
+                        debug!("Parsing backend body error: {:?}", err);
+                        return APIHandlerResponse {
+                            status: StatusCode::INTERNAL_SERVER_ERROR,
+                            body: None,
+                        }
+                    }
+                };
 
-        self.handle_proxy_backend_response(be_response).await
+                // create new response body from backend's response
+                let proxy_response = be_response.to_proxy_response("body added in ReverseProxy".to_string());
+
+                APIHandlerResponse {
+                    status: StatusCode::OK,
+                    body: Some(proxy_response.to_bytes()),
+                }
+            }
+            Ok(res) => {
+                // Handle 4xx/5xx errors
+                let status = res.status();
+
+                let error_body = match res.content_length() {
+                    None => "internal-server-error".to_string(),
+                    Some(_) => {
+                        res.text().await.unwrap_or_else(|_e| "".to_string())
+                    }
+                };
+
+                let response_bytes = ErrorResponse {
+                    error: error_body
+                }.to_bytes();
+
+                APIHandlerResponse {
+                    status: StatusCode::try_from(status.as_u16()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
+                    body: Some(response_bytes),
+                }
+            }
+            Err(err) => {
+                error!("Error forwarding request to backend: {:?}", err);
+                let status = err.status().unwrap_or(reqwest::StatusCode::INTERNAL_SERVER_ERROR);
+                let err_body = ErrorResponse {
+                    error: format!("Backend error: {}", status),
+                };
+
+                APIHandlerResponse {
+                    status: StatusCode::BAD_GATEWAY,
+                    body: Some(err_body.to_bytes()),
+                }
+            }
+        }
     }
 }

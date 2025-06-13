@@ -11,7 +11,6 @@ use pingora::server::configuration::Opt;
 use chrono::Local;
 use env_logger;
 use log::*;
-use std::fs::OpenOptions;
 use std::io::Write;
 use std::sync::Arc;
 use pingora_router::handler::{APIHandler};
@@ -21,16 +20,17 @@ use crate::handler::ReverseHandler;
 use futures::FutureExt;
 
 fn main() {
-    let file = OpenOptions::new()
-        .append(true)
-        .create(true)
-        .open("log.txt")
-        .expect("Can't create file!");
+    // let file = OpenOptions::new()
+    //     .append(true)
+    //     .create(true)
+    //     .open("log.txt")
+    //     .expect("Can't create file!");
+    //
+    // let target = Box::new(file);
 
-    let target = Box::new(file);
-
+    let target = env_logger::Target::Stdout;
     env_logger::Builder::new()
-        .target(env_logger::Target::Pipe(target))
+        .target(target)
         .filter(None, LevelFilter::Debug)
         .format(|buf, record| {
             writeln!(

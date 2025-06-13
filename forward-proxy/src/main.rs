@@ -3,7 +3,6 @@ mod handler;
 
 use pingora::prelude::*;
 use simplelog::{ConfigBuilder, LevelFilter, WriteLogger};
-use std::fs;
 use std::sync::Arc;
 use futures::FutureExt;
 use log::info;
@@ -15,10 +14,11 @@ use pingora_router::router::Router;
 fn main() {
     // Load environment variables from .env file
     dotenv::dotenv().ok();
-    // Initialize logger
-    let log_file = fs::File::create("log.txt").expect("Failed to create log file");
     let config = ConfigBuilder::new().set_time_to_local(true).build();
-    WriteLogger::init(LevelFilter::Debug, config, log_file).expect("Failed to initialize logger");
+    // Initialize logger
+    // let log_file = fs::File::create("log.txt").expect("Failed to create log file");
+    // WriteLogger::init(LevelFilter::Debug, config, log_file).expect("Failed to initialize logger");
+    WriteLogger::init(LevelFilter::Debug, config, std::io::stdout()).expect("Failed to initialize logger");
 
     info!("Starting server...");
 

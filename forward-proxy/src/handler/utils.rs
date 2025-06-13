@@ -44,3 +44,7 @@ pub fn to_reqwest_header(map: HashMap<String, String>) -> HeaderMap {
     }
     header_map
 }
+
+pub fn bytes_to_string(bytes: &Vec<u8>) -> String {
+    String::from_utf8_lossy(bytes).to_string()
+}
