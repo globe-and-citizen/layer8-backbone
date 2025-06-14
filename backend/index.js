@@ -60,7 +60,7 @@ app.post("/test-endpoint", (req, res) => {
 });
 
 app.post("/init-tunnel", (req, res) => {
-  console.log("Received request:", req.body); // Log the entire request body to the console as well
+  console.log("/init-tunnel Received request:", req.body); // Log the entire request body to the console as well
   if (!req.body) {
     return res.status(400).json({ error: "Invalid request payload" });
   }
@@ -68,11 +68,11 @@ app.post("/init-tunnel", (req, res) => {
 });
 
 app.post("/proxy", (req, res) => {
-  console.log("Received request:", req.body); // Log the entire request body to the console as well
+  console.log("/proxy Received request:", req.body); // Log the entire request body to the console as well
   if (!req.body) {
     return res.status(400).json({ error: "Invalid request payload" });
   }
-  res.status(200).json({ data: "Tunnel established succesfully" });
+  res.status(200).json({ be_response_body: "body added in Backend" });
 });
 
 app.use(expressWinston.errorLogger({
