@@ -17,3 +17,6 @@ run-tests:
 
 run-spa-frontend:
 	cd spa/frontend && npm i && npm run dev
+
+run-spa-backend:
+	cd spa/backend && npm i && node index.js
