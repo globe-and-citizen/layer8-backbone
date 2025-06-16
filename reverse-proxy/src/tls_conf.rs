@@ -94,7 +94,7 @@ impl TlsConfig {
         // Making sure the client CN is "forward_proxy" in debug logs
         debug!("Debug Client certificate: {:?}", client_cert.subject_name());
 
-        // Verify the client certificate against it own CA
+        // Verify the client certificate against the server's CA
         if !client_cert.verify(&server_ca_public_key).unwrap() {
             log::error!("Client certificate verification failed");
             return Err(SslVerifyError::Invalid(SslAlert::BAD_CERTIFICATE));
