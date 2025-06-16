@@ -51,19 +51,12 @@ impl TlsAccept for TlsConfig {
                 .unwrap();
         }
 
-        // add the CA certificate to the SSL context
+        // the CA certificate is used to verify the client certificate
         let ca_cert = boring::x509::X509::from_pem(CA_PEM)
             .inspect_err(|e| {
                 log::error!("Failed to parse CA certificate: {}", e);
             })
             .unwrap();
-        {
-            ssl.add_chain_cert(&ca_cert)
-                .inspect_err(|e| {
-                    log::error!("Failed to add CA certificate: {}", e);
-                })
-                .unwrap();
-        }
 
         ssl.set_custom_verify_callback(
             SslVerifyMode::PEER,
@@ -98,39 +91,8 @@ impl TlsConfig {
             }
         };
 
-        // Making sure the client CN is "forward_proxy"
+        // Making sure the client CN is "forward_proxy" in debug logs
         debug!("Debug Client certificate: {:?}", client_cert.subject_name());
-
-        // On the client side, the chain includes the leaf certificate, but on the server side it does
-        // not. Fun!
-        let client_ca_cert = match ssl.peer_cert_chain() {
-            Some(chain) => chain.get(0).unwrap(),
-            None => {
-                log::error!("Failed to get client certificate chain");
-                return Err(SslVerifyError::Invalid(SslAlert::NO_CERTIFICATE));
-            }
-        };
-
-        // Making sure the client CA CN is "ca"
-        debug!(
-            "Debug Client CA certificate: {:?}",
-            client_ca_cert.subject_name()
-        );
-
-        //  Get the CA public key
-        let client_ca_pub_key = client_ca_cert
-            .public_key()
-            .inspect_err(|e| {
-                log::error!("Failed to get CA public key: {}", e);
-            })
-            .unwrap();
-
-        // We expect the client CA public key to be the same as the one we have
-        if !client_ca_pub_key.public_eq(server_ca_public_key) {
-            log::error!("Client CA public key does not match server CA public key");
-            return Err(SslVerifyError::Invalid(SslAlert::BAD_CERTIFICATE));
-        }
-        debug!("Client CA public key matches server CA public key");
 
         // Verify the client certificate against it own CA
         if !client_cert.verify(&server_ca_public_key).unwrap() {

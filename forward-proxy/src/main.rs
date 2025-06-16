@@ -66,7 +66,7 @@ impl ProxyHttp for ForwardProxy {
         );
         {
             let cert = X509::from_pem(include_bytes!("../../certs/generated/forward_proxy.pem"))
-                .or_err(TLS_CONF_ERR, "Failed to load CA certificate")?;
+                .or_err(TLS_CONF_ERR, "Failed to load FP's certificate")?;
 
             let ca_cert = X509::from_pem(include_bytes!("../../certs/generated/ca.pem"))
                 .or_err(TLS_CONF_ERR, "Failed to load CA certificate")?;
@@ -78,7 +78,7 @@ impl ProxyHttp for ForwardProxy {
 
             // The certificate to present in mTLS connections to upstream
             // The organization implementing mTLS acts as its own certificate authority.
-            let cert_key = CertKey::new(vec![cert, ca_cert.clone()], key);
+            let cert_key = CertKey::new(vec![cert], key);
 
             // Providing Peer Options
             let mut peer_options = PeerOptions::new();
