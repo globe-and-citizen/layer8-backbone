@@ -1,14 +1,17 @@
+use std::{env, sync::Arc};
+
 use async_trait::async_trait;
+use boring::x509::X509;
 use chrono::Utc;
+use env_logger::{Env, Target};
 use jsonwebtoken::{EncodingKey, Header, encode};
 use log::{error, info};
+use pingora::{listeners::tls::TLS_CONF_ERR, upstreams::peer::PeerOptions, utils::tls::CertKey};
 use pingora_core::prelude::*;
 use pingora_error::Result;
 use pingora_proxy::{ProxyHttp, Session};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use simplelog::{ConfigBuilder, LevelFilter, WriteLogger};
-use std::fs;
 
 const LAYER8_URL: &str = "http://127.0.0.1:5001";
 const RP_URL: &str = "http://127.0.0.1:6193";
@@ -70,11 +73,52 @@ impl ProxyHttp for ForwardProxy {
         _session: &mut Session,
         _ctx: &mut Self::CTX,
     ) -> Result<Box<pingora_core::upstreams::peer::HttpPeer>> {
-        Ok(Box::from(HttpPeer::new(
-            String::from("127.0.0.1:6193"),
-            false,
-            String::from(""),
-        )))
+        // testing certs data; fixme to be dynamic
+
+        // mTLS Steps:
+        // 1. Client connects to server
+        // 2. Server presents its TLS certificate
+        // 3. Client verifies the server's certificate
+        // 4. Client presents its TLS certificate
+        // 5. Server verifies the client's certificate
+        // 6. Server grants access
+        // 7. Client and server exchange information over encrypted TLS connection
+        //
+        // Code below is for step 4(this is a client to RP), presenting the client's TLS certificate.
+        let mut peer = HttpPeer::new(
+            String::from("localhost:6193"),
+            true,
+            "localhost".to_string(),
+        );
+        {
+            let cert = X509::from_pem(include_bytes!("../../certs/generated/forward_proxy.pem"))
+                .or_err(TLS_CONF_ERR, "Failed to load FP's certificate")?;
+
+            let ca_cert = X509::from_pem(include_bytes!("../../certs/generated/ca.pem"))
+                .or_err(TLS_CONF_ERR, "Failed to load CA certificate")?;
+
+            let key = boring::pkey::PKey::private_key_from_pem(include_bytes!(
+                "../../certs/generated/forward_proxy-key.pem"
+            ))
+            .or_err(TLS_CONF_ERR, "Failed to load private key")?;
+
+            // The certificate to present in mTLS connections to upstream
+            // The organization implementing mTLS acts as its own certificate authority.
+            let cert_key = CertKey::new(vec![cert], key);
+
+            // Providing Peer Options
+            let mut peer_options = PeerOptions::new();
+            {
+                peer_options.verify_cert = true; // Verify the server's certificate
+                peer_options.ca = Some(Arc::new(Box::new([ca_cert])));
+                peer_options.verify_hostname = true; // Whether to check if upstream server cert's Host matches the SNI
+            }
+
+            peer.client_cert_key = Some(Arc::new(cert_key));
+            peer.options = peer_options;
+        }
+
+        Ok(Box::new(peer))
     }
 
     async fn request_filter(&self, session: &mut Session, _ctx: &mut Self::CTX) -> Result<bool>
@@ -403,21 +447,47 @@ fn generate_standard_token(secret_key: &str) -> Result<String, Box<dyn std::erro
 fn main() {
     // Load environment variables from .env file
     dotenv::dotenv().ok();
+
+    unsafe {
+        env::set_var("RUST_LOG", "trace");
+    }
+
     // Initialize logger
-    let log_file = fs::File::create("log.txt").expect("Failed to create log file");
-    let config = ConfigBuilder::new().set_time_to_local(true).build();
-    WriteLogger::init(LevelFilter::Debug, config, log_file).expect("Failed to initialize logger");
+    // let log_file = fs::File::create("log.txt").expect("Failed to create log file");
+    // let config = ConfigBuilder::new().set_time_to_local(true).build();
+    // WriteLogger::init(LevelFilter::Debug, config, log_file).expect("Failed to initialize logger");
+    env_logger::Builder::from_env(Env::default().write_style_or("RUST_LOG_STYLE", "always"))
+        .format_file(true)
+        .format_line_number(true)
+        .target(Target::Stdout)
+        .init();
 
     info!("Starting server...");
-
-    let mut server = Server::new(None).unwrap();
+    let mut server = Server::new(Some(Opt {
+        conf: Some(format!("{}/../server_conf.yml", env!("CARGO_MANIFEST_DIR"))),
+        ..Default::default()
+    }))
+    .unwrap();
     server.bootstrap();
 
     let mut proxy = pingora_proxy::http_proxy_service(&server.configuration, ForwardProxy);
 
-    proxy.add_tcp("0.0.0.0:6191");
+    // testing certs data; fixme to be dynamic
+    {
+        let server_pem = format!(
+            "{}/../certs/generated/forward_proxy.pem",
+            env!("CARGO_MANIFEST_DIR")
+        );
+        let server_key = format!(
+            "{}/../certs/generated/forward_proxy-key.pem",
+            env!("CARGO_MANIFEST_DIR")
+        );
+
+        proxy
+            .add_tls("localhost:6191", &server_pem, &server_key)
+            .unwrap();
+    }
 
     server.add_service(proxy);
-
     server.run_forever();
 }

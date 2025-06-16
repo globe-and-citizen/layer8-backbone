@@ -1,23 +1,21 @@
+use std::{collections::HashMap, env};
+
 use async_trait::async_trait;
 use bytes::Bytes;
-use clap::Parser;
-use serde::{Deserialize, Serialize};
-use std::net::ToSocketAddrs;
-
-use pingora::Result;
-use pingora::http::{Method, ResponseHeader, StatusCode};
-use pingora::proxy::{ProxyHttp, Session};
-use pingora::server::Server;
-use pingora::server::configuration::Opt;
-use pingora::upstreams::peer::HttpPeer;
-
-use chrono::Local;
-use env_logger;
+use env_logger::{self, Env, Target};
 use log::*;
+use pingora::{
+    Result,
+    http::{Method, ResponseHeader, StatusCode},
+    listeners::tls::TlsSettings,
+    proxy::{ProxyHttp, Session},
+    server::{Server, configuration::Opt},
+    upstreams::peer::HttpPeer,
+};
 use reqwest::Client;
-use std::collections::HashMap;
-use std::fs::OpenOptions;
-use std::io::Write;
+use serde::{Deserialize, Serialize};
+
+use crate::tls_conf::TlsConfig;
 
 const UPSTREAM_HOST: &str = "localhost";
 const UPSTREAM_IP: &str = "0.0.0.0";
@@ -37,7 +35,7 @@ pub struct ResponseBody {
 }
 
 pub struct ReverseProxy {
-    addr: std::net::SocketAddr,
+    // addr: std::net::SocketAddr,
 }
 
 impl ReverseProxy {
@@ -77,19 +75,25 @@ impl ReverseProxy {
                     "Creating a new request to http://localhost:{}{}",
                     BACKEND_PORT, request_url
                 );
-                
+
                 let client = Client::new();
                 let mut map = HashMap::new();
                 map.insert("fp_request_body_proxied", request_body.data);
-                
+
                 let res = client
                     .post(format!("http://localhost:{}{}", BACKEND_PORT, request_url))
-                    .header("x-fp-request-header-proxied", "request-header-forward-proxied")
-                    .header("x-rp-request-header-proxied", "request-header-reverse-proxy")
+                    .header(
+                        "x-fp-request-header-proxied",
+                        "request-header-forward-proxied",
+                    )
+                    .header(
+                        "x-rp-request-header-proxied",
+                        "request-header-reverse-proxy",
+                    )
                     .json(&map)
                     .send()
                     .await;
-                
+
                 match res {
                     Ok(response) => {
                         debug!(
@@ -100,12 +104,15 @@ impl ReverseProxy {
                         );
 
                         let mut response_body: ResponseBody = response.json().await.unwrap();
-                        response_body.rp_request_body_proxied = Some("data copied by reverse proxy".to_string());
+                        response_body.rp_request_body_proxied =
+                            Some("data copied by reverse proxy".to_string());
                         Ok(Some(response_body))
                     }
                     Err(err) => {
                         error!("Error forwarding request to backend: {}", err);
-                        let status = err.status().unwrap_or(reqwest::StatusCode::INTERNAL_SERVER_ERROR);
+                        let status = err
+                            .status()
+                            .unwrap_or(reqwest::StatusCode::INTERNAL_SERVER_ERROR);
                         Ok(Some(ResponseBody {
                             rp_response_body_init_proxied: None,
                             rp_request_body_proxied: None,
@@ -137,7 +144,7 @@ impl ReverseProxy {
         header
             .append_header("Content-Length", body_bytes.len().to_string())
             .unwrap();
-        
+
         // Common headers
         header
             .append_header("Access-Control-Allow-Origin", "*")
@@ -151,21 +158,29 @@ impl ReverseProxy {
         header
             .append_header("Access-Control-Max-Age", "86400")
             .unwrap();
-        
+
         // Endpoint-specific headers
         if is_init_tunnel {
             header
-                .append_header("x-rp-response-header-init", "response-header-init-reverse-proxy")
+                .append_header(
+                    "x-rp-response-header-init",
+                    "response-header-init-reverse-proxy",
+                )
                 .unwrap();
         } else {
             header
-                .append_header("x-rp-response-header-added", "response-header-forward-proxied")
+                .append_header(
+                    "x-rp-response-header-added",
+                    "response-header-forward-proxied",
+                )
                 .unwrap();
         }
-        
+
         session.write_response_header_ref(&header).await
     }
 }
+
+mod tls_conf;
 
 #[async_trait]
 impl ProxyHttp for ReverseProxy {
@@ -178,9 +193,9 @@ impl ProxyHttp for ReverseProxy {
         _session: &mut Session,
         _ctx: &mut Self::CTX,
     ) -> Result<Box<HttpPeer>> {
-        let peer: Box<HttpPeer> =
-            Box::new(HttpPeer::new(self.addr, false, UPSTREAM_HOST.to_owned()));
-        Ok(peer)
+        // we never use this as the client; no need to setup mTLS
+        let peer = HttpPeer::new(String::from("localhost:3000"), false, String::from(""));
+        Ok(Box::new(peer))
     }
 
     async fn request_filter(&self, session: &mut Session, _ctx: &mut Self::CTX) -> Result<bool>
@@ -239,7 +254,12 @@ impl ProxyHttp for ReverseProxy {
 
         // Handle error responses
         if response_body.error.is_some() {
-            response_status = match response_body.error.as_ref().unwrap().contains("Backend error") {
+            response_status = match response_body
+                .error
+                .as_ref()
+                .unwrap()
+                .contains("Backend error")
+            {
                 true => StatusCode::BAD_GATEWAY,
                 false => StatusCode::BAD_REQUEST,
             };
@@ -247,7 +267,13 @@ impl ProxyHttp for ReverseProxy {
 
         // convert json response to vec
         let response_body_bytes = serde_json::ser::to_vec(&response_body).unwrap();
-        ReverseProxy::set_headers(response_status, &response_body_bytes, session, is_init_tunnel).await?;
+        ReverseProxy::set_headers(
+            response_status,
+            &response_body_bytes,
+            session,
+            is_init_tunnel,
+        )
+        .await?;
         session
             .write_response_body(Some(Bytes::from(response_body_bytes)), true)
             .await?;
@@ -273,47 +299,66 @@ impl ProxyHttp for ReverseProxy {
 }
 
 fn main() {
-    let file = OpenOptions::new()
-        .append(true)
-        .create(true)
-        .open("log.txt")
-        .expect("Can't create file!");
+    // let file = OpenOptions::new()
+    //     .append(true)
+    //     .create(true)
+    //     .open("log.txt")
+    //     .expect("Can't create file!");
 
-    let target = Box::new(file);
+    // let target = Box::new(file);
 
-    env_logger::Builder::new()
-        .target(env_logger::Target::Pipe(target))
-        .filter(None, LevelFilter::Debug)
-        .format(|buf, record| {
-            writeln!(
-                buf,
-                "[{} {} {}:{}] {}",
-                Local::now().format("%Y-%m-%d %H:%M:%S%.3f"),
-                record.level(),
-                record.file().unwrap_or("unknown"),
-                record.line().unwrap_or(0),
-                record.args()
-            )
-        })
+    // env_logger::Builder::new()
+    //     .target(env_logger::Target::Pipe(target))
+    //     .filter(None, LevelFilter::Debug)
+    //     .format(|buf, record| {
+    //         writeln!(
+    //             buf,
+    //             "[{} {} {}:{}] {}",
+    //             Local::now().format("%Y-%m-%d %H:%M:%S%.3f"),
+    //             record.level(),
+    //             record.file().unwrap_or("unknown"),
+    //             record.line().unwrap_or(0),
+    //             record.args()
+    //         )
+    //     })
+    //     .init();
+
+    // Load environment variables from .env file
+    // dotenv::dotenv().ok();
+
+    unsafe {
+        env::set_var("RUST_LOG", "trace");
+    }
+
+    // Initialize logger
+    // let log_file = fs::File::create("log.txt").expect("Failed to create log file");
+    // let config = ConfigBuilder::new().set_time_to_local(true).build();
+    // WriteLogger::init(LevelFilter::Debug, config, log_file).expect("Failed to initialize logger");
+    env_logger::Builder::from_env(Env::default().write_style_or("RUST_LOG_STYLE", "always"))
+        .format_file(true)
+        .format_line_number(true)
+        .target(Target::Stdout)
         .init();
 
-    let opt = Opt::parse();
-    let mut my_server = Server::new(Some(opt)).unwrap();
+    // let opt = Opt::parse();
+    // let mut my_server = Server::new(Some(opt)).unwrap();
+    let mut my_server = Server::new(Some(Opt {
+        conf: Some(format!("{}/../server_conf.yml", env!("CARGO_MANIFEST_DIR"))),
+        ..Default::default()
+    }))
+    .unwrap();
+
     my_server.bootstrap();
 
-    let mut my_proxy = pingora::proxy::http_proxy_service(
-        &my_server.configuration,
-        ReverseProxy {
-            addr: (UPSTREAM_IP.to_owned(), BACKEND_PORT)
-                .to_socket_addrs()
-                .unwrap()
-                .next()
-                .unwrap(),
-        },
+    let mut my_proxy =
+        pingora::proxy::http_proxy_service(&my_server.configuration, ReverseProxy {});
+
+    my_proxy.add_tls_with_settings(
+        "localhost:6193",
+        None,
+        TlsSettings::with_callbacks(Box::new(TlsConfig)).unwrap(),
     );
 
-    // Listen on both endpoints
-    my_proxy.add_tcp("0.0.0.0:6193");  // Publicly accessible
     my_proxy.add_tcp("127.0.0.1:6194"); // Localhost only
 
     my_server.add_service(my_proxy);

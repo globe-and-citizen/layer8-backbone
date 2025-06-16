@@ -15,24 +15,29 @@
 
 <script setup lang="ts">
 
-import {ref} from 'vue'
-import axios from "axios";
+import { ref } from 'vue'
+// import axios from "axios";
 
 const message = ref("")
 const answer = ref("")
-const PROXY_ADDR = "http://localhost:6191/test-endpoint"
+const PROXY_ADDR = "https://localhost:6191/test-endpoint"
 
 async function ask() {
-  let res = await axios.post(PROXY_ADDR,
-      {data: message.value},
-      {
-        headers: {
-          'Content-Type': "application/json",
-          'Accept': "application/json",
-        }
-      }
-  )
-  answer.value = res.data.data
+  try {
+    const res = await fetch(PROXY_ADDR, {
+      method: "POST",
+      headers: {
+        'Content-Type': "application/json",
+        'Accept': "application/json",
+      },
+      body: JSON.stringify({ data: message.value })
+    });
+    const data = await res.json();
+    answer.value = data.data
+  } catch (error) {
+    console.error("Error while fetching the answer:", error)
+    answer.value = "An error occurred while processing your request."
+  }
 }
 
 function clear() {
@@ -99,8 +104,10 @@ p {
 
 textarea {
   width: 100%;
-  min-height: 20rem; /* starting height */
-  max-height: 30rem; /* optional: limit it */
+  min-height: 20rem;
+  /* starting height */
+  max-height: 30rem;
+  /* optional: limit it */
   padding: 0.5rem 1rem;
   border-radius: 8px;
   font-size: 1rem;
@@ -108,12 +115,11 @@ textarea {
   color: #f0f0f0;
   border: 2px solid #ccc;
   overflow-y: auto;
-  resize: vertical; /* allow user to resize manually */
+  resize: vertical;
+  /* allow user to resize manually */
   box-sizing: border-box;
   line-height: 1.5;
   transition: border-color 0.2s ease-in-out;
   position: relative;
 }
-
-
 </style>
