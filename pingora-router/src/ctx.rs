@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use log::debug;
 use pingora::http::{Method, RequestHeader};
 use pingora::proxy::Session;
 use crate::utils::get_request_body;
@@ -43,7 +42,7 @@ impl Layer8ContextRequestSummary {
 /// `Layer8ContextRequest` is expected to contain all relevant request information
 /// needed for processing and handler access
 #[derive(Debug, Clone, Default)]
-pub(crate) struct Layer8ContextRequest {
+pub struct Layer8ContextRequest {
     summary: Layer8ContextRequestSummary,
     header: Layer8Header,
     body: Vec<u8>,
@@ -52,7 +51,7 @@ pub(crate) struct Layer8ContextRequest {
 /// `Layer8ContextResponse` is expected to store data to be returned to the client and
 /// shared across handlers during request processing
 #[derive(Debug, Clone, Default)]
-pub(crate) struct Layer8ContextResponse {
+pub struct Layer8ContextResponse {
     header: Layer8Header,
     body: Vec<u8>,
 }
@@ -70,10 +69,10 @@ pub(crate) struct Layer8ContextResponse {
 #[derive(Debug, Clone, Default)]
 pub struct Layer8Context {
     /// `request`: contains all relevant request information needed for processing and handler access
-    request: Layer8ContextRequest,
+    pub request: Layer8ContextRequest,
     /// `response`: stores data to be returned to the client and shared across handlers
     /// during request processing
-    response: Layer8ContextResponse,
+    pub response: Layer8ContextResponse,
     /// `memory`: stores arbitrary key-value data that needs to be shared across handlers
     /// during request processing.
     /// Accessed via `get(&self, key: &str)` and `set(&mut self, key: String, value: String)` methods
@@ -83,17 +82,17 @@ pub struct Layer8Context {
 impl Layer8Context {
     pub async fn update(&mut self, session: &mut Session) -> pingora::Result<bool> {
         self.request.summary = Layer8ContextRequestSummary::from(session);
-        debug!("request summary: {:?}", self.request.summary);
 
-        return match get_request_body(session).await {
-            Ok(body) => {
-                self.request.body = body;
-                Ok(true)
-            }
-            Err(err) => Err(err)
-        }
+        match get_request_body(session).await {
+            Ok(body) => self.request.body = body,
+            Err(err) => return Err(err)
+        };
+
+        self.set_request_header(session.req_header().clone());
 
         // take anything as needed later
+
+        Ok(true)
     }
 
 }

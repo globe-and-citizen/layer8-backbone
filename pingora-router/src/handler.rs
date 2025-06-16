@@ -68,6 +68,10 @@ pub trait ResponseBodyTrait: Serialize + for<'de> Deserialize<'de> + Debug {
         serde_json::to_vec(self).unwrap()
     }
 
+    fn from_bytes(bytes: Vec<u8>) -> Result<Box<Self>, serde_json::Error> {
+        serde_json::from_slice(&bytes)
+    }
+
     /// Override this method to handle error serialization if your handler implements
     /// the `DefaultHandler` trait.
     fn from_json_err(_err: serde_json::Error) -> Option<Self> {None}
@@ -81,6 +85,10 @@ pub trait ResponseBodyTrait: Serialize + for<'de> Deserialize<'de> + Debug {
 ///
 /// But it *can be extended* to specify requirements as needed later.
 pub trait RequestBodyTrait: Serialize + for<'de> Deserialize<'de> + Debug {
+    fn to_bytes(&self) -> Vec<u8> {
+        serde_json::to_vec(self).unwrap()
+    }
+
     fn from_bytes(bytes: Vec<u8>) -> Result<Box<Self>, serde_json::Error> {
         serde_json::from_slice(&bytes)
     }
