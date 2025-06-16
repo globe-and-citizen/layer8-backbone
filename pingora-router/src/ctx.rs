@@ -124,7 +124,7 @@ impl Layer8ContextTrait for Layer8Context {
     }
 
     fn insert_response_header(&mut self, key: &str, val: &str) {
-        self.response.header.insert(key.to_string(), val.to_string());
+        self.response.header.insert(key.to_lowercase().to_string(), val.to_string());
     }
 
     fn get_response_header(&self) -> &Layer8Header {

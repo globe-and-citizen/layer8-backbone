@@ -27,5 +27,7 @@ impl HeaderKeys {
     }
 }
 
+// fixme BE path should be taken from configuration
 const BACKEND_URL: &str = "http://localhost:3000";
+pub static INIT_TUNNEL_TO_BACKEND_PATH: Lazy<String> = Lazy::new(|| format!("{}/init-tunnel", BACKEND_URL));
 pub static PROXY_TO_BACKEND_PATH: Lazy<String> = Lazy::new(|| format!("{}/proxy", BACKEND_URL));

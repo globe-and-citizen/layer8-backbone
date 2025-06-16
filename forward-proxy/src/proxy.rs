@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use bytes::Bytes;
-use log::debug;
+use log::{info};
 use pingora::prelude::{HttpPeer, ProxyHttp, Session};
 use pingora::http::{ResponseHeader, StatusCode};
 use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
@@ -44,34 +44,39 @@ impl<T: Sync> ProxyHttp for ForwardProxy<T> {
     {
         // create Context
         ctx.update(session).await?;
+        let request_summary = format!("{} {}", session.req_header().method, session.req_header().uri.to_string());
+        println!();
+        info!("[REQUEST {}] {:?}", request_summary, ctx.request);
+        info!("[REQUEST {}] Decoded body: {}", request_summary, String::from_utf8_lossy(&*ctx.get_request_body()));
+        println!();
 
         let handler_response = self.router.call_handler(ctx).await;
         if handler_response.status == StatusCode::NOT_FOUND && handler_response.body == None {
             return Ok(false)
         }
-        debug!("handler_response: {:?}", handler_response);
 
         // set headers
         let mut header = ResponseHeader::build(handler_response.status, None)?;
         let response_header = ctx.get_response_header().clone();
-        debug!("handler response_header: {:?}", response_header);
         for (key, val) in response_header.iter() {
             header.insert_header(key.clone(), val.clone()).unwrap();
         };
 
-        ctx.insert_response_header("Content-Type", "application/json");
         let mut response_bytes = vec![];
         if let Some(body_bytes) = handler_response.body {
             header.insert_header("Content-length", &body_bytes.len().to_string()).unwrap();
             response_bytes = body_bytes;
-            debug!("response data: {:?}", String::from_utf8_lossy(&*response_bytes));
         };
 
         session.write_response_header_ref(&header).await?;
 
+        println!();
+        info!("[RESPONSE {}] Header: {:?}", request_summary, header.headers);
+        info!("[RESPONSE {}] Body: {}", request_summary, String::from_utf8_lossy(&*response_bytes));
+        println!();
+
         // Write the response body to the session after setting headers
         session.write_response_body(Some(Bytes::from(response_bytes)), true).await?;
-
         Ok(true)
     }
 
