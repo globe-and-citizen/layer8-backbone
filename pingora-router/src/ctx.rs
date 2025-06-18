@@ -127,6 +127,10 @@ impl Layer8ContextTrait for Layer8Context {
         self.response.header.insert(key.to_lowercase().to_string(), val.to_string());
     }
 
+    fn remove_response_header(&mut self, key: &str) -> Option<String> {
+        self.response.header.remove(key)
+    }
+
     fn get_response_header(&self) -> &Layer8Header {
         &self.response.header
     }
@@ -171,6 +175,7 @@ pub trait Layer8ContextTrait {
     fn set_request_header(&mut self, header: RequestHeader);
     fn get_request_header(&self) -> &Layer8Header;
     fn insert_response_header(&mut self, key: &str, val: &str);
+    fn remove_response_header(&mut self, key: &str) -> Option<String>;
     fn get_response_header(&self) -> &Layer8Header;
     fn set_request_body(&mut self, body: Vec<u8>);
     fn get_request_body(&self) -> Vec<u8>;

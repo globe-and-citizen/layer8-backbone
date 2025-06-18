@@ -5,6 +5,8 @@ pub enum HeaderKeys {
     RpHeaderRequestKey,
     RpHeaderResponseKey,
     SpaHeaderRequestKey,
+    IntHeaderRequestKey,
+    FpHeaderRequestKey,
     BeHeaderResponseKey
 }
 
@@ -14,7 +16,9 @@ impl HeaderKeys {
             HeaderKeys::RpHeaderRequestKey => "rp_request_header",
             HeaderKeys::RpHeaderResponseKey => "rp_response_header",
             HeaderKeys::SpaHeaderRequestKey => "spa_request_header",
-            HeaderKeys::BeHeaderResponseKey => "be_response_header"
+            HeaderKeys::BeHeaderResponseKey => "be_response_header",
+            HeaderKeys::FpHeaderRequestKey => "fp_request_header",
+            HeaderKeys::IntHeaderRequestKey => "int_request_header"
         }
     }
 

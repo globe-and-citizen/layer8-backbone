@@ -5,7 +5,7 @@ use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
 use pingora_router::handler::{APIHandlerResponse, DefaultHandlerTrait, RequestBodyTrait, ResponseBodyTrait};
 use reqwest::header::HeaderMap;
 use crate::handler::consts::{INIT_TUNNEL_TO_BACKEND_PATH, PROXY_TO_BACKEND_PATH};
-use crate::handler::consts::HeaderKeys::{RpHeaderRequestKey, RpHeaderResponseKey};
+use crate::handler::consts::HeaderKeys::{FpHeaderRequestKey, IntHeaderRequestKey, RpHeaderRequestKey, RpHeaderResponseKey};
 use crate::handler::types::{ErrorResponse, InitEncryptedTunnelRequest, InitEncryptedTunnelResponse, InitTunnelRequestToBackend, ProxyRequest, ProxyRequestToBackend, ProxyResponse, ProxyResponseFromBackend};
 
 pub mod types;
@@ -24,7 +24,7 @@ impl ReverseHandler {
         headers: HeaderMap,
         ctx: &mut Layer8Context,
         custom_header: &str,
-        content_length: usize
+        content_length: usize,
     ) {
         for (key, val) in headers.iter() {
             if let (k, Ok(v)) = (key.to_string(), val.to_str()) {
@@ -47,7 +47,7 @@ impl ReverseHandler {
     fn create_forward_request_headers(
         ctx: &mut Layer8Context,
         custom_header: &str,
-        content_length: usize
+        content_length: usize,
     ) -> HeaderMap {
         // copy all origin header to new request
         let origin_headers = ctx.get_request_header().clone();
@@ -61,6 +61,8 @@ impl ReverseHandler {
 
         reqwest_header.insert("Content-Length", content_length.to_string().parse().unwrap());
         reqwest_header.insert("Content-Type", "application/json".parse().unwrap());
+        reqwest_header.remove(IntHeaderRequestKey.as_str());
+        reqwest_header.remove(FpHeaderRequestKey.as_str());
 
         reqwest_header
     }
@@ -91,7 +93,7 @@ impl ReverseHandler {
     pub async fn handle_init_tunnel(&self, ctx: &mut Layer8Context) -> APIHandlerResponse {
         // validate request body
         let request_body = match ReverseHandler::parse_request_body::
-            <InitEncryptedTunnelRequest, ErrorResponse>(&ctx.get_request_body())
+        <InitEncryptedTunnelRequest, ErrorResponse>(&ctx.get_request_body())
         {
             Ok(res) => res.to_bytes(),
             Err(err) => {
@@ -134,9 +136,8 @@ impl ReverseHandler {
         &self,
         ctx: &mut Layer8Context,
         headers: HeaderMap,
-        body: ProxyRequestToBackend
+        body: ProxyRequestToBackend,
     ) -> APIHandlerResponse {
-
         let new_body_string = String::from_utf8_lossy(&body.to_bytes()).to_string();
 
         let log_meta = format!("[FORWARD {}]", PROXY_TO_BACKEND_PATH.as_str());
@@ -154,9 +155,10 @@ impl ReverseHandler {
         match response {
             Ok(reqw_response) if reqw_response.status().is_success() => {
                 let headers = reqw_response.headers().clone();
-                debug!("{log_meta} response from BE: {:?}", reqw_response);
+                info!("{log_meta} response from BE headers: {:?}", reqw_response.headers());
                 return match reqw_response.json::<ProxyResponseFromBackend>().await {
                     Ok(res) => {
+                        info!("{log_meta} response from BE body: {:?}", res);
                         // create new response body from backend's response
                         let proxy_response = ProxyResponse {
                             be_response_body: res.be_response_body,
@@ -167,14 +169,14 @@ impl ReverseHandler {
                             headers,
                             ctx,
                             RpHeaderResponseKey.placeholder_value(),
-                            proxy_response.len()
+                            proxy_response.len(),
                         );
 
                         APIHandlerResponse {
                             status: StatusCode::OK,
                             body: Some(proxy_response),
                         }
-                    },
+                    }
                     Err(err) => {
                         error!("Parsing backend body error: {:?}", err);
                         APIHandlerResponse {
@@ -182,7 +184,7 @@ impl ReverseHandler {
                             body: None,
                         }
                     }
-                }
+                };
             }
             Ok(res) => {
                 // Handle 4xx/5xx errors
@@ -246,7 +248,11 @@ impl ReverseHandler {
         };
 
         // todo validate request headers
-        let new_header = ReverseHandler::create_forward_request_headers(ctx, RpHeaderRequestKey.placeholder_value(), new_body.to_bytes().len());
+        let new_header = ReverseHandler::create_forward_request_headers(
+            ctx,
+            RpHeaderRequestKey.placeholder_value(),
+            new_body.to_bytes().len(),
+        );
 
         self.proxy_request_to_backend(ctx, new_header, new_body).await
     }
