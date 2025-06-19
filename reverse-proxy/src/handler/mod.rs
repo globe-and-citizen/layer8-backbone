@@ -1,13 +1,12 @@
-use log::{debug, error};
+use log::{debug};
 use pingora::http::StatusCode;
 use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
-use pingora_router::handler::{APIHandlerResponse, DefaultHandlerTrait, RequestBodyTrait, ResponseBodyTrait};
+use pingora_router::handler::{APIHandlerResponse, RequestBodyTrait, ResponseBodyTrait};
 use crate::handler::common::consts::HeaderKeys::{RpHeaderRequestKey, RpHeaderResponseKey};
 use init_tunnel::handler::InitTunnelHandler;
 use proxy::handler::ProxyHandler;
-use common::types::ErrorResponse;
-use init_tunnel::{InitEncryptedTunnelRequest, InitEncryptedTunnelResponse};
-use proxy::{ProxyRequest, ProxyRequestToBackend};
+use init_tunnel::{InitEncryptedTunnelResponse};
+use proxy::{ProxyRequestToBackend};
 use crate::handler::common::handler::CommonHandler;
 
 mod common;
@@ -16,42 +15,29 @@ mod proxy;
 
 pub struct ReverseHandler {}
 
-impl DefaultHandlerTrait for ReverseHandler {}
-
 impl ReverseHandler {
     pub async fn handle_init_tunnel(&self, ctx: &mut Layer8Context) -> APIHandlerResponse {
         // validate request body
-        let request_body = match ReverseHandler::parse_request_body::
-        <InitEncryptedTunnelRequest, ErrorResponse>(&ctx.get_request_body())
-        {
-            Ok(res) => res.to_bytes(),
-            Err(err) => {
-                let body = match err {
-                    None => None,
-                    Some(err_response) => Some(err_response.to_bytes())
-                };
-
-                InitTunnelHandler::init_tunnel_result_to_be(false).await;
-
-                return APIHandlerResponse {
-                    status: StatusCode::BAD_REQUEST,
-                    body,
-                };
-            }
+        let request_body = match InitTunnelHandler::validate_request_body(ctx).await {
+            Ok(res) => res,
+            Err(res) => return res
         };
         debug!("[REQUEST /init-tunnel] Parsed body: {:?}", request_body);
 
         // todo validate request headers
 
         // set ReverseProxy's response header
-        ctx.insert_response_header(RpHeaderResponseKey.as_str(), RpHeaderResponseKey.placeholder_value());
+        ctx.insert_response_header(
+            RpHeaderResponseKey.as_str(),
+            RpHeaderResponseKey.placeholder_value()
+        );
 
         // ReverseProxy's response body
         let response = InitEncryptedTunnelResponse {
             rp_response_body: "body added in ReverseProxy".to_string(),
         };
 
-        InitTunnelHandler::init_tunnel_result_to_be(true).await;
+        InitTunnelHandler::send_result_to_be(true).await;
 
         APIHandlerResponse {
             status: StatusCode::OK,
@@ -61,23 +47,9 @@ impl ReverseHandler {
 
     pub async fn handle_proxy_request(&self, ctx: &mut Layer8Context) -> APIHandlerResponse {
         // validate request body
-        let body = ctx.get_request_body();
-        let request_body = match ReverseHandler::parse_request_body::<ProxyRequest, ErrorResponse>(&body) {
-            Ok(proxy_request) => proxy_request,
-            Err(err) => {
-                let err_body = match err {
-                    None => None,
-                    Some(err_response) => {
-                        error!("Error parsing request body: {}", err_response.error);
-                        Some(err_response.to_bytes())
-                    }
-                };
-
-                return APIHandlerResponse {
-                    status: StatusCode::BAD_REQUEST,
-                    body: err_body,
-                };
-            }
+        let request_body = match ProxyHandler::validate_request_body(ctx).await {
+            Ok(res) => res,
+            Err(res) => return res,
         };
 
         let new_body = ProxyRequestToBackend {

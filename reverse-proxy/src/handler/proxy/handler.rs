@@ -1,6 +1,6 @@
-use pingora_router::ctx::Layer8Context;
+use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
 use reqwest::header::HeaderMap;
-use pingora_router::handler::{APIHandlerResponse, RequestBodyTrait, ResponseBodyTrait};
+use pingora_router::handler::{APIHandlerResponse, DefaultHandlerTrait, RequestBodyTrait, ResponseBodyTrait};
 use log::{error, info};
 use reqwest::Client;
 use pingora::http::StatusCode;
@@ -10,9 +10,36 @@ use crate::handler::common::handler::CommonHandler;
 use crate::handler::common::types::ErrorResponse;
 use crate::handler::proxy::{ProxyRequestToBackend, ProxyResponse, ProxyResponseFromBackend};
 
+/// Struct containing only associated methods (no instance methods or fields)
 pub struct ProxyHandler {}
 
+impl DefaultHandlerTrait for ProxyHandler {}
+
 impl ProxyHandler {
+    pub(crate) async fn validate_request_body(ctx: &mut Layer8Context)
+        -> Result<ProxyRequestToBackend, APIHandlerResponse>
+    {
+        match ProxyHandler::parse_request_body::<
+            ProxyRequestToBackend,
+            ErrorResponse
+        >(&ctx.get_request_body()) {
+            Ok(res) => Ok(res),
+            Err(err) => {
+                let body = match err {
+                    None => None,
+                    Some(err_response) => {
+                        error!("Error parsing request body: {}", err_response.error);
+                        Some(err_response.to_bytes())
+                    }
+                };
+                Err(APIHandlerResponse {
+                    status: StatusCode::BAD_REQUEST,
+                    body,
+                })
+            }
+        }
+    }
+
     /// - get spa_request_body from received request body
     /// - send spa body to backend with ReverseProxy header
     pub(crate) async fn proxy_request_to_backend(
