@@ -12,6 +12,7 @@ import {isLoggedIn, logout} from "@/utils.ts";
         <RouterLink to="/poems">Poems</RouterLink>
         <RouterLink to="/pictures">Pictures</RouterLink>
         <RouterLink to="/profile">Profile</RouterLink>
+        <RouterLink to="/upload">Upload</RouterLink>
         <a href="/" @click.prevent="logout" style="padding:0 1rem;cursor:pointer;">Logout</a>
       </div>
     </nav>

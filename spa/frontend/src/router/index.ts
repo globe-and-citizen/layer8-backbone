@@ -1,5 +1,6 @@
 import {createRouter, createWebHistory} from 'vue-router'
 import HomeView from '@/components/HomeView.vue'
+import UploadView from '@/components/Upload.vue'
 import {getToken} from "@/utils.ts";
 
 const router = createRouter({
@@ -38,7 +39,13 @@ const router = createRouter({
             name: 'profile',
             component: () => import('@/components/Profile.vue'),
             meta: {requiresAuth: true},
-        }
+        },
+        {
+            path: '/upload',
+            name: 'upload',
+            component: UploadView,
+            meta: {requiresAuth: true},
+        },
     ],
 })
 
