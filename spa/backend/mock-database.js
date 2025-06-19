@@ -38,33 +38,33 @@ module.exports = {
   images: [
     {
       id: 1,
-      name: "image1",
-      url: `${BACKEND_URL}/images/imageone.jpeg`,
+      name: "small_image",
+      url: `${BACKEND_URL}/images/small_image.png`,
       size: "1KB"
     },
     {
       id: 2,
-      name: "image2",
-      url: `${BACKEND_URL}/images/imagetwo.jpeg`,
-      size: "100KB"
+      name: "medium_image",
+      url: `${BACKEND_URL}/images/medium_image.jpg`,
+      size: "20KB"
     },
     {
       id: 3,
-      name: "image3",
-      url: `${BACKEND_URL}/images/imagethree.png`,
-      size: "500KB"
+      name: "large_image",
+      url: `${BACKEND_URL}/images/large_image.jpg`,
+      size: "230KB"
     },
     {
       id: 4,
-      name: "image4",
-      url: `${BACKEND_URL}/images/imagefour.png`,
-      size: "800KB"
+      name: "xlarge_image",
+      url: `${BACKEND_URL}/images/xlarge_image.jpg`,
+      size: "505KB"
     },
     {
       id: 5,
-      name: "image5",
-      url: `${BACKEND_URL}/images/imagefive.png`,
-      size: "1MB"
+      name: "xxlarge_image",
+      url: `${BACKEND_URL}/images/xxlarge_image.jpg`,
+      size: "900KB"
     }
   ],
   users: [
