@@ -46,21 +46,23 @@ app.get("/poems", (req, res) => {
 
 // New images endpoint
 app.get("/images", (req, res) => {
-  const image_id = parseInt(req.query.id, 10);
+  const image_name = req.query.name;
   
-  if (image_id) {
-    // Return single image if ID is provided
-    const image = images.find((img) => img.id === image_id);
+  if (image_name) {
+    // Get all images and search using if contains name
+    const image = images.find((i) => i.name.toLowerCase().includes(image_name.toLowerCase()));
     if (image) {
       res.status(200).json(image);
     } else {
       res.status(404).json({ error: "Image not found!" });
     }
   } else {
-    // Return all images if no ID
+    // Return all images if no name
     res.status(200).json(images);
   }
 });
+
+
 
 // New profile endpoint
 app.get("/profile/:username", (req, res) => {

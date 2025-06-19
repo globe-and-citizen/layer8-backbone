@@ -2,38 +2,23 @@
 import {onMounted, ref} from 'vue';
 
 const images = ref<any[]>([]);
-const selectedImage = ref<any | null>(null);
-const showModal = ref(false);
-const searchId = ref<string>('');
+const searchName = ref<string>('');
 
 function openImage(id: string) {
     fetch(`http://localhost:6191/images?id=${id}`)
         .then(response => response.json())
-        .then(data => {
-            selectedImage.value = {
-                id: data.id,
-                title: data.name,
-                src: data.url
-            };
-            showModal.value = true;
-        })
         .catch(err => {
             console.error('Error fetching image:', err);
         });
 }
 
-function closeModal() {
-    showModal.value = false;
-    selectedImage.value = null;
-}
-
 function searchImage() {
-    if (!searchId.value) {
+    if (!searchName.value) {
         fetchAllImages();
         return;
     }
     
-    fetch(`http://localhost:6191/images?id=${searchId.value}`)
+    fetch(`http://localhost:6191/images?name=${searchName.value}`)
         .then(response => {
             if (!response.ok) throw new Error('Image not found');
             return response.json();
@@ -77,33 +62,24 @@ onMounted(() => {
         
         <div class="search-container">
             <input 
-                v-model="searchId" 
-                type="number" 
-                placeholder="Enter Image ID"
+                v-model="searchName" 
+                type="text" 
+                placeholder="Enter Image Name"
                 min="1"
             />
             <button @click="searchImage">Search</button>
             <button @click="fetchAllImages">Show All</button>
         </div>
         
-        <div
-            class="image-card"
-            v-for="image in images"
-            :key="image.id"
-            @click="openImage(image.id)"
-        >
-            <img :src="image.src" :alt="image.title"/>
-            <h2>{{ image.title }}</h2>
-            <p>ID: {{ image.id }}</p>
-        </div>
-
-        <!-- Modal -->
-        <div v-if="showModal" class="modal-overlay" @click.self="closeModal">
-            <div class="modal-content">
-                <button class="close-button" @click="closeModal">✖</button>
-                <img :src="selectedImage?.src" :alt="selectedImage?.title"/>
-                <h2>{{ selectedImage?.title }}</h2>
-                <p>ID: {{ selectedImage?.id }}</p>
+        <div class="image-container">
+            <div
+                class="image-card"
+                v-for="image in images"
+                :key="image.id"
+                @click="openImage(image.id)"
+            >
+                <img :src="image.src" :alt="image.title"/>
+                <h2>{{ image.title }}</h2>
             </div>
         </div>
     </div>
@@ -137,10 +113,52 @@ onMounted(() => {
     background-color: #0056b3;
 }
 
-.image-card p {
+.image-card {
+    /* Add these new styles */
+    width: 300px; /* Fixed width */
+    height: 300px; /* Fixed height - adjust as needed */
+    margin: 10px;
+    overflow: hidden; /* Hide any overflow from the image */
+    cursor: pointer;
+    border-radius: 8px;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+    transition: transform 0.3s ease;
+}
+
+.image-card:hover {
+    transform: scale(1.03);
+}
+
+.image-card img {
+    width: 100%;
+    height: 80%; /* Adjust this percentage based on how much space you want for the image vs text */
+    object-fit: cover; /* This will maintain aspect ratio while filling the space */
+    display: block;
+}
+
+.image-card h2 {
+    padding: 10px;
+    font-size: 1rem;
     text-align: center;
-    color: #666;
-    margin-top: 0.5rem;
+    margin: 0;
+}
+
+/* Layout for the gallery */
+.gallery-vertical {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 20px;
+}
+
+/* Add a container for the image cards */
+.image-container {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 20px;
+    width: 100%;
+    max-width: 1200px;
 }
 
 .modal-content p {
