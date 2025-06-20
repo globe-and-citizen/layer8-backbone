@@ -24,6 +24,7 @@ ntor = { path = "../../../ntor" }
 config = "0.15.11"
 toml = "0.8.23"
 uuid = { version = "1.16.0", features = ["v4"] }
+utils = { path = "../utils" }
 
 [patch.crates-io]
 sfv = { git = "https://github.com/undef1nd/sfv.git", tag = "v0.9.4" }

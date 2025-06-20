@@ -9,9 +9,10 @@ use reqwest::header::HeaderMap;
 use crate::handler::consts::ForwardHeaderKeys::{FpHeaderRequestKey, FpHeaderResponseKey};
 use crate::handler::consts::{LAYER8_GET_CERTIFICATE_PATH, RP_INIT_ENCRYPTED_TUNNEL_PATH, RP_PROXY_PATH};
 use crate::handler::types::request::{InitEncryptedTunnelRequest, ProxyRequest};
+use utils;
 
 pub mod types;
-mod utils;
+mod helpers;
 mod consts;
 
 pub struct ForwardHandler {
@@ -29,8 +30,8 @@ impl ForwardHandler {
         ctx: &mut Layer8Context
     ) -> Result<NTorPublicKey, APIHandlerResponse>
     {
-        let secret_key = utils::get_secret_key();
-        let token = utils::generate_standard_token(&secret_key).unwrap();
+        let secret_key = helpers::get_secret_key();
+        let token = self::helpers::generate_standard_token(&secret_key).unwrap();
         let client = Client::new();
 
         return match client
@@ -101,7 +102,7 @@ impl ForwardHandler {
     ) -> HeaderMap {
         // copy all origin header to new request
         let origin_headers = ctx.get_request_header().clone();
-        let mut reqwest_header = utils::to_reqwest_header(origin_headers);
+        let mut reqwest_header = ::utils::to_reqwest_header(origin_headers);
 
         // add forward proxy header `fp_request_header`
         reqwest_header.insert(
@@ -122,7 +123,7 @@ impl ForwardHandler {
         body: Vec<u8>,
     ) -> APIHandlerResponse
     {
-        let body_string = utils::bytes_to_string(&body);
+        let body_string = ::utils::bytes_to_string(&body);
         let log_meta = format!("[FORWARD {}]", RP_INIT_ENCRYPTED_TUNNEL_PATH.as_str());
         info!("{log_meta} request headers to RP: {:?}", headers);
         info!("{log_meta} request body to RP: {:?}", body_string);
@@ -142,7 +143,7 @@ impl ForwardHandler {
                 info!("{log_meta} response body from RP: {}", utils::bytes_to_string(&rp_response_body.to_vec()));
 
                 // validate reverse proxy response format, is it necessary?
-                return match utils::bytes_to_json::<InitEncryptedTunnelResponse>(rp_response_body.to_vec()) {
+                return match ::utils::bytes_to_json::<InitEncryptedTunnelResponse>(rp_response_body.to_vec()) {
                     Err(e) => {
                         error!("Error parsing RP response: {:?}", e);
                         APIHandlerResponse {
@@ -258,7 +259,7 @@ impl ForwardHandler {
         body: Vec<u8>,
     ) -> APIHandlerResponse
     {
-        let body_string = utils::bytes_to_string(&body);
+        let body_string = ::utils::bytes_to_string(&body);
         let log_meta = format!("[FORWARD {}]", RP_PROXY_PATH.as_str());
         debug!("{log_meta} request headers to RP: {:?}", headers);
         debug!("{log_meta} request body to RP: {}", body_string);
@@ -279,7 +280,7 @@ impl ForwardHandler {
                 debug!("{log_meta} response body from RP: {}", utils::bytes_to_string(&rp_response_bytes.to_vec()));
 
                 // validate reverse proxy's response body format, is it necessary?
-                match utils::bytes_to_json::<ProxyResponse>(rp_response_bytes.to_vec()) {
+                match ::utils::bytes_to_json::<ProxyResponse>(rp_response_bytes.to_vec()) {
                     Err(err) => {
                         error!("Reverse Proxy's response mismatch: {:}", err);
                         return APIHandlerResponse {

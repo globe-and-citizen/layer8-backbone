@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::sync::{Mutex, MutexGuard};
-use log::{debug};
+use log::debug;
 use ntor::common::{InitSessionMessage, NTorParty};
 use ntor::server::NTorServer;
 use pingora::http::StatusCode;
@@ -9,11 +9,11 @@ use pingora_router::handler::{APIHandlerResponse, RequestBodyTrait, ResponseBody
 use crate::handler::common::consts::HeaderKeys::{RpHeaderRequestKey, RpHeaderResponseKey};
 use init_tunnel::handler::InitTunnelHandler;
 use proxy::handler::ProxyHandler;
-use init_tunnel::{InitEncryptedTunnelResponse};
-use proxy::{ProxyRequestToBackend};
-use crate::config::{HandlerConfig};
+use init_tunnel::InitEncryptedTunnelResponse;
+use proxy::ProxyRequestToBackend;
+use utils::{new_uuid, string_to_array32};
+use crate::config::HandlerConfig;
 use crate::handler::common::handler::CommonHandler;
-use crate::handler::common::utils::{new_uuid, string_to_array32};
 
 mod common;
 mod init_tunnel;

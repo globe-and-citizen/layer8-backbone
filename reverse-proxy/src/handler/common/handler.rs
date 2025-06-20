@@ -1,7 +1,7 @@
 use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
 use reqwest::header::HeaderMap;
 use crate::handler::common::consts::HeaderKeys::{FpHeaderRequestKey, IntHeaderRequestKey, RpHeaderRequestKey, RpHeaderResponseKey};
-use crate::handler::common::utils;
+use utils::{to_reqwest_header};
 
 /// Struct containing only associated methods (no instance methods or fields).
 /// The contents are quite drafting, but the idea is to handle common operations
@@ -42,7 +42,7 @@ impl CommonHandler {
     ) -> HeaderMap {
         // copy all origin header to new request
         let origin_headers = ctx.get_request_header().clone();
-        let mut reqwest_header = utils::to_reqwest_header(origin_headers);
+        let mut reqwest_header = to_reqwest_header(origin_headers);
 
         // add forward proxy header `fp_request_header`
         reqwest_header.insert(

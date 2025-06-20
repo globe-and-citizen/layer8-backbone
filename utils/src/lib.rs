@@ -2,6 +2,8 @@ use std::collections::HashMap;
 use reqwest::header::HeaderMap;
 use uuid::Uuid;
 
+use serde::{Deserialize, Serialize};
+
 pub fn to_reqwest_header(map: HashMap<String, String>) -> HeaderMap {
     let mut header_map = HeaderMap::new();
     for (k, v) in map {
@@ -35,3 +37,10 @@ pub fn string_to_array32(s: String) -> Option<[u8; 32]> {
     }
 }
 
+pub fn bytes_to_json<T: Serialize + for<'de> Deserialize<'de>>(bytes: Vec<u8>) -> Result<T, serde_json::Error> {
+    serde_json::from_slice::<T>(&bytes)
+}
+
+pub fn bytes_to_string(bytes: &Vec<u8>) -> String {
+    String::from_utf8_lossy(bytes).to_string()
+}
