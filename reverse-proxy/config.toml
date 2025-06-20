@@ -1,0 +1,16 @@
+[upstream]
+host="localhost"
+port=0
+
+[server]
+local_address="127.0.0.1:6194"
+public_address="0.0.0.0:6193"
+
+[log]
+level="DEBUG"
+path="console"
+
+[handler]
+#jwt_secret="this is 32-byte wgp's jwt secret"
+ntor_server_id="WGP Server"
+ntor_static_secret="this is 32-byte nTorStaticSecret"

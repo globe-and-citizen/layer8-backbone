@@ -1,6 +1,7 @@
 mod handler;
 mod proxy;
 
+use std::env;
 use clap::Parser;
 use std::net::ToSocketAddrs;
 
@@ -18,6 +19,7 @@ use pingora_router::router::Router;
 use proxy::{BACKEND_PORT, ReverseProxy, UPSTREAM_IP};
 use crate::handler::ReverseHandler;
 use futures::FutureExt;
+mod config;
 
 fn main() {
     // let file = OpenOptions::new()
@@ -57,7 +59,12 @@ fn main() {
         async move { h.handle_proxy_request(ctx).await }.boxed()
     });
 
-    let rp_handler = Arc::new(ReverseHandler{});
+    let config_path = env::var("CONFIG_PATH").unwrap_or_else(|_| "config.toml".to_string());
+    let backbone_config = config::Config::from_file(&config_path);
+    backbone_config.validate();
+    println!("{:?}", backbone_config);
+
+    let rp_handler = Arc::new(ReverseHandler::new(backbone_config.handler));
     let mut router: Router<Arc<ReverseHandler>> = Router::new(rp_handler.clone());
     router.post("/init-tunnel".to_string(), Box::new([handle_init_tunnel]));
     router.post("/proxy".to_string(), Box::new([handle_proxy]));
