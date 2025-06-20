@@ -5,7 +5,7 @@ use pingora_router::handler::{RequestBodyTrait, ResponseBodyTrait};
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct InitEncryptedTunnelRequest {
-    pub int_request_body: String,
+    pub public_key: Vec<u8>,
 }
 
 impl RequestBodyTrait for InitEncryptedTunnelRequest {}
@@ -19,7 +19,9 @@ impl RequestBodyTrait for InitTunnelRequestToBackend {}
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct InitEncryptedTunnelResponse {
-    pub rp_response_body: String
+    pub public_key: Vec<u8>,
+    pub t_b_hash: Vec<u8>,
+    pub session_id: String
 }
 
 impl ResponseBodyTrait for InitEncryptedTunnelResponse {}

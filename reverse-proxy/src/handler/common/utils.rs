@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use reqwest::header::HeaderMap;
+use uuid::Uuid;
 
 pub fn to_reqwest_header(map: HashMap<String, String>) -> HeaderMap {
     let mut header_map = HeaderMap::new();
@@ -12,3 +13,25 @@ pub fn to_reqwest_header(map: HashMap<String, String>) -> HeaderMap {
     }
     header_map
 }
+
+pub fn new_uuid() -> String {
+    Uuid::new_v4().to_string()
+}
+
+pub fn vec_to_json(vec: Vec<u8>) -> String {
+    serde_json::to_string(&vec).unwrap()
+}
+
+pub fn json_to_vec(json: &str) -> Vec<u8> {
+    serde_json::from_str(json).unwrap()
+}
+
+pub fn string_to_array32(s: String) -> Option<[u8; 32]> {
+    let bytes = s.into_bytes();
+    if bytes.len() == 32 {
+        Some(bytes.try_into().unwrap())
+    } else {
+        None
+    }
+}
+
