@@ -23,3 +23,5 @@ target/
 node_modules/
 .env
 test/cypress/screenshots
+
+**/Cargo.lock
