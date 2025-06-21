@@ -12,5 +12,5 @@ path="console"
 
 [handler]
 #jwt_secret="this is 32-byte wgp's jwt secret"
-ntor_server_id="WGP Server"
+ntor_server_id="ReverseProxyServer"
 ntor_static_secret="this is 32-byte nTorStaticSecret"
