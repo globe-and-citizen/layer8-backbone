@@ -19,8 +19,8 @@ tokio = "1.44.2"
 pingora-router = { path = "../pingora-router" }
 pingora = { version = "0.4.0", features = ["lb"] }
 futures = "0.3.31"
-#ntor = { git = "https://github.com/globe-and-citizen/ntor.git", branch = "thao/refactor" }
-ntor = { path = "../../../ntor" }
+ntor = { git = "https://github.com/globe-and-citizen/ntor.git", tag = "0.1.0"}
+#ntor = { path = "../../../ntor" }
 config = "0.15.11"
 toml = "0.8.23"
 uuid = { version = "1.16.0", features = ["v4"] }
