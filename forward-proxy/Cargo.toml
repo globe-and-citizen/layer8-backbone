@@ -20,6 +20,7 @@ dotenv = "0.15.0"
 futures = "0.3.31"
 pingora-router = { path = "../pingora-router" }
 once_cell = "1.21.3"
+utils = { path = "../utils" }
 
 [patch.crates-io]
 sfv = { git = "https://github.com/undef1nd/sfv.git", tag = "v0.9.4" }
