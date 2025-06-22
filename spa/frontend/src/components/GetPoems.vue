@@ -7,7 +7,7 @@ const showModal = ref(false);
 const searchId = ref<string>('');
 
 function openPoem(id: string) {
-    fetch(`http://localhost:6191/poems?id=${id}`)
+    fetch(`https://localhost:6191/poems?id=${id}`)
         .then(response => response.json())
         .then(data => {
             selectedPoem.value = data;
@@ -28,7 +28,7 @@ function searchPoem() {
         return;
     }
     
-    fetch(`http://localhost:6191/poems?id=${searchId.value}`)
+    fetch(`https://localhost:6191/poems?id=${searchId.value}`)
         .then(response => {
             if (!response.ok) throw new Error('Poem not found');
             return response.json();
@@ -43,7 +43,7 @@ function searchPoem() {
 }
 
 function fetchAllPoems() {
-    fetch('http://localhost:6191/poems')
+    fetch('https://localhost:6191/poems')
         .then(response => response.json())
         .then(data => {
             poems.value = data;

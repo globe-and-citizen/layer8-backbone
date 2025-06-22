@@ -4,9 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-async-trait="0.1"
+async-trait = "0.1"
 bytes = "1.10.1"
-clap = { version = "3.2.25", features = ["derive"] }
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.140"
 serde_yaml = "0.8.26"
@@ -17,8 +16,7 @@ reqwest = { version = "0.11", features = ["json"] }
 tokio-rustls = "0.26.2"
 tokio = "1.44.2"
 pingora-router = { path = "../pingora-router" }
-pingora = { version = "0.4.0", features = ["lb"] }
+pingora = { version = "0.5.0", features = ["lb", "boringssl"] }
 futures = "0.3.31"
-
-[patch.crates-io]
-sfv = { git = "https://github.com/undef1nd/sfv.git", tag = "v0.9.4" }
+boring = "4.17.0"
+once_cell = "1.21.3"
