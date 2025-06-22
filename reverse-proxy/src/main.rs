@@ -1,23 +1,20 @@
 mod handler;
 mod proxy;
+mod tls_conf;
 
-use clap::Parser;
 use std::net::ToSocketAddrs;
 
-use pingora::prelude::{http_proxy_service};
+use crate::handler::ReverseHandler;
+use crate::tls_conf::TlsConfig;
+use env_logger::{self, Env, Target};
+use futures::FutureExt;
 use pingora::server::Server;
 use pingora::server::configuration::Opt;
-
-use chrono::Local;
-use env_logger;
-use log::*;
-use std::io::Write;
-use std::sync::Arc;
-use pingora_router::handler::{APIHandler};
+use pingora::{listeners::tls::TlsSettings, prelude::http_proxy_service};
+use pingora_router::handler::APIHandler;
 use pingora_router::router::Router;
 use proxy::{BACKEND_PORT, ReverseProxy, UPSTREAM_IP};
-use crate::handler::ReverseHandler;
-use futures::FutureExt;
+use std::sync::Arc;
 
 fn main() {
     // let file = OpenOptions::new()
@@ -28,36 +25,44 @@ fn main() {
     //
     // let target = Box::new(file);
 
-    let target = env_logger::Target::Stdout;
-    env_logger::Builder::new()
-        .target(target)
-        .filter(None, LevelFilter::Debug)
-        .format(|buf, record| {
-            writeln!(
-                buf,
-                "[{} {} {}:{}] {}",
-                Local::now().format("%Y-%m-%d %H:%M:%S%.3f"),
-                record.level(),
-                record.file().unwrap_or("unknown"),
-                record.line().unwrap_or(0),
-                record.args()
-            )
-        })
+    // let target = env_logger::Target::Stdout;
+    // env_logger::Builder::new()
+    //     .target(target)
+    //     .filter(None, LevelFilter::Debug)
+    //     .format(|buf, record| {
+    //         writeln!(
+    //             buf,
+    //             "[{} {} {}:{}] {}",
+    //             Local::now().format("%Y-%m-%d %H:%M:%S%.3f"),
+    //             record.level(),
+    //             record.file().unwrap_or("unknown"),
+    //             record.line().unwrap_or(0),
+    //             record.args()
+    //         )
+    //     })
+    //     .init();
+
+    env_logger::Builder::from_env(Env::default().write_style_or("RUST_LOG_STYLE", "always"))
+        .format_file(true)
+        .format_line_number(true)
+        .target(Target::Stdout)
         .init();
 
-    let opt = Opt::parse();
-    let mut my_server = Server::new(Some(opt)).unwrap();
+    let mut my_server = Server::new(Some(Opt {
+        conf: std::env::var("SERVER_CONF").ok(),
+        ..Default::default()
+    }))
+    .unwrap();
+
     my_server.bootstrap();
 
-    let handle_init_tunnel: APIHandler<Arc<ReverseHandler>> = Box::new(|h, ctx| {
-        async move { h.handle_init_tunnel(ctx).await }.boxed()
-    });
+    let handle_init_tunnel: APIHandler<Arc<ReverseHandler>> =
+        Box::new(|h, ctx| async move { h.handle_init_tunnel(ctx).await }.boxed());
 
-    let handle_proxy: APIHandler<Arc<ReverseHandler>> = Box::new(|h, ctx| {
-        async move { h.handle_proxy_request(ctx).await }.boxed()
-    });
+    let handle_proxy: APIHandler<Arc<ReverseHandler>> =
+        Box::new(|h, ctx| async move { h.handle_proxy_request(ctx).await }.boxed());
 
-    let rp_handler = Arc::new(ReverseHandler{});
+    let rp_handler = Arc::new(ReverseHandler {});
     let mut router: Router<Arc<ReverseHandler>> = Router::new(rp_handler.clone());
     router.post("/init-tunnel".to_string(), Box::new([handle_init_tunnel]));
     router.post("/proxy".to_string(), Box::new([handle_proxy]));
@@ -73,9 +78,15 @@ fn main() {
         ReverseProxy::new(upstream_addr, router),
     );
 
+    my_proxy.add_tls_with_settings(
+        "localhost:6193",
+        None,
+        TlsSettings::with_callbacks(Box::new(TlsConfig)).unwrap(),
+    );
+
     // Listen on both endpoints
-    my_proxy.add_tcp("0.0.0.0:6193");  // Publicly accessible
-    my_proxy.add_tcp("127.0.0.1:6194"); // Localhost only
+    // my_proxy.add_tcp("0.0.0.0:6193"); // Publicly accessible
+    // my_proxy.add_tcp("127.0.0.1:6194"); // Localhost only
 
     my_server.add_service(my_proxy);
     my_server.run_forever();
