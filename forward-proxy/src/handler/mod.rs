@@ -3,15 +3,16 @@ use pingora::http::StatusCode;
 use reqwest::{Client, Response};
 use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
 use pingora_router::handler::{APIHandlerResponse, DefaultHandlerTrait, RequestBodyTrait};
-use crate::handler::types::response::{ErrorResponse, FpHealthcheckError, FpHealthcheckSuccess, InitEncryptedTunnelResponse, ProxyResponse};
+use crate::handler::types::response::{ErrorResponse, FpHealthcheckError, FpHealthcheckSuccess, InitTunnelResponseFromRP, InitTunnelResponseToINT, ProxyResponse};
 use pingora_router::handler::ResponseBodyTrait;
 use reqwest::header::HeaderMap;
 use crate::handler::consts::ForwardHeaderKeys::{FpHeaderRequestKey, FpHeaderResponseKey};
-use crate::handler::consts::{LAYER8_GET_CERTIFICATE_PATH, RP_INIT_ENCRYPTED_TUNNEL_PATH, RP_PROXY_PATH};
-use crate::handler::types::request::{InitEncryptedTunnelRequest, ProxyRequest};
+use crate::handler::consts::{LAYER8_GET_CERTIFICATE_PATH, NTOR_SERVER_ID, NTOR_STATIC_PUBLIC_KEY, RP_INIT_ENCRYPTED_TUNNEL_PATH, RP_PROXY_PATH};
+use crate::handler::types::request::{InitTunnelRequest, ProxyRequest};
+use utils;
 
 pub mod types;
-mod utils;
+mod helpers;
 mod consts;
 
 pub struct ForwardHandler {
@@ -20,17 +21,20 @@ pub struct ForwardHandler {
 
 impl DefaultHandlerTrait for ForwardHandler {}
 
-type NTorPublicKey = Vec<u8>;
+struct NTorServerCertificate {
+    server_id: String,
+    public_key: Vec<u8>,
+}
 
 impl ForwardHandler {
     async fn get_public_key(
         &self,
         backend_url: String,
         ctx: &mut Layer8Context
-    ) -> Result<NTorPublicKey, APIHandlerResponse>
+    ) -> Result<NTorServerCertificate, APIHandlerResponse>
     {
-        let secret_key = utils::get_secret_key();
-        let token = utils::generate_standard_token(&secret_key).unwrap();
+        let secret_key = helpers::get_secret_key();
+        let token = self::helpers::generate_standard_token(&secret_key).unwrap();
         let client = Client::new();
 
         return match client
@@ -54,7 +58,10 @@ impl ForwardHandler {
                     })
                 } else {
                     // todo extract public key from response
-                    Ok(vec![])
+                    Ok(NTorServerCertificate {
+                        server_id: "".to_string(),
+                        public_key: vec![],
+                    })
                 }
             }
             Err(e) => {
@@ -101,7 +108,7 @@ impl ForwardHandler {
     ) -> HeaderMap {
         // copy all origin header to new request
         let origin_headers = ctx.get_request_header().clone();
-        let mut reqwest_header = utils::to_reqwest_header(origin_headers);
+        let mut reqwest_header = ::utils::to_reqwest_header(origin_headers);
 
         // add forward proxy header `fp_request_header`
         reqwest_header.insert(
@@ -120,6 +127,7 @@ impl ForwardHandler {
         ctx: &mut Layer8Context,
         headers: HeaderMap,
         body: Vec<u8>,
+        ntor_server_certificate: NTorServerCertificate
     ) -> APIHandlerResponse
     {
         let body_string = utils::bytes_to_string(&body);
@@ -141,8 +149,7 @@ impl ForwardHandler {
                 info!("{log_meta} response headers from RP: {:?}", headers);
                 info!("{log_meta} response body from RP: {}", utils::bytes_to_string(&rp_response_body.to_vec()));
 
-                // validate reverse proxy response format, is it necessary?
-                return match utils::bytes_to_json::<InitEncryptedTunnelResponse>(rp_response_body.to_vec()) {
+                return match utils::bytes_to_json::<InitTunnelResponseFromRP>(rp_response_body.to_vec()) {
                     Err(e) => {
                         error!("Error parsing RP response: {:?}", e);
                         APIHandlerResponse {
@@ -150,13 +157,21 @@ impl ForwardHandler {
                             body: None,
                         }
                     }
-                    _ => {
+                    Ok(res_from_rp) => {
                         // forward ReverseProxy's headers
                         ForwardHandler::create_response_headers(headers, ctx, FpHeaderResponseKey.placeholder_value());
 
+                        let res_to_int = InitTunnelResponseToINT {
+                            ephemeral_public_key: res_from_rp.public_key,
+                            t_b_hash: res_from_rp.t_b_hash,
+                            session_id: res_from_rp.session_id,
+                            static_public_key: ntor_server_certificate.public_key,
+                            server_id: ntor_server_certificate.server_id,
+                        };
+
                         APIHandlerResponse {
                             status: StatusCode::OK,
-                            body: Some(rp_response_body.to_vec()), // forward reverse proxy's response
+                            body: Some(res_to_int.to_bytes()),
                         }
                     }
                 };
@@ -212,7 +227,7 @@ impl ForwardHandler {
     pub async fn handle_init_encrypted_tunnel(&self, ctx: &mut Layer8Context) -> APIHandlerResponse {
         // validate request body
         let received_body = match ForwardHandler::parse_request_body::<
-            InitEncryptedTunnelRequest,
+            InitTunnelRequest,
             ErrorResponse
         >(&ctx.get_request_body())
         {
@@ -236,9 +251,13 @@ impl ForwardHandler {
             None => "".to_string()
         };
 
-        //todo handle result_public_key
-        let _result_public_key = self.get_public_key(backend_url.to_string(), ctx).await;
+        //todo handle result_certificate
+        let _result_certificate = self.get_public_key(backend_url.to_string(), ctx).await;
         // println!("public_key: {:?}", result_public_key);
+        let ntor_server_certificate = NTorServerCertificate { // hardcoded for now
+            server_id: NTOR_SERVER_ID.to_string(),
+            public_key: NTOR_STATIC_PUBLIC_KEY.to_vec(),
+        };
 
         // copy origin headers and add ForwardProxy header
         let new_headers = ForwardHandler::create_forward_request_headers(
@@ -248,7 +267,12 @@ impl ForwardHandler {
         );
 
         // forward origin request body
-        ForwardHandler::init_tunnel_forward_to_rp(ctx, new_headers, received_body).await
+        ForwardHandler::init_tunnel_forward_to_rp(
+            ctx,
+            new_headers,
+            received_body,
+            ntor_server_certificate
+        ).await
     }
 
     /// forward manipulated `proxy` request to ReverseProxy and handle success response
@@ -258,7 +282,7 @@ impl ForwardHandler {
         body: Vec<u8>,
     ) -> APIHandlerResponse
     {
-        let body_string = utils::bytes_to_string(&body);
+        let body_string = ::utils::bytes_to_string(&body);
         let log_meta = format!("[FORWARD {}]", RP_PROXY_PATH.as_str());
         debug!("{log_meta} request headers to RP: {:?}", headers);
         debug!("{log_meta} request body to RP: {}", body_string);
@@ -279,7 +303,7 @@ impl ForwardHandler {
                 debug!("{log_meta} response body from RP: {}", utils::bytes_to_string(&rp_response_bytes.to_vec()));
 
                 // validate reverse proxy's response body format, is it necessary?
-                match utils::bytes_to_json::<ProxyResponse>(rp_response_bytes.to_vec()) {
+                match ::utils::bytes_to_json::<ProxyResponse>(rp_response_bytes.to_vec()) {
                     Err(err) => {
                         error!("Reverse Proxy's response mismatch: {:}", err);
                         return APIHandlerResponse {
