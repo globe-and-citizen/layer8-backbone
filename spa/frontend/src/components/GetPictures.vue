@@ -5,7 +5,7 @@ const images = ref<any[]>([]);
 const searchName = ref<string>('');
 
 function openImage(id: string) {
-    fetch(`http://localhost:6191/images?id=${id}`)
+    fetch(`https://localhost:6191/images?id=${id}`)
         .then(response => response.json())
         .catch(err => {
             console.error('Error fetching image:', err);
@@ -18,7 +18,7 @@ function searchImage() {
         return;
     }
     
-    fetch(`http://localhost:6191/images?name=${searchName.value}`)
+    fetch(`https://localhost:6191/images?name=${searchName.value}`)
         .then(response => {
             if (!response.ok) throw new Error('Image not found');
             return response.json();
@@ -37,7 +37,7 @@ function searchImage() {
 }
 
 function fetchAllImages() {
-    fetch('http://localhost:6191/images')
+    fetch('https://localhost:6191/images')
         .then(response => response.json())
         .then(data => {
             images.value = data.map((img: any) => ({
