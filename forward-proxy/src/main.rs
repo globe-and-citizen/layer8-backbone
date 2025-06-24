@@ -26,7 +26,11 @@ fn main() {
 
     info!("Starting server...");
 
-    let mut server = Server::new(None).unwrap();
+    let mut server = Server::new(Some(Opt {
+        conf: std::env::var("SERVER_CONF").ok(),
+        ..Default::default()
+    }))
+    .unwrap();
     server.bootstrap();
 
     let fp_handler = Arc::new(ForwardHandler {});
@@ -52,23 +56,7 @@ fn main() {
     );
 
     let mut proxy = http_proxy_service(&server.configuration, ForwardProxy::new(router));
-    {
-        let server_pem = format!(
-            "{}/{}",
-            env!("CARGO_MANIFEST_DIR"),
-            std::env::var("PATH_TO_CERT").expect("PATH_TO_CERT must be set")
-        );
-        let server_key = format!(
-            "{}/{}",
-            env!("CARGO_MANIFEST_DIR"),
-            std::env::var("PATH_TO_KEY").expect("PATH_TO_KEY must be set")
-        );
-        proxy
-            .add_tls("localhost:6191", &server_pem, &server_key)
-            .unwrap();
-    }
-
+    proxy.add_tcp("localhost:6191");
     server.add_service(proxy);
-
     server.run_forever();
 }

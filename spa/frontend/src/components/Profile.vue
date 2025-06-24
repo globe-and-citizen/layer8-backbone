@@ -14,7 +14,7 @@ const downloadProfilePicture = () => {
     if (!profile.value.username) return;
     
     // Use the new download endpoint
-    window.location.href = `https://localhost:6191/download-profile/${profile.value.username}`;
+    window.location.href = `http://localhost:6191/download-profile/${profile.value.username}`;
 };
 
 onMounted(() => {
@@ -27,7 +27,7 @@ onMounted(() => {
     const payload = JSON.parse(atob(token.split('.')[1]));
     const username = payload.username;
 
-    fetch(`https://localhost:6191/profile/${username}`)
+    fetch(`http://localhost:6191/profile/${username}`)
         .then(response => response.json())
         .then(data => {
             profile.value.username = username;

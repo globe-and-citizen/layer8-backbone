@@ -42,6 +42,9 @@ fn main() {
     //     })
     //     .init();
 
+    // Load environment variables from .env file
+    dotenv::dotenv().ok();
+
     env_logger::Builder::from_env(Env::default().write_style_or("RUST_LOG_STYLE", "always"))
         .format_file(true)
         .format_line_number(true)
