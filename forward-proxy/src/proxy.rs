@@ -50,9 +50,16 @@ impl<T: Sync> ProxyHttp for ForwardProxy<T> {
         info!("[REQUEST {}] Decoded body: {}", request_summary, String::from_utf8_lossy(&*ctx.get_request_body()));
         println!();
 
+        if session.req_header().uri.path() == "/proxy" {
+            return Ok(false)
+        }
+
         let handler_response = self.router.call_handler(ctx).await;
         if handler_response.status == StatusCode::NOT_FOUND && handler_response.body == None {
-            return Ok(false)
+            let header = ResponseHeader::build(StatusCode::NOT_FOUND, None)?;
+            session.write_response_header_ref(&header).await?;
+            session.set_keepalive(None);
+            return Ok(true)
         }
 
         // set headers
