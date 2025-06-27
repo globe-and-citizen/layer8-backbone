@@ -83,15 +83,18 @@ impl Layer8Context {
     pub async fn update(&mut self, session: &mut Session) -> pingora::Result<bool> {
         self.request.summary = Layer8ContextRequestSummary::from(session);
 
-        match get_request_body(session).await {
-            Ok(body) => self.request.body = body,
-            Err(err) => return Err(err)
-        };
-
         self.set_request_header(session.req_header().clone());
 
         // take anything as needed later
 
+        Ok(true)
+    }
+
+    pub async fn read_request_body(&mut self, session: &mut Session) -> pingora::Result<bool> {
+        match get_request_body(session).await {
+            Ok(body) => self.request.body = body,
+            Err(err) => return Err(err)
+        };
         Ok(true)
     }
 

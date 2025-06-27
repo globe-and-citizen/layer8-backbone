@@ -1,7 +1,7 @@
 use pingora::prelude::{HttpPeer, ProxyHttp};
 use pingora::proxy::Session;
 use pingora::http::{ResponseHeader, StatusCode};
-use log::{info};
+use log::{error, info};
 use async_trait::async_trait;
 use bytes::Bytes;
 use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
@@ -83,13 +83,20 @@ impl<T: Sync> ProxyHttp for ReverseProxy<T> {
     {
         // create Context
         ctx.update(session).await?;
-        let request_summary = format!("{} {}", session.req_header().method, session.req_header().uri.to_string());
+        ctx.read_request_body(session).await?;
+        let request_summary = session.request_summary();
         println!();
         info!("[REQUEST {}] {:?}", request_summary, ctx.request);
         info!("[REQUEST {}] Decoded body: {}", request_summary, String::from_utf8_lossy(&*ctx.get_request_body()));
         println!();
 
         let handler_response = self.router.call_handler(ctx).await;
+        if handler_response.status == StatusCode::NOT_FOUND && handler_response.body.is_none() {
+            let header = ResponseHeader::build(StatusCode::NOT_FOUND, None)?;
+            session.write_response_header_ref(&header).await?;
+            session.set_keepalive(None);
+            return Ok(true);
+        }
 
         let mut response_bytes = vec![];
         if let Some(body_bytes) = handler_response.body {
