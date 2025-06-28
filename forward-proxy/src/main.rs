@@ -28,23 +28,23 @@ fn main() {
     let fp_handler = Arc::new(ForwardHandler{});
     let mut router: Router<Arc<ForwardHandler>> = Router::new(fp_handler.clone());
 
-    let handle_init_tunnel: APIHandler<Arc<ForwardHandler>> = Box::new(|h, ctx| {
-        async move { h.handle_init_encrypted_tunnel(ctx).await }.boxed()
-    });
+    // let handle_init_tunnel: APIHandler<Arc<ForwardHandler>> = Box::new(|h, ctx| {
+    //     async move { h.handle_init_encrypted_tunnel(ctx).await }.boxed()
+    // });
+    //
+    // let handle_proxy: APIHandler<Arc<ForwardHandler>> = Box::new(|h, ctx| {
+    //     async move { h.handle_proxy(ctx).await }.boxed()
+    // });
+    //
+    // let handle_healthcheck: APIHandler<Arc<ForwardHandler>> = Box::new(|h, ctx| {
+    //     async move { h.handle_healthcheck(ctx).await }.boxed()
+    // });
+    //
+    // router.post("/init-tunnel?backend_url={}".to_string(), Box::new([handle_init_tunnel]));
+    // router.post("/proxy".to_string(), Box::new([handle_proxy]));
+    // router.get("/healthcheck?error={}".to_string(), Box::new([handle_healthcheck]));
 
-    let handle_proxy: APIHandler<Arc<ForwardHandler>> = Box::new(|h, ctx| {
-        async move { h.handle_proxy(ctx).await }.boxed()
-    });
-
-    let handle_healthcheck: APIHandler<Arc<ForwardHandler>> = Box::new(|h, ctx| {
-        async move { h.handle_healthcheck(ctx).await }.boxed()
-    });
-
-    router.post("/init-tunnel?backend_url={}".to_string(), Box::new([handle_init_tunnel]));
-    router.post("/proxy".to_string(), Box::new([handle_proxy]));
-    router.get("/healthcheck?error={}".to_string(), Box::new([handle_healthcheck]));
-
-    let mut proxy = http_proxy_service(&server.configuration, ForwardProxy::new(router));
+    let mut proxy = http_proxy_service(&server.configuration, ForwardProxy::new(router, ForwardHandler{}));
 
     proxy.add_tcp("0.0.0.0:6191");
 
