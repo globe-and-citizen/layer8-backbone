@@ -39,7 +39,7 @@ const handleLogin = () => {
     "password": password.value
   }
 
-  fetch('https://localhost:6191/login', {
+  fetch('http://localhost:6191/login', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json'

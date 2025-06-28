@@ -36,7 +36,7 @@ const handleRegister = () => {
     "password": password.value
   }
 
-  fetch('https://localhost:6191/register', {
+  fetch('http://localhost:6191/register', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json'

@@ -81,30 +81,46 @@ impl<T: Sync> ProxyHttp for ReverseProxy<T> {
     where
         Self::CTX: Send + Sync,
     {
-        // create Context
-        ctx.update(session).await?;
-        let request_summary = format!("{} {}", session.req_header().method, session.req_header().uri.to_string());
-        println!();
-        info!("[REQUEST {}] {:?}", request_summary, ctx.request);
-        info!("[REQUEST {}] Decoded body: {}", request_summary, String::from_utf8_lossy(&*ctx.get_request_body()));
-        println!();
+        // // create Context
+        // ctx.update(session).await?;
+        // let request_summary = format!(
+        //     "{} {}",
+        //     session.req_header().method,
+        //     session.req_header().uri.to_string()
+        // );
+        // println!();
+        // info!("[REQUEST {}] {:?}", request_summary, ctx.request);
+        // info!(
+        //     "[REQUEST {}] Decoded body: {}",
+        //     request_summary,
+        //     String::from_utf8_lossy(&*ctx.get_request_body())
+        // );
+        // println!();
 
-        let handler_response = self.router.call_handler(ctx).await;
+        // let handler_response = self.router.call_handler(ctx).await;
 
-        let mut response_bytes = vec![];
-        if let Some(body_bytes) = handler_response.body {
-            ctx.insert_response_header("Content-length", &body_bytes.len().to_string());
-            response_bytes = body_bytes;
-        };
-        ReverseProxy::<T>::set_headers(session, ctx, handler_response.status).await?;
+        // let mut response_bytes = vec![];
+        // if let Some(body_bytes) = handler_response.body {
+        //     ctx.insert_response_header("Content-length", &body_bytes.len().to_string());
+        //     response_bytes = body_bytes;
+        // };
+        // ReverseProxy::<T>::set_headers(session, ctx, handler_response.status).await?;
 
-        info!("[RESPONSE {}] Body: {}", request_summary, String::from_utf8_lossy(&*response_bytes));
-        println!();
+        // info!(
+        //     "[RESPONSE {}] Body: {}",
+        //     request_summary,
+        //     String::from_utf8_lossy(&*response_bytes)
+        // );
+        // println!();
 
-        // Write the response body to the session after setting headers
-        session.write_response_body(Some(Bytes::from(response_bytes)), true).await?;
+        // let body = match response_bytes.is_empty() {
+        //     true => None,
+        //     false => Some(Bytes::from(response_bytes)),
+        // };
 
-        Ok(true)
+        // session.write_response_body(body, true).await?;
+
+        Ok(false)
     }
 
     async fn logging(
