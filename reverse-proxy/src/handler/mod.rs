@@ -5,22 +5,21 @@ use ntor::common::{InitSessionMessage, NTorParty};
 use ntor::server::NTorServer;
 use pingora::http::StatusCode;
 use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
-use pingora_router::handler::{APIHandlerResponse, RequestBodyTrait, ResponseBodyTrait};
-use crate::handler::common::consts::HeaderKeys::{RpHeaderRequestKey, RpHeaderResponseKey};
+use pingora_router::handler::{APIHandlerResponse, ResponseBodyTrait};
+use crate::handler::common::consts::HeaderKeys::{RpHeaderResponseKey};
 use init_tunnel::handler::InitTunnelHandler;
 use proxy::handler::ProxyHandler;
 use init_tunnel::InitEncryptedTunnelResponse;
-use proxy::ProxyRequestToBackend;
 use utils::{new_uuid, string_to_array32};
 use crate::config::HandlerConfig;
-use crate::handler::common::handler::CommonHandler;
 
 mod common;
 mod init_tunnel;
 mod proxy;
 
 thread_local! {
-    static TEMPORARY_MEMORY: Mutex<HashMap<String, Vec<u8>>> = Mutex::new(HashMap::new());
+    // <session_id, shared_secret>
+    static NTOR_SHARED_SECRETS: Mutex<HashMap<String, Vec<u8>>> = Mutex::new(HashMap::new());
 }
 
 pub struct ReverseHandler {
@@ -35,6 +34,23 @@ impl ReverseHandler {
         ReverseHandler {
             config,
             ntor_static_secret: ntor_secret,
+        }
+    }
+
+    fn get_ntor_shared_secret(&self, session_id: String) -> Result<Vec<u8>, APIHandlerResponse> {
+        let shared_secret = NTOR_SHARED_SECRETS.with(|memory| {
+            let guard = memory.lock().unwrap();
+            guard.get(&session_id).cloned()
+        });
+
+        return match shared_secret {
+            Some(secret) => Ok(secret.clone()),
+            None => {
+                Err(APIHandlerResponse {
+                    status: StatusCode::UNAUTHORIZED,
+                    body: Some("Invalid or expired nTor session ID".as_bytes().to_vec()),
+                })
+            }
         }
     }
 
@@ -80,7 +96,7 @@ impl ReverseHandler {
 
         InitTunnelHandler::send_result_to_be(true).await;
 
-        TEMPORARY_MEMORY.with(|memory| {
+        NTOR_SHARED_SECRETS.with(|memory| {
             let mut guard: MutexGuard<HashMap<String, Vec<u8>>> = memory.lock().unwrap();
             guard.insert(ntor_session_id, ntor_server.get_shared_secret().unwrap());
         });
@@ -92,23 +108,54 @@ impl ReverseHandler {
     }
 
     pub async fn handle_proxy_request(&self, ctx: &mut Layer8Context) -> APIHandlerResponse {
+
+        // validate request headers (nTor session ID)
+        let session_id = match ProxyHandler::validate_request_headers(ctx) {
+            Ok(session_id) => session_id,
+            Err(res) => return res,
+        };
+
+        let shared_secret = match self.get_ntor_shared_secret(session_id) {
+            Ok(secret) => secret,
+            Err(res) => return res,
+        };
+
         // validate request body
-        let request_body = match ProxyHandler::validate_request_body(ctx).await {
+        let request_body = match ProxyHandler::validate_request_body(ctx) {
             Ok(res) => res,
             Err(res) => return res,
         };
 
-        let new_body = ProxyRequestToBackend {
-            spa_request_body: request_body.spa_request_body,
+        let wrapped_request = match ProxyHandler::decrypt_request_body(
+            request_body,
+            self.config.ntor_server_id.clone(),
+            shared_secret.clone(),
+        ) {
+            Ok(req) => req,
+            Err(res) => return res,
+        };
+        debug!("[REQUEST /proxy] Decrypted request: {:?}", wrapped_request);
+
+        // reconstruct user request
+        let wrapped_response = match ProxyHandler::rebuild_user_request(wrapped_request).await {
+            Ok(res) => res,
+            Err(res) => return res,
         };
 
-        // todo validate request headers
-        let new_header = CommonHandler::create_forward_request_headers(
-            ctx,
-            RpHeaderRequestKey.placeholder_value(),
-            new_body.to_bytes().len(),
-        );
+        debug!("[RESPONSE /proxy] Wrapped Backend response: {:?}", wrapped_response);
 
-        ProxyHandler::proxy_request_to_backend(ctx, new_header, new_body).await
+        return match ProxyHandler::encrypt_response_body(
+            wrapped_response,
+            self.config.ntor_server_id.clone(),
+            shared_secret
+        ) {
+            Ok(encrypted_message) => {
+                APIHandlerResponse {
+                    status: StatusCode::OK,
+                    body: Some(encrypted_message.to_bytes()),
+                }
+            }
+            Err(res) => res
+        }
     }
 }

@@ -9,7 +9,7 @@ const path = require("path");
 const multer = require("multer");
 
 const app = express();
-const port = 6191;
+const port = 3000;
 const SECRET_KEY = "my_very_secret_key";
 
 app.use(express.json());
@@ -118,6 +118,7 @@ app.post("/register", async (req, res) => {
 });
 
 app.post("/login", async (req, res) => {
+  console.log("reached login endpoint");
   const { username, password } = req.body;
   const user = users.find((u) => u.username === username);
 
