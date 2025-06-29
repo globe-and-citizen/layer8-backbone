@@ -1,13 +1,11 @@
-use log::{debug, error, info};
+use log::{error, info};
 use pingora::http::StatusCode;
-use reqwest::{Client, Response};
+use reqwest::{Client};
 use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
 use pingora_router::handler::{APIHandlerResponse, DefaultHandlerTrait, RequestBodyTrait};
-use crate::handler::types::response::{ErrorResponse, FpHealthcheckError, FpHealthcheckSuccess, InitTunnelResponseFromRP, InitTunnelResponseToINT, ProxyResponse};
+use crate::handler::types::response::{ErrorResponse, FpHealthcheckError, FpHealthcheckSuccess, InitTunnelResponseFromRP, InitTunnelResponseToINT};
 use pingora_router::handler::ResponseBodyTrait;
-use reqwest::header::HeaderMap;
-use crate::handler::consts::ForwardHeaderKeys::{FpHeaderRequestKey, FpHeaderResponseKey};
-use crate::handler::types::request::{InitTunnelRequest, ProxyRequest};
+use crate::handler::types::request::{InitTunnelRequest};
 use utils;
 
 pub mod types;
@@ -114,13 +112,6 @@ impl ForwardHandler {
             hex::encode(consts::NTOR_STATIC_PUBLIC_KEY_TMP_VALUE), // replace with real value
         );
 
-        // // copy origin headers and add ForwardProxy header
-        // let new_headers = ForwardHandler::create_forward_request_headers(
-        //     ctx,
-        //     FpHeaderRequestKey.placeholder_value(),
-        //     received_body.len()
-        // );
-
         APIHandlerResponse {
             status: StatusCode::OK,
             body: Some(received_body),
@@ -145,7 +136,6 @@ impl ForwardHandler {
             }
             Ok(res_from_rp) => {
                 // forward ReverseProxy's headers
-                // ForwardHandler::create_response_headers(headers, ctx, FpHeaderResponseKey.placeholder_value());
 
                 let res_to_int = InitTunnelResponseToINT {
                     ephemeral_public_key: res_from_rp.public_key,

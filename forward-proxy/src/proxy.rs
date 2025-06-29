@@ -1,4 +1,3 @@
-use std::os::fd::RawFd;
 use std::time::Duration;
 use async_trait::async_trait;
 use bytes::Bytes;
@@ -6,22 +5,17 @@ use log::{error, info};
 use pingora::Error;
 use pingora::prelude::{HttpPeer, ProxyHttp, Session};
 use pingora::http::{RequestHeader, ResponseHeader, StatusCode};
-use pingora::protocols::Digest;
 use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
-use pingora_router::handler::APIHandlerResponse;
-use pingora_router::router::Router;
 use reqwest::header::TRANSFER_ENCODING;
 use crate::handler::ForwardHandler;
 
-pub struct ForwardProxy<T> {
-    router: Router<T>,
+pub struct ForwardProxy {
     handler: ForwardHandler,
 }
 
-impl<T> ForwardProxy<T> {
-    pub fn new(router: Router<T>, handler: ForwardHandler) -> Self {
+impl ForwardProxy {
+    pub fn new(handler: ForwardHandler) -> Self {
         ForwardProxy {
-            router,
             handler,
         }
     }
@@ -30,7 +24,7 @@ impl<T> ForwardProxy<T> {
 /// To see the order of execution and how the request is processed, refer to the documentation
 /// see https://github.com/cloudflare/pingora/blob/main/docs/user_guide/phase.md
 #[async_trait]
-impl<T: Sync> ProxyHttp for ForwardProxy<T> {
+impl ProxyHttp for ForwardProxy {
     type CTX = Layer8Context;
 
     fn new_ctx(&self) -> Self::CTX {
@@ -172,7 +166,7 @@ impl<T: Sync> ProxyHttp for ForwardProxy<T> {
 
     async fn upstream_request_filter(
         &self,
-        session: &mut Session,
+        _session: &mut Session,
         upstream_request: &mut RequestHeader,
         _ctx: &mut Self::CTX,
     ) -> pingora::Result<()>
@@ -192,13 +186,13 @@ impl<T: Sync> ProxyHttp for ForwardProxy<T> {
 
     async fn response_filter(
         &self,
-        session: &mut Session,
+        _session: &mut Session,
         upstream_response: &mut ResponseHeader,
         _ctx: &mut Self::CTX,
     ) -> pingora::Result<()> {
         upstream_response.insert_header("Access-Control-Allow-Origin", "*")?;
-        upstream_response.insert_header("Access-Control-Allow-Methods", "GET, POST")?;
-        upstream_response.insert_header("Access-Control-Allow-Headers", "Content-Type")?;
+        upstream_response.insert_header("Access-Control-Allow-Methods", "*")?;
+        upstream_response.insert_header("Access-Control-Allow-Headers", "*")?;
         upstream_response.insert_header(TRANSFER_ENCODING.as_str(), "chunked")?;
 
         Ok(())
