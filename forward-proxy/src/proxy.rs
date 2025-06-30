@@ -1,10 +1,16 @@
+use std::sync::Arc;
 use std::time::Duration;
 use async_trait::async_trait;
+use boring::x509::X509;
 use bytes::Bytes;
 use log::{error, info};
 use pingora::Error;
 use pingora::prelude::{HttpPeer, ProxyHttp, Session};
 use pingora::http::{RequestHeader, ResponseHeader, StatusCode};
+use pingora::upstreams::peer::PeerOptions;
+use pingora::utils::tls::CertKey;
+use pingora::OrErr;
+use pingora::listeners::tls::TLS_CONF_ERR;
 use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
 use reqwest::header::TRANSFER_ENCODING;
 use crate::handler::ForwardHandler;
@@ -36,11 +42,51 @@ impl ProxyHttp for ForwardProxy {
         _session: &mut Session,
         _ctx: &mut Self::CTX,
     ) -> pingora::Result<Box<HttpPeer>> {
-        Ok(Box::from(HttpPeer::new(
-            String::from("127.0.0.1:6194"),
-            false,
-            String::from("localhost"),
-        )))
+        // testing certs data; fixme to be dynamic
+
+        // mTLS Steps:
+        // 1. Client connects to server
+        // 2. Server presents its TLS certificate
+        // 3. Client verifies the server's certificate
+        // 4. Client presents its TLS certificate
+        // 5. Server verifies the client's certificate
+        // 6. Server grants access
+        // 7. Client and server exchange information over encrypted TLS connection
+        //
+        // Code below is for step 4(this is a client to RP), presenting the client's TLS certificate.
+        let mut peer = HttpPeer::new(
+            String::from("localhost:6193"),
+            true,
+            "localhost".to_string(),
+        );
+
+        {
+            let cert = X509::from_pem(&certs::cert())
+                .or_err(TLS_CONF_ERR, "Failed to load FP's certificate")?;
+
+            let ca_cert = X509::from_pem(&certs::ca_pem())
+                .or_err(TLS_CONF_ERR, "Failed to load CA certificate")?;
+
+            let key = boring::pkey::PKey::private_key_from_pem(&certs::key())
+                .or_err(TLS_CONF_ERR, "Failed to load private key")?;
+
+            // The certificate to present in mTLS connections to upstream
+            // The organization implementing mTLS acts as its own certificate authority.
+            let cert_key = CertKey::new(vec![cert], key);
+
+            // Providing Peer Options
+            let mut peer_options = PeerOptions::new();
+            {
+                peer_options.verify_cert = true; // Verify the server's certificate
+                peer_options.ca = Some(Arc::new(Box::new([ca_cert])));
+                peer_options.verify_hostname = true; // Whether to check if upstream server cert's Host matches the SNI
+            }
+
+            peer.client_cert_key = Some(Arc::new(cert_key));
+            peer.options = peer_options;
+        }
+
+        Ok(Box::new(peer))
     }
 
     async fn request_filter(
@@ -269,5 +315,24 @@ impl ProxyHttp for ForwardProxy {
     ) -> Box<Error> {
         error!("Failed to connect to upstream: {}", e);
         e
+    }
+}
+
+mod certs {
+    use std::fs;
+
+    pub fn ca_pem() -> Vec<u8> {
+        fs::read(std::env::var("PATH_TO_CA_CERT").expect("PATH_TO_CA_PERM must be set"))
+            .expect("Failed to read CA PEM file")
+    }
+
+    pub fn cert() -> Vec<u8> {
+        fs::read(std::env::var("PATH_TO_CERT").expect("PATH_TO_CERT must be set"))
+            .expect("Failed to read certificate file")
+    }
+
+    pub fn key() -> Vec<u8> {
+        fs::read(std::env::var("PATH_TO_KEY").expect("PATH_TO_KEY must be set"))
+            .expect("Failed to read key file")
     }
 }

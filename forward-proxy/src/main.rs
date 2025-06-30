@@ -1,24 +1,32 @@
 mod proxy;
 mod handler;
 
-use pingora::prelude::*;
-use simplelog::{ConfigBuilder, LevelFilter, WriteLogger};
+use crate::handler::ForwardHandler;
+use env_logger::{Env, Target};
 use log::info;
 use proxy::ForwardProxy;
-use crate::handler::ForwardHandler;
+use pingora::prelude::*;
 
 fn main() {
     // Load environment variables from .env file
     dotenv::dotenv().ok();
-    let config = ConfigBuilder::new().set_time_to_local(true).build();
-    // Initialize logger
+
     // let log_file = fs::File::create("log.txt").expect("Failed to create log file");
+    // let config = ConfigBuilder::new().set_time_to_local(true).build();
     // WriteLogger::init(LevelFilter::Debug, config, log_file).expect("Failed to initialize logger");
-    WriteLogger::init(LevelFilter::Debug, config, std::io::stdout()).expect("Failed to initialize logger");
+    env_logger::Builder::from_env(Env::default()
+        .write_style_or("RUST_LOG_STYLE", "always"))
+        .format_file(true)
+        .format_line_number(true)
+        .target(Target::Stdout)
+        .init();
 
     info!("Starting server...");
 
-    let mut server = Server::new(None).unwrap();
+    let mut server = Server::new(Some(Opt {
+        conf: std::env::var("SERVER_CONF").ok(),
+        ..Default::default()
+    })).unwrap();
     server.bootstrap();
 
     let fp_handler = ForwardHandler{};
@@ -28,7 +36,7 @@ fn main() {
         ForwardProxy::new(fp_handler)
     );
 
-    proxy.add_tcp("0.0.0.0:6191");
+    proxy.add_tcp("localhost:6191");
 
     server.add_service(proxy);
 

@@ -77,6 +77,7 @@ impl<T: Sync> ProxyHttp for ReverseProxy<T> {
         Ok(peer)
     }
 
+    /// Handle request/response data by creating a new request to BE and respond to FP
     async fn request_filter(&self, session: &mut Session, ctx: &mut Self::CTX) -> pingora::Result<bool>
     where
         Self::CTX: Send + Sync,

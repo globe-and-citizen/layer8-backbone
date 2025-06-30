@@ -1,4 +1,4 @@
-use clap::__macro_refs::once_cell::sync::Lazy;
+use once_cell::sync::Lazy;
 
 // can be replaced by constants, will see
 pub enum HeaderKeys {
@@ -28,11 +28,12 @@ impl HeaderKeys {
         match self {
             HeaderKeys::RpHeaderRequestKey => "added in ReverseProxy",
             HeaderKeys::RpHeaderResponseKey => "added in ReverseProxy",
-            _ => ""
+            _ => "",
         }
     }
 }
 
 // fixme BE path should be taken` from configuration
 pub const BACKEND_HOST: &str = "http://localhost:3000";
-pub static INIT_TUNNEL_TO_BACKEND_PATH: Lazy<String> = Lazy::new(|| format!("{}/init-tunnel", BACKEND_HOST));
+pub static INIT_TUNNEL_TO_BACKEND_PATH: Lazy<String> =
+    Lazy::new(|| format!("{}/init-tunnel", BACKEND_HOST));
