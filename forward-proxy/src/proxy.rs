@@ -107,16 +107,13 @@ impl ProxyHttp for ForwardProxy {
     where
         Self::CTX: Send + Sync,
     {
-        let mut req_body: Vec<u8> = vec![];
-
         if let Some(b) = body {
-            req_body.extend(&b[..]);
+            ctx.extend_request_body(b.to_vec());
             // drop the body
             b.clear();
         }
 
         if end_of_stream {
-            ctx.set_request_body(req_body);
             info!(
                 "[REQUEST {}] Decoded body: {}",
                 session.request_summary(),
@@ -208,16 +205,14 @@ impl ProxyHttp for ForwardProxy {
     where
         Self::CTX: Send + Sync,
     {
-        let mut resp_body: Vec<u8> = vec![];
         if let Some(b) = body {
-            resp_body.extend(&b[..]);
+            ctx.extend_response_body(b.to_vec());
             // drop the body
             b.clear();
         }
 
         if end_of_stream {
             // This is the last chunk, we can process the data now
-            ctx.set_response_body(resp_body);
             info!(
                 "[FORWARD {}] RP Response decoded body: {}",
                 session.request_summary(),

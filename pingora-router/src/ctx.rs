@@ -142,12 +142,20 @@ impl Layer8ContextTrait for Layer8Context {
         self.request.body = body
     }
 
+    fn extend_request_body(&mut self, body: Vec<u8>) {
+        self.request.body.extend(body)
+    }
+
     fn get_request_body(&self) -> Vec<u8> {
         self.request.body.clone()
     }
 
     fn set_response_body(&mut self, body: Vec<u8>) {
         self.response.body = body
+    }
+
+    fn extend_response_body(&mut self, body: Vec<u8>) {
+        self.response.body.extend(body);
     }
 
     fn get_response_body(&self) -> Vec<u8> {
@@ -181,8 +189,10 @@ pub trait Layer8ContextTrait {
     fn remove_response_header(&mut self, key: &str) -> Option<String>;
     fn get_response_header(&self) -> &Layer8Header;
     fn set_request_body(&mut self, body: Vec<u8>);
+    fn extend_request_body(&mut self, body: Vec<u8>);
     fn get_request_body(&self) -> Vec<u8>;
     fn set_response_body(&mut self, body: Vec<u8>);
+    fn extend_response_body(&mut self, body: Vec<u8>);
     fn get_response_body(&self) -> Vec<u8>;
     fn get(&self, key: &str) -> Option<&String>;
     fn set(&mut self, key: String, value: String);
