@@ -13,6 +13,7 @@ use pingora::OrErr;
 use pingora::listeners::tls::TLS_CONF_ERR;
 use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
 use reqwest::header::TRANSFER_ENCODING;
+use reqwest::Method;
 use crate::handler::ForwardHandler;
 
 pub struct ForwardProxy {
@@ -104,8 +105,22 @@ impl ProxyHttp for ForwardProxy {
         info!("[REQUEST {}] {:?}", request_summary, ctx.request);
         println!();
 
-        match session.req_header().uri.path() {
-            "/healthcheck" => {
+        match session.req_header().method {
+            pingora::http::Method::OPTIONS => {
+                // Handle CORS preflight request
+                let header = ResponseHeader::build(StatusCode::NO_CONTENT, None)?;
+                session.write_response_header_ref(&header).await?;
+                session.set_keepalive(None);
+                return Ok(true);
+            }
+            _ => {}
+        }
+
+        match (
+            session.req_header().uri.path(),
+            session.req_header().method.as_str()
+        ) {
+            ("/healthcheck", "GET") => {
                 let handler_response = self.handler.handle_healthcheck(ctx);
                 let mut header = ResponseHeader::build(handler_response.status, None)?;
                 let response_headers = header.headers.clone();
@@ -115,7 +130,9 @@ impl ProxyHttp for ForwardProxy {
 
                 let mut response_bytes = vec![];
                 if let Some(body_bytes) = handler_response.body {
-                    header.insert_header("Content-length", &body_bytes.len().to_string()).unwrap();
+                    header
+                        .insert_header("Content-length", &body_bytes.len().to_string())
+                        .unwrap();
                     response_bytes = body_bytes;
                 };
 
@@ -123,15 +140,22 @@ impl ProxyHttp for ForwardProxy {
 
                 println!();
                 info!("[RESPONSE {}] Header: {:?}", request_summary, header.headers);
-                info!("[RESPONSE {}] Body: {}", request_summary, String::from_utf8_lossy(&*response_bytes));
+                info!(
+                    "[RESPONSE {}] Body: {}",
+                    request_summary,
+                    String::from_utf8_lossy(&*response_bytes)
+                );
                 println!();
 
                 // Write the response body to the session after setting headers
-                session.write_response_body(Some(Bytes::from(response_bytes)), true).await?;
+                session
+                    .write_response_body(Some(Bytes::from(response_bytes)), true)
+                    .await?;
+
                 return Ok(true);
             }
-            "/init-tunnel" => {}
-            "/proxy" => {}
+            ("/init-tunnel", "POST") => {}
+            ("/proxy", "POST") => {}
             _ => {
                 let header = ResponseHeader::build(StatusCode::NOT_FOUND, None)?;
                 session.write_response_header_ref(&header).await?;
@@ -234,7 +258,7 @@ impl ProxyHttp for ForwardProxy {
         _ctx: &mut Self::CTX,
     ) -> pingora::Result<()> {
         upstream_response.insert_header("Access-Control-Allow-Origin", "*")?;
-        upstream_response.insert_header("Access-Control-Allow-Methods", "*")?;
+        upstream_response.insert_header("Access-Control-Allow-Methods", "POST")?;
         upstream_response.insert_header("Access-Control-Allow-Headers", "*")?;
         upstream_response.insert_header(TRANSFER_ENCODING.as_str(), "chunked")?;
 
