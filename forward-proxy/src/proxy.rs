@@ -21,7 +21,9 @@ pub struct ForwardProxy {
 
 impl ForwardProxy {
     pub fn new(handler: ForwardHandler) -> Self {
-        ForwardProxy { handler }
+        ForwardProxy {
+            handler,
+        }
     }
 }
 
@@ -109,34 +111,23 @@ impl ProxyHttp for ForwardProxy {
                 let response_headers = header.headers.clone();
                 for (key, val) in response_headers.iter() {
                     header.insert_header(key.clone(), val.clone()).unwrap();
-                }
+                };
 
                 let mut response_bytes = vec![];
                 if let Some(body_bytes) = handler_response.body {
-                    header
-                        .insert_header("Content-length", &body_bytes.len().to_string())
-                        .unwrap();
+                    header.insert_header("Content-length", &body_bytes.len().to_string()).unwrap();
                     response_bytes = body_bytes;
                 };
 
                 session.write_response_header_ref(&header).await?;
 
                 println!();
-                info!(
-                    "[RESPONSE {}] Header: {:?}",
-                    request_summary, header.headers
-                );
-                info!(
-                    "[RESPONSE {}] Body: {}",
-                    request_summary,
-                    String::from_utf8_lossy(&*response_bytes)
-                );
+                info!("[RESPONSE {}] Header: {:?}", request_summary, header.headers);
+                info!("[RESPONSE {}] Body: {}", request_summary, String::from_utf8_lossy(&*response_bytes));
                 println!();
 
                 // Write the response body to the session after setting headers
-                session
-                    .write_response_body(Some(Bytes::from(response_bytes)), true)
-                    .await?;
+                session.write_response_body(Some(Bytes::from(response_bytes)), true).await?;
                 return Ok(true);
             }
             "/init-tunnel" => {}
@@ -197,9 +188,9 @@ impl ProxyHttp for ForwardProxy {
                     handler_response.status,
                     utils::bytes_to_string(&handler_response.body.unwrap_or_default())
                 );
-                return Err(pingora::Error::new(pingora::ErrorType::HTTPStatus(
-                    u16::from(handler_response.status),
-                )));
+                return Err(pingora::Error::new(
+                    pingora::ErrorType::HTTPStatus(u16::from(handler_response.status)),
+                ));
             }
 
             info!(
@@ -303,9 +294,11 @@ impl ProxyHttp for ForwardProxy {
                     handler_response.status,
                     utils::bytes_to_string(&handler_response.body.unwrap_or_default())
                 );
-                return Err(pingora::Error::new(pingora::ErrorType::HTTPStatus(
-                    u16::from(StatusCode::INTERNAL_SERVER_ERROR),
-                )));
+                return Err(pingora::Error::new(
+                    pingora::ErrorType::HTTPStatus(
+                        u16::from(StatusCode::INTERNAL_SERVER_ERROR)
+                    ),
+                ));
             }
 
             info!(
