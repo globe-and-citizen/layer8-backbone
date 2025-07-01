@@ -1,6 +1,6 @@
 pub(crate) mod handler;
-use std::collections::HashMap;
 
+use std::collections::HashMap;
 use pingora_router::handler::{RequestBodyTrait, ResponseBodyTrait};
 use serde::{Deserialize, Serialize};
 
@@ -14,21 +14,19 @@ impl RequestBodyTrait for EncryptedMessage {}
 impl ResponseBodyTrait for EncryptedMessage {}
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct WrappedUserRequest {
-    pub uri: String,
+pub struct Layer8RequestObject {
     pub method: String,
-    pub headers: HashMap<String, String>,
-    pub url_params: HashMap<String, String>,
-    pub body: Option<Vec<u8>>,
+    pub uri: String,
+    pub headers: HashMap<String, serde_json::Value>,
+    pub body: Vec<u8>
 }
-impl RequestBodyTrait for WrappedUserRequest {}
+impl RequestBodyTrait for Layer8RequestObject {}
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct WrappedBackendResponse {
+pub struct Layer8ResponseObject {
     pub status: u16,
-    pub status_text: String,
-    pub headers: Vec<(String, String)>,
-    pub body: Vec<u8>,
+    pub headers: HashMap<String, serde_json::Value>,
+    pub body: Vec<u8>
 }
 
-impl ResponseBodyTrait for WrappedBackendResponse {}
+impl ResponseBodyTrait for Layer8ResponseObject {}
