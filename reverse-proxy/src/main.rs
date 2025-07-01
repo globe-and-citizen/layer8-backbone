@@ -2,6 +2,7 @@ mod handler;
 mod proxy;
 mod tls_conf;
 
+use std::env;
 use std::net::ToSocketAddrs;
 
 use crate::handler::ReverseHandler;
@@ -15,6 +16,7 @@ use pingora_router::handler::APIHandler;
 use pingora_router::router::Router;
 use proxy::{BACKEND_PORT, ReverseProxy, UPSTREAM_IP};
 use std::sync::Arc;
+mod config;
 
 fn main() {
     // let file = OpenOptions::new()
@@ -45,7 +47,8 @@ fn main() {
     // Load environment variables from .env file
     dotenv::dotenv().ok();
 
-    env_logger::Builder::from_env(Env::default().write_style_or("RUST_LOG_STYLE", "always"))
+    env_logger::Builder::from_env(Env::default()
+        .write_style_or("RUST_LOG_STYLE", "always"))
         .format_file(true)
         .format_line_number(true)
         .target(Target::Stdout)
@@ -54,8 +57,7 @@ fn main() {
     let mut my_server = Server::new(Some(Opt {
         conf: std::env::var("SERVER_CONF").ok(),
         ..Default::default()
-    }))
-    .unwrap();
+    })).unwrap();
 
     my_server.bootstrap();
 
@@ -65,7 +67,12 @@ fn main() {
     let handle_proxy: APIHandler<Arc<ReverseHandler>> =
         Box::new(|h, ctx| async move { h.handle_proxy_request(ctx).await }.boxed());
 
-    let rp_handler = Arc::new(ReverseHandler {});
+    let config_path = env::var("CONFIG_PATH").unwrap_or_else(|_| "config.toml".to_string());
+    let backbone_config = config::Config::from_file(&config_path);
+    backbone_config.validate();
+    println!("{:?}", backbone_config);
+
+    let rp_handler = Arc::new(ReverseHandler::new(backbone_config.handler));
     let mut router: Router<Arc<ReverseHandler>> = Router::new(rp_handler.clone());
     router.post("/init-tunnel".to_string(), Box::new([handle_init_tunnel]));
     router.post("/proxy".to_string(), Box::new([handle_proxy]));
