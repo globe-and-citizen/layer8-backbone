@@ -1,19 +1,19 @@
-use std::sync::Arc;
-use std::time::Duration;
+use crate::handler::ForwardHandler;
 use async_trait::async_trait;
 use boring::x509::X509;
 use bytes::Bytes;
 use log::{error, info};
 use pingora::Error;
-use pingora::prelude::{HttpPeer, ProxyHttp, Session};
+use pingora::OrErr;
 use pingora::http::{RequestHeader, ResponseHeader, StatusCode};
+use pingora::listeners::tls::TLS_CONF_ERR;
+use pingora::prelude::{HttpPeer, ProxyHttp, Session};
 use pingora::upstreams::peer::PeerOptions;
 use pingora::utils::tls::CertKey;
-use pingora::OrErr;
-use pingora::listeners::tls::TLS_CONF_ERR;
 use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
 use reqwest::header::TRANSFER_ENCODING;
-use crate::handler::ForwardHandler;
+use std::sync::Arc;
+use std::time::Duration;
 
 pub struct ForwardProxy {
     handler: ForwardHandler,
@@ -21,9 +21,7 @@ pub struct ForwardProxy {
 
 impl ForwardProxy {
     pub fn new(handler: ForwardHandler) -> Self {
-        ForwardProxy {
-            handler,
-        }
+        ForwardProxy { handler }
     }
 }
 
@@ -111,23 +109,34 @@ impl ProxyHttp for ForwardProxy {
                 let response_headers = header.headers.clone();
                 for (key, val) in response_headers.iter() {
                     header.insert_header(key.clone(), val.clone()).unwrap();
-                };
+                }
 
                 let mut response_bytes = vec![];
                 if let Some(body_bytes) = handler_response.body {
-                    header.insert_header("Content-length", &body_bytes.len().to_string()).unwrap();
+                    header
+                        .insert_header("Content-length", &body_bytes.len().to_string())
+                        .unwrap();
                     response_bytes = body_bytes;
                 };
 
                 session.write_response_header_ref(&header).await?;
 
                 println!();
-                info!("[RESPONSE {}] Header: {:?}", request_summary, header.headers);
-                info!("[RESPONSE {}] Body: {}", request_summary, String::from_utf8_lossy(&*response_bytes));
+                info!(
+                    "[RESPONSE {}] Header: {:?}",
+                    request_summary, header.headers
+                );
+                info!(
+                    "[RESPONSE {}] Body: {}",
+                    request_summary,
+                    String::from_utf8_lossy(&*response_bytes)
+                );
                 println!();
 
                 // Write the response body to the session after setting headers
-                session.write_response_body(Some(Bytes::from(response_bytes)), true).await?;
+                session
+                    .write_response_body(Some(Bytes::from(response_bytes)), true)
+                    .await?;
                 return Ok(true);
             }
             "/init-tunnel" => {}
@@ -188,9 +197,9 @@ impl ProxyHttp for ForwardProxy {
                     handler_response.status,
                     utils::bytes_to_string(&handler_response.body.unwrap_or_default())
                 );
-                return Err(pingora::Error::new(
-                    pingora::ErrorType::HTTPStatus(u16::from(handler_response.status)),
-                ));
+                return Err(pingora::Error::new(pingora::ErrorType::HTTPStatus(
+                    u16::from(handler_response.status),
+                )));
             }
 
             info!(
@@ -220,9 +229,12 @@ impl ProxyHttp for ForwardProxy {
             .insert_header("fp_request_header", "fp_request_value")
             .unwrap();
 
-        upstream_request
-            .insert_header(TRANSFER_ENCODING.as_str(), "chunked")
-            .unwrap();
+        if upstream_request.headers.get("x-empty-body").is_none() {
+            upstream_request.remove_header("content-length");
+            upstream_request
+                .insert_header(TRANSFER_ENCODING.as_str(), "chunked")
+                .unwrap();
+        }
 
         Ok(())
     }
@@ -236,7 +248,13 @@ impl ProxyHttp for ForwardProxy {
         upstream_response.insert_header("Access-Control-Allow-Origin", "*")?;
         upstream_response.insert_header("Access-Control-Allow-Methods", "*")?;
         upstream_response.insert_header("Access-Control-Allow-Headers", "*")?;
-        upstream_response.insert_header(TRANSFER_ENCODING.as_str(), "chunked")?;
+
+        if let Some(length) = upstream_response.headers.get("content-length") {
+            if length != "0" {
+                upstream_response.remove_header("content-length");
+                upstream_response.insert_header(TRANSFER_ENCODING.as_str(), "chunked")?;
+            }
+        }
 
         Ok(())
     }
@@ -285,11 +303,9 @@ impl ProxyHttp for ForwardProxy {
                     handler_response.status,
                     utils::bytes_to_string(&handler_response.body.unwrap_or_default())
                 );
-                return Err(pingora::Error::new(
-                    pingora::ErrorType::HTTPStatus(
-                        u16::from(StatusCode::INTERNAL_SERVER_ERROR)
-                    ),
-                ));
+                return Err(pingora::Error::new(pingora::ErrorType::HTTPStatus(
+                    u16::from(StatusCode::INTERNAL_SERVER_ERROR),
+                )));
             }
 
             info!(

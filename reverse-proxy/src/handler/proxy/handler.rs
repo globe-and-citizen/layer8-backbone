@@ -1,5 +1,6 @@
+use std::str::FromStr;
 use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
-use reqwest::header::HeaderMap;
+use reqwest::header::{HeaderMap, HeaderName};
 use pingora_router::handler::{APIHandlerResponse, DefaultHandlerTrait, ResponseBodyTrait};
 use log::{debug, error, info};
 use ntor::common::NTorParty;
@@ -104,14 +105,19 @@ impl ProxyHandler {
         Ok(wrapped_request)
     }
 
-    pub(crate) async fn rebuild_user_request(wrapped_request: WrappedUserRequest)
-                                             -> Result<WrappedBackendResponse, APIHandlerResponse>
-    {
-        let header_map = utils::string_to_headermap(&wrapped_request.headers)
-            .unwrap_or_else(|_| HeaderMap::new());
-        debug!("[FORWARD {}] Reconstructed request headers: {:?}", wrapped_request.uri, header_map);
+    pub(crate) async fn rebuild_user_request(
+        wrapped_request: WrappedUserRequest,
+    ) -> Result<WrappedBackendResponse, APIHandlerResponse> {
+        let mut header_map = HeaderMap::new();
+        for (key, value) in wrapped_request.headers {
+            header_map.insert(
+                HeaderName::from_str(&key).expect("Failed to parse header key"),
+                value.parse().expect("Failed to parse header value"),
+            );
+        }
 
-        let body = utils::bytes_to_string(&wrapped_request.body);
+      
+        let body = utils::bytes_to_string(&wrapped_request.body.unwrap_or_default());
         debug!("[FORWARD {}] Reconstructed request body: {}", wrapped_request.uri, body);
 
         let url = format!("{}{}", BACKEND_HOST, wrapped_request.uri);
@@ -119,18 +125,35 @@ impl ProxyHandler {
 
         let client = Client::new();
 
-        let response = client.request(
-            wrapped_request.method.parse().unwrap(),
-            url.as_str()
-        )
-            .headers(header_map.clone())
-            .body(body)
-            .send()
-            .await;
+        let mut req_builder = client
+            .request(wrapped_request.method.parse().unwrap(), url.as_str())
+            .headers(header_map.clone());
+
+        if !body.is_empty() {
+            req_builder = req_builder.body(body);
+        }
+
+        let response = req_builder.send().await;
 
         return match response {
             Ok(success_res) => {
                 let status = success_res.status().as_u16();
+                let status_text = success_res
+                    .status()
+                    .canonical_reason()
+                    .unwrap_or("")
+                    .to_string();
+
+                let headers = success_res
+                    .headers()
+                    .iter()
+                    .map(|(k, v)| {
+                        let key = k.as_str().to_string();
+                        let value = v.to_str().unwrap_or("").to_string();
+                        (key, value)
+                    })
+                    .collect::<Vec<_>>();
+
                 let serialized_headers = utils::headermap_to_string(&success_res.headers());
                 let serialized_body: Vec<u8> = success_res.bytes().await.unwrap_or_default().to_vec();
 
@@ -139,7 +162,8 @@ impl ProxyHandler {
 
                 Ok(WrappedBackendResponse {
                     status,
-                    headers: serialized_headers,
+                    status_text,
+                    headers,
                     body: serialized_body,
                 })
             }

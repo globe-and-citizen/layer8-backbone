@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue';
 import { getToken } from '@/utils.js';
+import * as interceptorWasm from "interceptor-wasm"
 
 const profile = ref({
     username: "",
@@ -14,7 +15,7 @@ const downloadProfilePicture = () => {
     if (!profile.value.username) return;
     
     // Use the new download endpoint
-    window.location.href = `http://localhost:6191/download-profile/${profile.value.username}`;
+    window.location.href = `http://localhost:3000/download-profile/${profile.value.username}`;
 };
 
 onMounted(() => {
@@ -27,7 +28,7 @@ onMounted(() => {
     const payload = JSON.parse(atob(token.split('.')[1]));
     const username = payload.username;
 
-    fetch(`http://localhost:6191/profile/${username}`)
+    interceptorWasm.fetch(`http://localhost:3000/profile/${username}`)
         .then(response => response.json())
         .then(data => {
             profile.value.username = username;

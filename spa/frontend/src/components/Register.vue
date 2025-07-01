@@ -17,6 +17,7 @@
 
 <script setup>
 import {ref} from 'vue';
+import * as interceptorWasm from "interceptor-wasm";
 
 const username = ref('');
 const password = ref('');
@@ -36,7 +37,7 @@ const handleRegister = () => {
     "password": password.value
   }
 
-  fetch('http://localhost:6191/register', {
+  interceptorWasm.fetch('http://localhost:3000/register', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json'
