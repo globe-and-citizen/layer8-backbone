@@ -18,6 +18,7 @@
 <script setup>
 import {ref} from 'vue';
 import {saveToken} from "@/utils.js";
+import * as interceptorWasm from "interceptor-wasm"
 
 const username = ref('');
 const password = ref('');
@@ -39,7 +40,7 @@ const handleLogin = () => {
     "password": password.value
   }
 
-  fetch('http://localhost:6191/login', {
+  interceptorWasm.fetch('http://localhost:3000/login', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json'

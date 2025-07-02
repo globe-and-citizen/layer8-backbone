@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import {onMounted, ref} from 'vue';
+import { onMounted, ref } from 'vue';
+import * as interceptorWasm from "interceptor-wasm"
 
 const images = ref<any[]>([]);
 const searchName = ref<string>('');
 
 function openImage(id: string) {
-    fetch(`http://localhost:6191/images?id=${id}`)
+    interceptorWasm.fetch(`http://localhost:3000/images?id=${id}`)
         .then(response => response.json())
         .catch(err => {
             console.error('Error fetching image:', err);
@@ -17,8 +18,8 @@ function searchImage() {
         fetchAllImages();
         return;
     }
-    
-    fetch(`http://localhost:6191/images?name=${searchName.value}`)
+
+    interceptorWasm.fetch(`http://localhost:3000/images?name=${searchName.value}`)
         .then(response => {
             if (!response.ok) throw new Error('Image not found');
             return response.json();
@@ -37,7 +38,7 @@ function searchImage() {
 }
 
 function fetchAllImages() {
-    fetch('http://localhost:6191/images')
+    interceptorWasm.fetch('http://localhost:3000/images')
         .then(response => response.json())
         .then(data => {
             images.value = data.map((img: any) => ({
@@ -59,26 +60,16 @@ onMounted(() => {
 <template>
     <div class="gallery-vertical">
         <h1>📸 Image Gallery</h1>
-        
+
         <div class="search-container">
-            <input 
-                v-model="searchName" 
-                type="text" 
-                placeholder="Enter Image Name"
-                min="1"
-            />
+            <input v-model="searchName" type="text" placeholder="Enter Image Name" min="1" />
             <button @click="searchImage">Search</button>
             <button @click="fetchAllImages">Show All</button>
         </div>
-        
+
         <div class="image-container">
-            <div
-                class="image-card"
-                v-for="image in images"
-                :key="image.id"
-                @click="openImage(image.id)"
-            >
-                <img :src="image.src" :alt="image.title"/>
+            <div class="image-card" v-for="image in images" :key="image.id" @click="openImage(image.id)">
+                <img :src="image.src" :alt="image.title" />
                 <h2>{{ image.title }}</h2>
             </div>
         </div>
@@ -115,10 +106,13 @@ onMounted(() => {
 
 .image-card {
     /* Add these new styles */
-    width: 300px; /* Fixed width */
-    height: 300px; /* Fixed height - adjust as needed */
+    width: 300px;
+    /* Fixed width */
+    height: 300px;
+    /* Fixed height - adjust as needed */
     margin: 10px;
-    overflow: hidden; /* Hide any overflow from the image */
+    overflow: hidden;
+    /* Hide any overflow from the image */
     cursor: pointer;
     border-radius: 8px;
     box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
@@ -131,8 +125,10 @@ onMounted(() => {
 
 .image-card img {
     width: 100%;
-    height: 80%; /* Adjust this percentage based on how much space you want for the image vs text */
-    object-fit: cover; /* This will maintain aspect ratio while filling the space */
+    height: 80%;
+    /* Adjust this percentage based on how much space you want for the image vs text */
+    object-fit: cover;
+    /* This will maintain aspect ratio while filling the space */
     display: block;
 }
 

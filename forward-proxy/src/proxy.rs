@@ -1,19 +1,18 @@
-use std::sync::Arc;
-use std::time::Duration;
 use async_trait::async_trait;
 use boring::x509::X509;
 use bytes::Bytes;
 use log::{error, info};
 use pingora::Error;
-use pingora::prelude::{HttpPeer, ProxyHttp, Session};
+use pingora::OrErr;
 use pingora::http::{RequestHeader, ResponseHeader, StatusCode};
+use pingora::listeners::tls::TLS_CONF_ERR;
+use pingora::prelude::{HttpPeer, ProxyHttp, Session};
 use pingora::upstreams::peer::PeerOptions;
 use pingora::utils::tls::CertKey;
-use pingora::OrErr;
-use pingora::listeners::tls::TLS_CONF_ERR;
 use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
 use reqwest::header::TRANSFER_ENCODING;
-use reqwest::Method;
+use std::sync::Arc;
+use std::time::Duration;
 use crate::handler::ForwardHandler;
 
 pub struct ForwardProxy {
@@ -244,9 +243,12 @@ impl ProxyHttp for ForwardProxy {
             .insert_header("fp_request_header", "fp_request_value")
             .unwrap();
 
-        upstream_request
-            .insert_header(TRANSFER_ENCODING.as_str(), "chunked")
-            .unwrap();
+        if upstream_request.headers.get("x-empty-body").is_none() {
+            upstream_request.remove_header("content-length");
+            upstream_request
+                .insert_header(TRANSFER_ENCODING.as_str(), "chunked")
+                .unwrap();
+        }
 
         Ok(())
     }
@@ -260,7 +262,13 @@ impl ProxyHttp for ForwardProxy {
         upstream_response.insert_header("Access-Control-Allow-Origin", "*")?;
         upstream_response.insert_header("Access-Control-Allow-Methods", "POST")?;
         upstream_response.insert_header("Access-Control-Allow-Headers", "*")?;
-        upstream_response.insert_header(TRANSFER_ENCODING.as_str(), "chunked")?;
+
+        if let Some(length) = upstream_response.headers.get("content-length") {
+            if length != "0" {
+                upstream_response.remove_header("content-length");
+                upstream_response.insert_header(TRANSFER_ENCODING.as_str(), "chunked")?;
+            }
+        }
 
         Ok(())
     }

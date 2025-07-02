@@ -115,6 +115,7 @@ impl ProxyHandler {
             .unwrap_or_else(|_| HeaderMap::new());
         debug!("[FORWARD {}] Reconstructed request headers: {:?}", wrapped_request.uri, header_map);
 
+      
         let body = utils::bytes_to_string(&wrapped_request.body);
         debug!("[FORWARD {}] Reconstructed request body: {}", wrapped_request.uri, body);
 
