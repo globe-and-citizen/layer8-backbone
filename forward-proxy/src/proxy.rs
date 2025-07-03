@@ -107,7 +107,10 @@ impl ProxyHttp for ForwardProxy {
         match session.req_header().method {
             pingora::http::Method::OPTIONS => {
                 // Handle CORS preflight request
-                let header = ResponseHeader::build(StatusCode::NO_CONTENT, None)?;
+                let mut header = ResponseHeader::build(StatusCode::NO_CONTENT, None)?;
+                header.insert_header("Access-Control-Allow-Origin", "*")?;
+                header.insert_header("Access-Control-Allow-Methods", "POST")?;
+                header.insert_header("Access-Control-Allow-Headers", "*")?;
                 session.write_response_header_ref(&header).await?;
                 session.set_keepalive(None);
                 return Ok(true);

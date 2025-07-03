@@ -1,3 +1,4 @@
+use std::any::Any;
 use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
 use reqwest::header::HeaderMap;
 use pingora_router::handler::{APIHandlerResponse, DefaultHandlerTrait, ResponseBodyTrait};
@@ -9,7 +10,7 @@ use pingora::http::StatusCode;
 use utils::bytes_to_json;
 use crate::handler::common::consts::{HeaderKeys, BACKEND_HOST};
 use crate::handler::common::types::ErrorResponse;
-use crate::handler::proxy::{EncryptedMessage, Layer8ResponseObject, Layer8RequestObject};
+use crate::handler::proxy::{EncryptedMessage, L8ResponseObject, L8RequestObject};
 
 /// Struct containing only associated methods (no instance methods or fields)
 pub struct ProxyHandler {}
@@ -78,7 +79,7 @@ impl ProxyHandler {
         request_body: EncryptedMessage,
         ntor_server_id: String,
         shared_secret: Vec<u8>,
-    ) -> Result<Layer8RequestObject, APIHandlerResponse>
+    ) -> Result<L8RequestObject, APIHandlerResponse>
     {
         let mut ntor_server = NTorServer::new(ntor_server_id);
         ntor_server.set_shared_secret(shared_secret.clone());
@@ -96,7 +97,7 @@ impl ProxyHandler {
         // let decrypted_data = request_body.data;
 
         // parse decrypted data into WrappedUserRequest
-        let wrapped_request: Layer8RequestObject = bytes_to_json(decrypted_data)
+        let wrapped_request: L8RequestObject = bytes_to_json(decrypted_data)
             .map_err(|err| {
                 return APIHandlerResponse {
                     status: StatusCode::BAD_REQUEST,
@@ -108,8 +109,8 @@ impl ProxyHandler {
     }
 
     pub(crate) async fn rebuild_user_request(
-        wrapped_request: Layer8RequestObject
-    ) -> Result<Layer8ResponseObject, APIHandlerResponse>
+        wrapped_request: L8RequestObject
+    ) -> Result<L8ResponseObject, APIHandlerResponse>
     {
         let header_map = utils::hashmap_to_headermap(&wrapped_request.headers)
             .unwrap_or_else(|_| HeaderMap::new());
@@ -119,14 +120,14 @@ impl ProxyHandler {
         let body = utils::bytes_to_string(&wrapped_request.body);
         debug!("[FORWARD {}] Reconstructed request body: {}", wrapped_request.uri, body);
 
-        let url = format!("{}{}", BACKEND_HOST, wrapped_request.uri);
-        debug!("[FORWARD {}] Request URL: {}", wrapped_request.uri, url);
+        let origin_url = format!("{}{}", BACKEND_HOST, wrapped_request.uri);
+        debug!("[FORWARD {}] Request URL: {}", wrapped_request.uri, origin_url);
 
         let client = Client::new();
 
         let response = client.request(
             wrapped_request.method.parse().unwrap(),
-            url.as_str(),
+            origin_url.as_str(),
         )
             .headers(header_map.clone())
             .body(body)
@@ -136,8 +137,16 @@ impl ProxyHandler {
         return match response {
             Ok(success_res) => {
                 let status = success_res.status().as_u16();
+                let status_text = success_res.status()
+                    .canonical_reason()
+                    .unwrap_or("OK")
+                    .to_string();
+                let ok = success_res.status().is_success();
+                let url = success_res.url().to_string();
+                let redirected = success_res.url().as_str() != origin_url;
+
                 let serialized_headers = utils::headermap_to_hashmap(&success_res.headers());
-                let serialized_body: Vec<u8> = success_res.bytes().await.unwrap_or_default().to_vec();
+                let serialized_body = success_res.bytes().await.unwrap_or_default().to_vec();
 
                 debug!(
                     "[FORWARD {}] Response from backend headers: {:?}",
@@ -150,10 +159,14 @@ impl ProxyHandler {
                     utils::bytes_to_string(&serialized_body)
                 );
 
-                Ok(Layer8ResponseObject {
+                Ok(L8ResponseObject {
                     status,
+                    status_text,
                     headers: serialized_headers,
                     body: serialized_body,
+                    ok,
+                    url,
+                    redirected,
                 })
             }
             Err(err) => {
@@ -172,7 +185,7 @@ impl ProxyHandler {
     }
 
     pub(crate) fn encrypt_response_body(
-        response_body: Layer8ResponseObject,
+        response_body: L8ResponseObject,
         ntor_server_id: String,
         shared_secret: Vec<u8>,
     ) -> Result<EncryptedMessage, APIHandlerResponse>
