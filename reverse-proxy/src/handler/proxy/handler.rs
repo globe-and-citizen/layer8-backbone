@@ -116,10 +116,6 @@ impl ProxyHandler {
             .unwrap_or_else(|_| HeaderMap::new());
         debug!("[FORWARD {}] Reconstructed request headers: {:?}", wrapped_request.uri, header_map);
 
-      
-        let body = utils::bytes_to_string(&wrapped_request.body);
-        debug!("[FORWARD {}] Reconstructed request body: {}", wrapped_request.uri, body);
-
         let origin_url = format!("{}{}", BACKEND_HOST, wrapped_request.uri);
         debug!("[FORWARD {}] Request URL: {}", wrapped_request.uri, origin_url);
 
@@ -130,7 +126,7 @@ impl ProxyHandler {
             origin_url.as_str(),
         )
             .headers(header_map.clone())
-            .body(body)
+            .body(wrapped_request.body)
             .send()
             .await;
 
