@@ -2,15 +2,16 @@
 host="localhost"
 port=0
 
-[server]
-local_address="127.0.0.1:6194"
-public_address="0.0.0.0:6193"
-
 [log]
 level="DEBUG"
 path="console"
 
+[server]
+host="localhost"    # The host where the reverse proxy will listen
+port=6191           # The port where the reverse proxy will listen
+
 [handler]
-#jwt_secret="this is 32-byte wgp's jwt secret"
+jwt_virtual_connection_secret="this is 32-byte wgp's jwt secret"
+jwt_exp=24          # in hours
 ntor_server_id="ReverseProxyServer"
 ntor_static_secret="this is 32-byte nTorStaticSecret"

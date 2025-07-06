@@ -1,3 +1,5 @@
+pub mod jwt;
+
 use std::collections::HashMap;
 use base64::Engine;
 use base64::engine::general_purpose;

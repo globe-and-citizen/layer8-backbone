@@ -12,7 +12,13 @@ pub mod types;
 mod helpers;
 mod consts;
 
-pub struct ForwardHandler {}
+pub struct ForwardConfig {
+    pub jwt_secret: String,
+}
+
+pub struct ForwardHandler {
+    pub config: ForwardConfig,
+}
 
 impl DefaultHandlerTrait for ForwardHandler {}
 
@@ -22,6 +28,10 @@ struct NTorServerCertificate {
 }
 
 impl ForwardHandler {
+    pub fn new(config: ForwardConfig) -> Self {
+        ForwardHandler { config }
+    }
+
     async fn get_public_key(
         &self,
         backend_url: String,
