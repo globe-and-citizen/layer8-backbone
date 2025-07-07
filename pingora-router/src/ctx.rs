@@ -58,6 +58,12 @@ pub struct Layer8ContextRequest {
     body: Vec<u8>,
 }
 
+impl Layer8ContextRequest {
+    pub fn get_client_base_url(&self) -> String {
+        format!("{}://{}", self.summary.scheme, self.summary.host)
+    }
+}
+
 /// `Layer8ContextResponse` is expected to store data to be returned to the client and
 /// shared across handlers during request processing
 #[derive(Debug, Clone, Default)]

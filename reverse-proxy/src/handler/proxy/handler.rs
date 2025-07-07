@@ -1,14 +1,14 @@
-use std::any::Any;
 use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
 use reqwest::header::HeaderMap;
 use pingora_router::handler::{APIHandlerResponse, DefaultHandlerTrait, ResponseBodyTrait};
-use log::{debug, error, info};
+use log::{debug, error};
 use ntor::common::NTorParty;
 use ntor::server::NTorServer;
 use reqwest::Client;
 use pingora::http::StatusCode;
 use utils::bytes_to_json;
-use crate::handler::common::consts::{HeaderKeys, BACKEND_HOST};
+use utils::jwt::JWTClaims;
+use crate::handler::common::consts::{HeaderKeys};
 use crate::handler::common::types::ErrorResponse;
 use crate::handler::proxy::{EncryptedMessage, L8ResponseObject, L8RequestObject};
 
@@ -18,35 +18,73 @@ pub struct ProxyHandler {}
 impl DefaultHandlerTrait for ProxyHandler {}
 
 impl ProxyHandler {
-    /// Validates the request headers for the nTor session ID.
-    pub(crate) fn validate_request_headers(
-        ctx: &mut Layer8Context
-    ) -> Result<String, APIHandlerResponse>
-    {
-        return match ctx.get_request_header().get(HeaderKeys::NTorSessionIDKey.as_str()) {
+
+    fn validate_jwt_token(
+        ctx: &mut Layer8Context,
+        header_key: HeaderKeys,
+        jwt_secret: &Vec<u8>
+    ) -> Result<JWTClaims, APIHandlerResponse> {
+        match ctx.get_request_header().get(header_key.as_str()) {
             None => {
-                Err(APIHandlerResponse {
+                return Err(APIHandlerResponse {
                     status: StatusCode::BAD_REQUEST,
                     body: Some(ErrorResponse {
-                        error: "Missing nTor session ID header".to_string(),
+                        error: format!("Missing {} header", header_key.as_str()),
                     }.to_bytes()),
-                })
-            }
-            Some(session_id) => {
-                if session_id.is_empty() {
+                });
+            },
+            Some(token) => {
+                if token.is_empty() {
                     return Err(APIHandlerResponse {
                         status: StatusCode::BAD_REQUEST,
                         body: Some(ErrorResponse {
-                            error: "Empty nTor session ID header".to_string(),
+                            error: format!("Empty {} header", header_key.as_str()),
                         }.to_bytes()),
                     });
                 }
-                info!("nTor session ID: {}", session_id);
 
-                // todo validate session_id format
-
-                Ok(session_id.to_string())
+                // verify token
+                match utils::jwt::verify_jwt_token(token, jwt_secret) {
+                    Ok(data) => Ok(data.claims),
+                    Err(err) => Err(APIHandlerResponse {
+                        status: StatusCode::BAD_REQUEST,
+                        body: Some(ErrorResponse {
+                            error: err.to_string(),
+                        }.to_bytes()),
+                    }),
+                }
             }
+        }
+    }
+
+    /// Validates the request headers and get ntor_session_id in return.
+    pub(crate) fn validate_request_headers(
+        ctx: &mut Layer8Context,
+        jwt_secret: &Vec<u8>,
+    ) -> Result<String, APIHandlerResponse>
+    {
+        // verify fp_rp_jwt header
+        match ProxyHandler::validate_jwt_token(ctx, HeaderKeys::FpRpJwtKey, jwt_secret) {
+            Ok(_claims) => {
+                // todo!() nothing to validate at the moment
+            }
+            Err(err) => return Err(err)
+        }
+
+        return match ProxyHandler::validate_jwt_token(ctx, HeaderKeys::FpRpJwtKey, jwt_secret) {
+            Ok(claims) => {
+                // extract ntor_session_id from claims
+                match claims.ntor_session_id {
+                    Some(ntor_session_id) => Ok(ntor_session_id),
+                    None => Err(APIHandlerResponse {
+                        status: StatusCode::BAD_REQUEST,
+                        body: Some(ErrorResponse {
+                            error: "Missing ntor_session_id in JWT claims".to_string(),
+                        }.to_bytes()),
+                    }),
+                }
+            }
+            Err(err) => return Err(err)
         };
     }
 
@@ -109,6 +147,7 @@ impl ProxyHandler {
     }
 
     pub(crate) async fn rebuild_user_request(
+        backend_url: String,
         wrapped_request: L8RequestObject
     ) -> Result<L8ResponseObject, APIHandlerResponse>
     {
@@ -116,7 +155,7 @@ impl ProxyHandler {
             .unwrap_or_else(|_| HeaderMap::new());
         debug!("[FORWARD {}] Reconstructed request headers: {:?}", wrapped_request.uri, header_map);
 
-        let origin_url = format!("{}{}", BACKEND_HOST, wrapped_request.uri);
+        let origin_url = format!("{}{}", backend_url, wrapped_request.uri);
         debug!("[FORWARD {}] Request URL: {}", wrapped_request.uri, origin_url);
 
         let client = Client::new();
@@ -198,10 +237,6 @@ impl ProxyHandler {
                 body: Some(format!("Encryption failed: {}", err).as_bytes().to_vec()),
             };
         })?;
-        // let encrypted_data = ntor::common::EncryptedMessage {
-        //     nonce: [0; 12], // Placeholder, replace with actual nonce generation
-        //     data,
-        // };
 
         Ok(EncryptedMessage {
             nonce: encrypted_data.nonce.to_vec(),

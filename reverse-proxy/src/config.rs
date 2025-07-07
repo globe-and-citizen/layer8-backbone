@@ -64,6 +64,7 @@ pub(super) struct HandlerConfig {
     pub jwt_virtual_connection_secret: String,
     pub jwt_exp: i64,
     pub forward_proxy_url: Option<String>,
+    pub backend_url: String,
 }
 
 

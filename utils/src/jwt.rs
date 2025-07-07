@@ -145,7 +145,7 @@ fn is_zero(x: &usize) -> bool {
     *x == 0
 }
 
-pub fn create_jwt_token(claims: JWTClaims, jwt_secret: [u8; 32]) -> String {
+pub fn create_jwt_token(claims: JWTClaims, jwt_secret: &[u8]) -> String {
     jsonwebtoken::encode(
         &jsonwebtoken::Header::default(),
         &claims,
@@ -153,10 +153,10 @@ pub fn create_jwt_token(claims: JWTClaims, jwt_secret: [u8; 32]) -> String {
     ).unwrap()
 }
 
-pub fn verify_jwt_token(token: &str, jwt_secret: [u8; 32]) -> Result<TokenData<JWTClaims>, JwtError> {
+pub fn verify_jwt_token(token: &str, jwt_secret: &Vec<u8>) -> Result<TokenData<JWTClaims>, JwtError> {
     jsonwebtoken::decode::<JWTClaims>(
         token,
-        &DecodingKey::from_secret(&jwt_secret),
+        &DecodingKey::from_secret(jwt_secret.as_slice()),
         &Validation::default(),
     )
 }
