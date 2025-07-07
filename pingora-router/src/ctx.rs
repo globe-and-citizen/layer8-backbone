@@ -11,6 +11,8 @@ use crate::utils::get_request_body;
 #[derive(Debug, Clone, Default)]
 pub struct Layer8ContextRequestSummary {
     pub method: Method,
+    pub scheme: String,
+    pub host: String,
     pub path: String,
     pub params: HashMap<String, String>,
 }
@@ -18,6 +20,12 @@ pub struct Layer8ContextRequestSummary {
 impl Layer8ContextRequestSummary {
     pub(crate) fn from(session: &Session) -> Self {
         let method = session.req_header().method.clone();
+        let scheme = session.req_header().uri.scheme()
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| "".to_string());
+        let host = session.req_header().uri.host()
+            .map(|h| h.to_string())
+            .unwrap_or_else(|| "".to_string());
         let path = session.req_header().uri.path().to_string();
         let query = session.req_header().uri.query();
 
@@ -33,6 +41,8 @@ impl Layer8ContextRequestSummary {
 
         Layer8ContextRequestSummary {
             method,
+            scheme,
+            host,
             path,
             params,
         }
@@ -43,8 +53,8 @@ impl Layer8ContextRequestSummary {
 /// needed for processing and handler access
 #[derive(Debug, Clone, Default)]
 pub struct Layer8ContextRequest {
-    summary: Layer8ContextRequestSummary,
-    header: Layer8Header,
+    pub summary: Layer8ContextRequestSummary,
+    pub header: Layer8Header,
     body: Vec<u8>,
 }
 
@@ -52,7 +62,7 @@ pub struct Layer8ContextRequest {
 /// shared across handlers during request processing
 #[derive(Debug, Clone, Default)]
 pub struct Layer8ContextResponse {
-    header: Layer8Header,
+    pub header: Layer8Header,
     body: Vec<u8>,
 }
 

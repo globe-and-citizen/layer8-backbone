@@ -11,7 +11,8 @@ use init_tunnel::handler::InitTunnelHandler;
 use proxy::handler::ProxyHandler;
 use init_tunnel::InitEncryptedTunnelResponse;
 use utils::{new_uuid, string_to_array32};
-use crate::config::HandlerConfig;
+use utils::jwt::JWTClaims;
+use crate::config::{HandlerConfig, RPConfig};
 
 mod common;
 mod init_tunnel;
@@ -24,15 +25,20 @@ thread_local! {
 
 pub struct ReverseHandler {
     config: HandlerConfig,
+    host: String,
+    jwt_secret: [u8; 32],
     ntor_static_secret: [u8; 32],
 }
 
 impl ReverseHandler {
-    pub fn new(config: HandlerConfig) -> Self {
-        let ntor_secret = string_to_array32(config.ntor_static_secret.clone()).unwrap();
+    pub fn new(config: RPConfig) -> Self {
+        let ntor_secret = string_to_array32(config.handler.ntor_static_secret.clone()).unwrap();
+        let jwt_secret = string_to_array32(config.handler.jwt_virtual_connection_secret.clone()).unwrap();
 
         ReverseHandler {
-            config,
+            config: config.handler,
+            host: config.server.host,
+            jwt_secret,
             ntor_static_secret: ntor_secret,
         }
     }
@@ -68,31 +74,61 @@ impl ReverseHandler {
             self.ntor_static_secret,
         );
 
-        if request_body.public_key.len() != 32 {
-            return APIHandlerResponse {
-                status: StatusCode::BAD_REQUEST,
-                body: Some("Invalid public key length".as_bytes().to_vec()),
-            };
-        }
+        let init_session_response = {
+            if request_body.public_key.len() != 32 {
+                return APIHandlerResponse {
+                    status: StatusCode::BAD_REQUEST,
+                    body: Some("Invalid public key length".as_bytes().to_vec()),
+                };
+            }
 
-        // Client initializes session with the server
-        let init_session_msg = InitSessionMessage::from(request_body.public_key);
-
-        let init_session_response = ntor_server.accept_init_session_request(&init_session_msg);
+            // Client initializes session with the server
+            let init_session_msg = InitSessionMessage::from(request_body.public_key);
+            ntor_server.accept_init_session_request(&init_session_msg)
+        };
 
         let ntor_session_id = new_uuid();
+
+        let int_rp_jwt = {
+            let mut claims = JWTClaims {
+                iss: Some(self.host.clone()),
+                sub: Some("ntor-session-id".to_string()), // todo, this is about to change
+                aud: Some(format!("{}://{}", ctx.request.summary.scheme, ctx.request.summary.host)),
+                exp: 0,
+                nbf: 0,
+                iat: 0,
+                jti: None,
+                rp_host: None,
+                ntor_session_id: Some(ntor_session_id.clone()),
+            };
+            claims.set_current_iat();
+            claims.set_exp(self.config.jwt_exp);
+            utils::jwt::create_jwt_token(claims, self.jwt_secret)
+        };
+
+        let fp_rp_jwt = {
+            let mut claims = JWTClaims {
+                iss: Some(self.host.clone()),
+                sub: None,
+                aud: Some(self.config.forward_proxy_url.clone().unwrap_or("".to_string())),
+                exp: 0,
+                nbf: 0,
+                iat: 0,
+                jti: None,
+                rp_host: None,
+                ntor_session_id: None,
+            };
+            claims.set_current_iat();
+            claims.set_exp(self.config.jwt_exp);
+            utils::jwt::create_jwt_token(claims, self.jwt_secret)
+        };
 
         let response = InitEncryptedTunnelResponse {
             public_key: init_session_response.public_key(),
             t_b_hash: init_session_response.t_b_hash(),
-            session_id: ntor_session_id.clone(),
+            int_rp_jwt,
+            fp_rp_jwt,
         };
-
-        // set ReverseProxy's response header
-        ctx.insert_response_header(
-            RpHeaderResponseKey.as_str(),
-            RpHeaderResponseKey.placeholder_value()
-        );
 
         InitTunnelHandler::send_result_to_be(true).await;
 
