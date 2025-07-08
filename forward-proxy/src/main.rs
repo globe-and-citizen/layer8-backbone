@@ -29,9 +29,14 @@ fn main() {
     })).unwrap();
     server.bootstrap();
 
-    let config = ForwardConfig {
-        jwt_secret: std::env::var("JWT_VIRTUAL_CONNECTION_KEY")
-            .expect("JWT_VIRTUAL_CONNECTION_KEY must be set")
+    let config = {
+        let jwt_secret = std::env::var("JWT_VIRTUAL_CONNECTION_KEY")
+            .expect("JWT_VIRTUAL_CONNECTION_KEY must be set");
+
+        ForwardConfig {
+            jwt_secret: jwt_secret.as_bytes().to_vec(),
+            jwt_exp_in_hours: 24,
+        }
     };
 
     let fp_handler = ForwardHandler::new(config);

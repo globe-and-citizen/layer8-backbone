@@ -13,6 +13,7 @@ use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
 use reqwest::header::TRANSFER_ENCODING;
 use std::sync::Arc;
 use std::time::Duration;
+use crate::handler::consts::HeaderKeys;
 use crate::handler::ForwardHandler;
 
 pub struct ForwardProxy {
@@ -235,16 +236,72 @@ impl ProxyHttp for ForwardProxy {
 
     async fn upstream_request_filter(
         &self,
-        _session: &mut Session,
+        session: &mut Session,
         upstream_request: &mut RequestHeader,
         _ctx: &mut Self::CTX,
     ) -> pingora::Result<()>
     where
         Self::CTX: Send + Sync,
     {
-        upstream_request // is this still needed?
-            .insert_header("fp_request_header", "fp_request_value")
-            .unwrap();
+        match session.req_header().uri.path() {
+            "/proxy" => {
+                match upstream_request.headers.get(HeaderKeys::IntFpJwtKey.as_str()) {
+                    None => {
+                        error!(
+                            "[REQUEST {}] Missing required header: {}",
+                            session.request_summary(),
+                            HeaderKeys::IntFpJwtKey.as_str()
+                        );
+                        return Err(pingora::Error::new(
+                            pingora::ErrorType::HTTPStatus(u16::from(StatusCode::BAD_REQUEST)),
+                        ));
+                    }
+                    Some(token) => {
+                        let token_str = token.to_str().or_err(
+                            pingora::ErrorType::InvalidHTTPHeader,
+                            "Invalid header value for token",
+                        )?;
+
+                        if token_str.is_empty() {
+                            error!(
+                                "[REQUEST {}] Empty value for header: {}",
+                                session.request_summary(),
+                                HeaderKeys::IntFpJwtKey.as_str()
+                            );
+                            return Err(pingora::Error::new(
+                                pingora::ErrorType::HTTPStatus(u16::from(StatusCode::BAD_REQUEST)),
+                            ));
+                        }
+
+                        match self.handler.verify_token(token_str) {
+                            Ok(fp_rp_jwt) => {
+                                upstream_request
+                                    .insert_header(HeaderKeys::FpRpJwtKey.as_str(), fp_rp_jwt)
+                                    .unwrap();
+                                upstream_request
+                                    .remove_header(HeaderKeys::IntFpJwtKey.as_str())
+                                    .unwrap();
+                            }
+                            Err(err) => {
+                                error!(
+                                    "[REQUEST {}] Error verify {} token: {}",
+                                    session.request_summary(),
+                                    HeaderKeys::IntFpJwtKey.as_str(),
+                                    err
+                                );
+                                return Err(
+                                    pingora::Error::explain(
+                                        pingora::ErrorType::InvalidHTTPHeader,
+                                        err
+                                    )
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
 
         if upstream_request.headers.get("x-empty-body").is_none() {
             upstream_request.remove_header("content-length");

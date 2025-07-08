@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+use std::sync::Mutex;
 use log::{error, info};
 use pingora::http::StatusCode;
 use reqwest::{Client};
@@ -7,13 +9,19 @@ use crate::handler::types::response::{ErrorResponse, FpHealthcheckError, FpHealt
 use pingora_router::handler::ResponseBodyTrait;
 use crate::handler::types::request::{InitTunnelRequest};
 use utils;
+use utils::jwt::JWTClaims;
 
 pub mod types;
-mod helpers;
-mod consts;
+pub mod consts;
+
+thread_local! {
+    // <int_fp_jwt, fp_rp_jwt>
+    static JWTS: Mutex<HashMap<String, String>> = Mutex::new(HashMap::new());
+}
 
 pub struct ForwardConfig {
-    pub jwt_secret: String,
+    pub jwt_secret: Vec<u8>,
+    pub jwt_exp_in_hours: i64,
 }
 
 pub struct ForwardHandler {
@@ -38,8 +46,10 @@ impl ForwardHandler {
         ctx: &mut Layer8Context,
     ) -> Result<NTorServerCertificate, APIHandlerResponse>
     {
-        let secret_key = helpers::get_secret_key();
-        let token = self::helpers::generate_standard_token(&secret_key).unwrap();
+        let token = {
+            let claims = utils::jwt::JWTClaims::new(Some(self.config.jwt_exp_in_hours));
+            utils::jwt::create_jwt_token(claims, &self.config.jwt_secret)
+        };
         let client = Client::new();
 
         return match client
@@ -80,6 +90,29 @@ impl ForwardHandler {
                 })
             }
         };
+    }
+
+    /// Verify `int_fp_jwt` and return `fp_rp_jwt`
+    pub fn verify_token(
+        &self,
+        token: &str,
+    ) -> Result<String, String> {
+        return match utils::jwt::verify_jwt_token(token, &self.config.jwt_secret) {
+            Ok(claims) => {
+                // todo check claims if needed
+
+                match JWTS.with(|jwts| {
+                    let jwts = jwts.lock().unwrap();
+                    jwts.get(token).cloned()
+                }) {
+                    None => {
+                        Err("token not found!".to_string())
+                    }
+                    Some(fp_rp_jwt) => Ok(fp_rp_jwt)
+                }
+            }
+            Err(err) => Err(err.to_string())
+        }
     }
 
     /// Validate request body and get ntor certificate for the given backend URL.
@@ -145,14 +178,23 @@ impl ForwardHandler {
                 }
             }
             Ok(res_from_rp) => {
-                // forward ReverseProxy's headers
+                let int_fp_jwt = {
+                    let claims = JWTClaims::new(Some(self.config.jwt_exp_in_hours));
+                    utils::jwt::create_jwt_token(claims, &self.config.jwt_secret)
+                };
+
+                JWTS.with(|jwts| {
+                    let mut jwts = jwts.lock().unwrap();
+                    jwts.insert(int_fp_jwt.clone(), res_from_rp.fp_rp_jwt);
+                });
 
                 let res_to_int = InitTunnelResponseToINT {
                     ephemeral_public_key: res_from_rp.public_key,
                     t_b_hash: res_from_rp.t_b_hash,
-                    session_id: res_from_rp.session_id,
-                    static_public_key: ntor_static_public_key,
-                    server_id: ntor_server_id,
+                    int_rp_jwt: res_from_rp.int_rp_jwt,
+                    int_fp_jwt,
+                    ntor_static_public_key,
+                    ntor_server_id,
                 };
 
                 APIHandlerResponse {
