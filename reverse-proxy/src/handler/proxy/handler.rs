@@ -46,12 +46,15 @@ impl ProxyHandler {
                 // verify token
                 match utils::jwt::verify_jwt_token(token, jwt_secret) {
                     Ok(data) => Ok(data.claims),
-                    Err(err) => Err(APIHandlerResponse {
-                        status: StatusCode::BAD_REQUEST,
-                        body: Some(ErrorResponse {
-                            error: err.to_string(),
-                        }.to_bytes()),
-                    }),
+                    Err(err) => {
+                        error!("Error verifying {} token: {:?}", header_key.as_str(), err);
+                        Err(APIHandlerResponse {
+                            status: StatusCode::BAD_REQUEST,
+                            body: Some(ErrorResponse {
+                                error: err.to_string(),
+                            }.to_bytes()),
+                        })
+                    },
                 }
             }
         }
@@ -71,7 +74,7 @@ impl ProxyHandler {
             Err(err) => return Err(err)
         }
 
-        return match ProxyHandler::validate_jwt_token(ctx, HeaderKeys::FpRpJwtKey, jwt_secret) {
+        return match ProxyHandler::validate_jwt_token(ctx, HeaderKeys::IntRpJwtKey, jwt_secret) {
             Ok(claims) => {
                 // extract ntor_session_id from claims
                 match claims.ntor_session_id {

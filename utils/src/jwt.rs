@@ -58,8 +58,8 @@ pub struct JWTClaims {
     /// Implementers MAY provide for some small leeway, usually no more than
     /// a few minutes, to account for clock skew.  Its value MUST be a number
     /// containing a NumericDate value.  Use of this claim is OPTIONAL.
-    #[serde(skip_serializing_if = "is_zero")]
-    pub exp: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exp: Option<i64>,
 
     /// The "nbf" (not before) claim identifies the time before which the JWT
     /// MUST NOT be accepted for processing.  The processing of the "nbf"
@@ -68,15 +68,15 @@ pub struct JWTClaims {
     /// provide for some small leeway, usually no more than a few minutes, to
     /// account for clock skew.  Its value MUST be a number containing a
     /// NumericDate value.  Use of this claim is OPTIONAL.
-    #[serde(skip_serializing_if = "is_zero")]
-    pub nbf: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub nbf: Option<i64>,
 
     /// The "iat" (issued at) claim identifies the time at which the JWT was
     /// issued.  This claim can be used to determine the age of the JWT.  Its
     /// value MUST be a number containing a NumericDate value.  Use of this
     /// claim is OPTIONAL.
-    #[serde(skip_serializing_if = "is_zero")]
-    pub iat: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub iat: Option<i64>,
 
     /// The "jti" (JWT ID) claim provides a unique identifier for the JWT.
     /// The identifier value MUST be assigned in a manner that ensures that
@@ -111,9 +111,9 @@ impl JWTClaims {
             Some(hours) => {
                 let now = chrono::Utc::now();
                 let expiration = now + chrono::Duration::hours(hours);
-                expiration.timestamp() as usize
+                Some(expiration.timestamp())
             },
-            None => 0, // Default to 0 if no duration is specified
+            None => None,
         };
 
         JWTClaims {
@@ -121,8 +121,8 @@ impl JWTClaims {
             sub: None,
             aud: None,
             exp,
-            nbf: 0,
-            iat: chrono::Utc::now().timestamp() as usize,
+            nbf: None,
+            iat: Some(chrono::Utc::now().timestamp()),
             jti: None,
             rp_host: None,
             ntor_session_id: None,
@@ -132,17 +132,13 @@ impl JWTClaims {
     pub fn set_exp(&mut self, duration_hour: i64) {
         let now = chrono::Utc::now();
         let expiration = now + chrono::Duration::hours(duration_hour);
-        self.exp = expiration.timestamp() as usize
+        self.exp = Some(expiration.timestamp())
     }
 
     pub fn set_current_iat(&mut self) {
         let now = chrono::Utc::now();
-        self.iat = now.timestamp() as usize;
+        self.iat = Some(now.timestamp())
     }
-}
-
-fn is_zero(x: &usize) -> bool {
-    *x == 0
 }
 
 pub fn create_jwt_token(claims: JWTClaims, jwt_secret: &[u8]) -> String {

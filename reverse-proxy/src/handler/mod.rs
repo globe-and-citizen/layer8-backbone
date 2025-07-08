@@ -92,36 +92,13 @@ impl ReverseHandler {
         let ntor_session_id = new_uuid();
 
         let int_rp_jwt = {
-            let mut claims = JWTClaims {
-                iss: Some(self.host.clone()),
-                sub: Some("ntor-session-id".to_string()), // todo, this is about to change
-                aud: Some(ctx.request.get_client_base_url()),
-                exp: 0,
-                nbf: 0,
-                iat: 0,
-                jti: None,
-                rp_host: None,
-                ntor_session_id: Some(ntor_session_id.clone()),
-            };
-            claims.set_current_iat();
-            claims.set_exp(self.config.jwt_exp);
+            let mut claims = JWTClaims::new(Some(self.config.jwt_exp));
+            claims.ntor_session_id = Some(ntor_session_id.clone());
             utils::jwt::create_jwt_token(claims, &self.jwt_secret)
         };
 
         let fp_rp_jwt = {
-            let mut claims = JWTClaims {
-                iss: Some(self.host.clone()),
-                sub: None,
-                aud: Some(self.config.forward_proxy_url.clone().unwrap_or("".to_string())),
-                exp: 0,
-                nbf: 0,
-                iat: 0,
-                jti: None,
-                rp_host: None,
-                ntor_session_id: None,
-            };
-            claims.set_current_iat();
-            claims.set_exp(self.config.jwt_exp);
+            let claims = JWTClaims::new(Some(self.config.jwt_exp));
             utils::jwt::create_jwt_token(claims, &self.jwt_secret)
         };
 
