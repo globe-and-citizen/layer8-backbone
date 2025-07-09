@@ -15,8 +15,8 @@ pub mod types;
 pub mod consts;
 
 thread_local! {
-    // <int_fp_jwt, fp_rp_jwt>
-    static JWTS: Mutex<HashMap<String, String>> = Mutex::new(HashMap::new());
+    // <int_fp_jwt, IntFPSession>
+    static JWTS: Mutex<HashMap<String, IntFPSession >> = Mutex::new(HashMap::new());
 }
 
 pub struct ForwardConfig {
@@ -33,6 +33,12 @@ impl DefaultHandlerTrait for ForwardHandler {}
 struct NTorServerCertificate {
     server_id: String,
     public_key: Vec<u8>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct IntFPSession {
+    pub rp_base_url: String,
+    pub fp_rp_jwt: String,
 }
 
 impl ForwardHandler {
@@ -93,10 +99,10 @@ impl ForwardHandler {
     }
 
     /// Verify `int_fp_jwt` and return `fp_rp_jwt`
-    pub fn verify_token(
+    pub fn verify_int_fp_jwt(
         &self,
         token: &str,
-    ) -> Result<String, String> {
+    ) -> Result<IntFPSession, String> {
         return match utils::jwt::verify_jwt_token(token, &self.config.jwt_secret) {
             Ok(claims) => {
                 // todo check claims if needed
@@ -108,7 +114,7 @@ impl ForwardHandler {
                     None => {
                         Err("token not found!".to_string())
                     }
-                    Some(fp_rp_jwt) => Ok(fp_rp_jwt)
+                    Some(session) => Ok(session)
                 }
             }
             Err(err) => Err(err.to_string())
@@ -138,22 +144,23 @@ impl ForwardHandler {
         };
 
         // get public key to initialize encrypted tunnel
-        let backend_url = match ctx.param("backend_url") {
-            Some(url) => url.clone(),
-            None => "".to_string()
-        };
+        {
+            // it's safe to use unwrap here because this param was already checked in `request_filter`
+            let backend_url = ctx.param("backend_url").unwrap().to_string();
 
-        //todo handle result_certificate, if no certificate found, return error
-        let _result_certificate = self.get_public_key(backend_url.to_string(), ctx).await;
-        // println!("public_key: {:?}", result_public_key);
-        ctx.set(
-            consts::NTOR_SERVER_ID.to_string(),
-            consts::NTOR_SERVER_ID_TMP_VALUE.to_string(), // replace with real value
-        );
-        ctx.set(
-            consts::NTOR_STATIC_PUBLIC_KEY.to_string(),
-            hex::encode(consts::NTOR_STATIC_PUBLIC_KEY_TMP_VALUE), // replace with real value
-        );
+            //todo handle result_certificate, if no certificate found, return error
+            let _result_certificate = self.get_public_key(backend_url.to_string(), ctx).await;
+            // println!("public_key: {:?}", result_public_key);
+
+            ctx.set(
+                consts::NTOR_SERVER_ID.to_string(),
+                consts::NTOR_SERVER_ID_TMP_VALUE.to_string(), // replace with real value
+            );
+            ctx.set(
+                consts::NTOR_STATIC_PUBLIC_KEY.to_string(),
+                hex::encode(consts::NTOR_STATIC_PUBLIC_KEY_TMP_VALUE), // replace with real value
+            );
+        }
 
         APIHandlerResponse {
             status: StatusCode::OK,
@@ -183,9 +190,14 @@ impl ForwardHandler {
                     utils::jwt::create_jwt_token(claims, &self.config.jwt_secret)
                 };
 
+                let int_fp_session = IntFPSession {
+                    rp_base_url: ctx.param("backend_url").unwrap().to_string(),
+                    fp_rp_jwt: res_from_rp.fp_rp_jwt,
+                };
+
                 JWTS.with(|jwts| {
                     let mut jwts = jwts.lock().unwrap();
-                    jwts.insert(int_fp_jwt.clone(), res_from_rp.fp_rp_jwt);
+                    jwts.insert(int_fp_jwt.clone(), int_fp_session);
                 });
 
                 let res_to_int = InitTunnelResponseToINT {

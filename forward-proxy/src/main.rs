@@ -33,9 +33,14 @@ fn main() {
         let jwt_secret = std::env::var("JWT_VIRTUAL_CONNECTION_KEY")
             .expect("JWT_VIRTUAL_CONNECTION_KEY must be set");
 
+        let jwt_exp = std::env::var("JWT_EXP_IN_HOUR")
+            .expect("JWT_EXP_IN_HOUR must be set")
+            .parse::<i64>()
+            .expect("JWT_EXP_IN_HOUR must be a valid integer");
+
         ForwardConfig {
             jwt_secret: jwt_secret.as_bytes().to_vec(),
-            jwt_exp_in_hours: 24,
+            jwt_exp_in_hours: jwt_exp,
         }
     };
 

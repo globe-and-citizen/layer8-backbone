@@ -1,4 +1,5 @@
 pub mod jwt;
+use url::Url;
 
 use std::collections::HashMap;
 use base64::Engine;
@@ -122,4 +123,10 @@ pub fn headermap_to_hashmap(headers: &HeaderMap) -> HashMap<String, serde_json::
         map.insert(key, value);
     }
     map
+}
+
+/// Validates the input string as a URL and returns the parsed `Url` if valid.
+/// Returns `None` if the URL is invalid.
+pub fn validate_url(url: &str) -> Option<Url> {
+    Url::parse(url).ok()
 }
