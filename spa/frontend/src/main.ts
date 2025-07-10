@@ -3,14 +3,17 @@ import './assets/main.css'
 import { createApp } from 'vue'
 import App from './App.vue'
 import router from './router'
-import { initEncryptedTunnel, ServiceProvider } from "interceptor-wasm"
+import { initEncryptedTunnel, ServiceProvider, ServiceProviderOptions } from "interceptor-wasm"
 
 let forward_proxy_url = import.meta.env.VITE_FORWARD_PROXY_URL || 'http://localhost:6191';
 let backend_url = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3000';
 
 const layer8_ = async () => {
     try {
-        let providers = [ServiceProvider.new(backend_url)];
+        let options = new ServiceProviderOptions();
+        options.compression = "gzip";
+
+        let providers = [ServiceProvider.new(backend_url, options)];
         await initEncryptedTunnel(forward_proxy_url, providers).finally(() => {
             console.log('Encrypted tunnel initialized successfully');
         });

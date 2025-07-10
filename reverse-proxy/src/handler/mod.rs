@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::str::FromStr;
 use std::sync::{Mutex, MutexGuard};
 use log::debug;
 use ntor::common::{InitSessionMessage, NTorParty};
@@ -126,10 +127,16 @@ impl ReverseHandler {
             Err(res) => return res,
         };
 
+        let compression = ctx
+            .get_request_header()
+            .get("x-compression")
+            .map(|val| utils::compression::CompressorVariant::from_str(val).unwrap());
+
         let wrapped_request = match ProxyHandler::decrypt_request_body(
             request_body,
             self.config.ntor_server_id.clone(),
             shared_secret.clone(),
+            compression,
         ) {
             Ok(req) => req,
             Err(res) => return res,

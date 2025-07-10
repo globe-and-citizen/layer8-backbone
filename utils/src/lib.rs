@@ -7,6 +7,8 @@ use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use serde::{Deserialize, Serialize};
 use log::error;
 
+pub mod compression;
+
 pub fn to_reqwest_header(map: HashMap<String, String>) -> HeaderMap {
     let mut header_map = HeaderMap::new();
     for (k, v) in map {
