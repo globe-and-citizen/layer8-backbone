@@ -79,31 +79,49 @@ impl ProxyHandler {
         request_body: EncryptedMessage,
         ntor_server_id: String,
         shared_secret: Vec<u8>,
-    ) -> Result<L8RequestObject, APIHandlerResponse>
-    {
+        compression: Option<utils::compression::CompressorVariant>,
+    ) -> Result<L8RequestObject, APIHandlerResponse> {
         let mut ntor_server = NTorServer::new(ntor_server_id);
         ntor_server.set_shared_secret(shared_secret.clone());
 
         // Decrypt the request body using nTor shared secret
-        let decrypted_data = ntor_server.decrypt(ntor::common::EncryptedMessage {
-            nonce: <[u8; 12]>::try_from(request_body.nonce).unwrap(),
-            data: request_body.data,
-        }).map_err(|err| {
-            return APIHandlerResponse {
-                status: StatusCode::BAD_REQUEST,
-                body: Some(format!("Decryption failed: {}", err).as_bytes().to_vec()),
-            };
-        })?;
-        // let decrypted_data = request_body.data;
-
-        // parse decrypted data into WrappedUserRequest
-        let wrapped_request: L8RequestObject = bytes_to_json(decrypted_data)
+        let mut decrypted_data = ntor_server
+            .decrypt(ntor::common::EncryptedMessage {
+                nonce: <[u8; 12]>::try_from(request_body.nonce).unwrap(),
+                data: request_body.data,
+            })
             .map_err(|err| {
                 return APIHandlerResponse {
                     status: StatusCode::BAD_REQUEST,
-                    body: Some(format!("Failed to parse request body: {}", err).as_bytes().to_vec()),
+                    body: Some(format!("Decryption failed: {}", err).as_bytes().to_vec()),
                 };
             })?;
+
+        // decompress the data if compression is specified
+        if let Some(variant) = compression {
+            log::warn!(
+                "Size of decrypted data before decompression: {}",
+                decrypted_data.len()
+            );
+            decrypted_data = utils::compression::decompress_data(&variant, &decrypted_data);
+            log::warn!(
+                "Size of decrypted data after decompression: {}",
+                decrypted_data.len()
+            );
+        }
+
+        // parse decrypted data into WrappedUserRequest
+        let wrapped_request: L8RequestObject = bytes_to_json(decrypted_data).map_err(|err| {
+            log::error!("Failed to parse request body: {}", err);
+            return APIHandlerResponse {
+                status: StatusCode::BAD_REQUEST,
+                body: Some(
+                    format!("Failed to parse request body: {}", err)
+                        .as_bytes()
+                        .to_vec(),
+                ),
+            };
+        })?;
 
         Ok(wrapped_request)
     }
