@@ -13,8 +13,10 @@ pub(crate) struct InitTunnelHandler {}
 impl DefaultHandlerTrait for InitTunnelHandler {}
 
 impl InitTunnelHandler {
-    pub(crate) async fn validate_request_body(ctx: &mut Layer8Context)
-        -> Result<InitEncryptedTunnelRequest, APIHandlerResponse>
+    pub(crate) async fn validate_request_body(
+        ctx: &mut Layer8Context,
+        backend_url: String,
+    ) -> Result<InitEncryptedTunnelRequest, APIHandlerResponse>
     {
         return match InitTunnelHandler::parse_request_body::<
             InitEncryptedTunnelRequest,
@@ -28,7 +30,7 @@ impl InitTunnelHandler {
                     Some(err_response) => Some(err_response.to_bytes())
                 };
 
-                InitTunnelHandler::send_result_to_be(false).await;
+                InitTunnelHandler::send_result_to_be(backend_url, false).await;
 
                 Err(APIHandlerResponse {
                     status: StatusCode::BAD_REQUEST,
@@ -38,15 +40,18 @@ impl InitTunnelHandler {
         };
     }
 
-    pub(crate) async fn send_result_to_be(result: bool) {
+    pub(crate) async fn send_result_to_be(backend_url: String, result: bool) {
         let body = InitTunnelRequestToBackend {
             success: result,
         };
-        let log_meta = format!("[FORWARD {}]", INIT_TUNNEL_TO_BACKEND_PATH.as_str());
+
+        let request_url = format!("{backend_url}{INIT_TUNNEL_TO_BACKEND_PATH}");
+
+        let log_meta = format!("[FORWARD {}]", request_url);
         info!("{log_meta} request to BE body: {:?}", body);
 
         let client = Client::new();
-        match client.post(INIT_TUNNEL_TO_BACKEND_PATH.as_str())
+        match client.post(request_url)
             .header("Content-Type", "application/json")
             .json(&body)
             .send()

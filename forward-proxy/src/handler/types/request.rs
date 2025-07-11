@@ -7,11 +7,3 @@ pub struct InitTunnelRequest {
 }
 
 impl RequestBodyTrait for InitTunnelRequest {}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct ProxyRequest {
-    pub int_request_body: String,
-    pub spa_request_body: String,
-}
-
-impl RequestBodyTrait for ProxyRequest {}

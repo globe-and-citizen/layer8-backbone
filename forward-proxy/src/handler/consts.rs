@@ -1,23 +1,18 @@
 use once_cell::sync::Lazy;
 
 // can be replaced by constants, will see
-pub enum ForwardHeaderKeys {
-    FpHeaderRequestKey,
-    FpHeaderResponseKey,
+pub enum HeaderKeys {
+    IntRpJwtKey,
+    IntFpJwtKey,
+    FpRpJwtKey
 }
 
-impl ForwardHeaderKeys {
+impl HeaderKeys {
     pub fn as_str(&self) -> &'static str {
         match self {
-            ForwardHeaderKeys::FpHeaderRequestKey => "fp_request_header",
-            ForwardHeaderKeys::FpHeaderResponseKey => "fp_response_header"
-        }
-    }
-
-    pub fn placeholder_value(&self) -> &'static str {
-        match self {
-            ForwardHeaderKeys::FpHeaderRequestKey => "added in ForwardProxy",
-            ForwardHeaderKeys::FpHeaderResponseKey => "added in ForwardProxy"
+            HeaderKeys::IntRpJwtKey => "int_rp_jwt",
+            HeaderKeys::IntFpJwtKey => "int_fp_jwt",
+            HeaderKeys::FpRpJwtKey => "fp_rp_jwt",
         }
     }
 }
