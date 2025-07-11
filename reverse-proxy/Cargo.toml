@@ -11,7 +11,7 @@ serde_json = "1"
 env_logger = "0.11.7"
 log = "0.4.27"
 reqwest = { version = "0.11", features = ["json"] }
-pingora-router = { path = "../pingora-router" }
+pingora-router = { git = "https://github.com/globe-and-citizen/layer8-backbone", branch = "upd/dockerfile-and-workspaces" } # TODO: point to an official release when available
 pingora = { version = "0.5.0", features = ["lb", "boringssl"] }
 futures = "0.3.31"
 boring = "4.17.0"
@@ -20,4 +20,4 @@ dotenv = "0.15.0"
 ntor = { git = "https://github.com/globe-and-citizen/ntor.git", tag = "0.1.1" }
 config = "0.15.13"
 toml = "0.9.1"
-utils = { path = "../utils" }
+utils = { git = "https://github.com/globe-and-citizen/layer8-backbone.git", branch = "upd/dockerfile-and-workspaces" }      # TODO: point to an official release when available
