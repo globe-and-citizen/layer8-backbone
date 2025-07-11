@@ -14,9 +14,8 @@ use reqwest::header::TRANSFER_ENCODING;
 use std::sync::Arc;
 use std::time::Duration;
 use pingora_router::handler::{ResponseBodyTrait};
-use reqwest::Url;
 use crate::handler::consts::HeaderKeys;
-use crate::handler::{ForwardHandler, IntFPSession};
+use crate::handler::{ForwardHandler};
 use crate::handler::types::response::ErrorResponse;
 
 pub struct ForwardProxy {

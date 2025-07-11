@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use log::{error, info};
 use pingora::http::StatusCode;
 use reqwest::{Client};
@@ -14,11 +14,6 @@ use utils::jwt::JWTClaims;
 pub mod types;
 pub mod consts;
 
-thread_local! {
-    // <int_fp_jwt, IntFPSession>
-    static JWTS: Mutex<HashMap<String, IntFPSession >> = Mutex::new(HashMap::new());
-}
-
 pub struct ForwardConfig {
     pub jwt_secret: Vec<u8>,
     pub jwt_exp_in_hours: i64,
@@ -26,6 +21,7 @@ pub struct ForwardConfig {
 
 pub struct ForwardHandler {
     pub config: ForwardConfig,
+    jwts_storage: Arc<Mutex<HashMap<String, IntFPSession>>>,
 }
 
 impl DefaultHandlerTrait for ForwardHandler {}
@@ -43,7 +39,10 @@ pub struct IntFPSession {
 
 impl ForwardHandler {
     pub fn new(config: ForwardConfig) -> Self {
-        ForwardHandler { config }
+        ForwardHandler {
+            config,
+            jwts_storage: Arc::new(Mutex::new(HashMap::new())),
+        }
     }
 
     async fn get_public_key(
@@ -107,10 +106,10 @@ impl ForwardHandler {
             Ok(claims) => {
                 // todo check claims if needed
 
-                match JWTS.with(|jwts| {
-                    let jwts = jwts.lock().unwrap();
+                match {
+                    let jwts = self.jwts_storage.lock().unwrap();
                     jwts.get(token).cloned()
-                }) {
+                } {
                     None => {
                         Err("token not found!".to_string())
                     }
@@ -118,7 +117,7 @@ impl ForwardHandler {
                 }
             }
             Err(err) => Err(err.to_string())
-        }
+        };
     }
 
     /// Validate request body and get ntor certificate for the given backend URL.
@@ -195,10 +194,8 @@ impl ForwardHandler {
                     fp_rp_jwt: res_from_rp.fp_rp_jwt,
                 };
 
-                JWTS.with(|jwts| {
-                    let mut jwts = jwts.lock().unwrap();
-                    jwts.insert(int_fp_jwt.clone(), int_fp_session);
-                });
+                let mut jwts = self.jwts_storage.lock().unwrap();
+                jwts.insert(int_fp_jwt.clone(), int_fp_session);
 
                 let res_to_int = InitTunnelResponseToINT {
                     ephemeral_public_key: res_from_rp.public_key,
