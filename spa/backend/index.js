@@ -15,6 +15,10 @@ const SECRET_KEY = "my_very_secret_key";
 app.use(express.json());
 app.use(cors());
 
+let inMemoryUsers = users[0];
+
+console.log("inMemoryUsers: ", inMemoryUsers);
+
 // Configure storage for uploaded files
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
@@ -201,10 +205,33 @@ app.get("/download-profile/:username", (req, res) => {
   }
 
   const filePath = path.join(__dirname, user.metadata.profilePicture);
-  
+
   // Set headers to force download
-  res.setHeader('Content-Disposition', `attachment; filename="${username}_profile${path.extname(filePath)}"`);
+  res.setHeader(
+    "Content-Disposition",
+    `attachment; filename="${username}_profile${path.extname(filePath)}"`
+  );
   res.sendFile(filePath);
+});
+
+app.post("/init-oauth", async (req, res) => {
+  const { email_verified, country, city, phone_number, address } = req.body;
+  if (email_verified) {
+    inMemoryUsers.metadata.email_verified = true;
+  }
+  if (country) {
+    inMemoryUsers.metadata.country = "Canada";
+  }
+  if (city) {
+    inMemoryUsers.metadata.city = "Vancouver";
+  }
+  if (phone_number) {
+    inMemoryUsers.metadata.phone_number = "1234567890";
+  }
+  if (address) {
+    inMemoryUsers.metadata.address = "123 Main St, Test Address";
+  }
+  res.status(200).json({ message: "Metadata updated successfully" });
 });
 
 app.listen(port, () => {
