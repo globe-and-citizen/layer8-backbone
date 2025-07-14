@@ -44,7 +44,7 @@ const initializeAuth = async () => {
     }
 
     try {
-        const response = await fetch('http://localhost:6191/init-oauth', {
+        const response = await fetch('http://localhost:6191/update-user-profile-metadata', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',

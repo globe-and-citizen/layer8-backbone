@@ -17,6 +17,10 @@ app.use(cors());
 
 let inMemoryUsers = users[0];
 
+// Hard-coded variables for now
+const layer8Secret = "26dfd78d-be7a-4321-bcfb-5927da21c7fb";
+const layer8Uuid = "be3caef54fc0ec0dcd87b0a65cf24f81598243b5f01b4cce6a344718db854fe6";
+
 console.log("inMemoryUsers: ", inMemoryUsers);
 
 // Configure storage for uploaded files
@@ -184,9 +188,8 @@ app.get("/profile/:username", (req, res) => {
 
     // If profile picture exists, include full URL
     if (user.metadata?.profilePicture) {
-      response.profilePicture = `${req.protocol}://${req.get("host")}${
-        user.metadata.profilePicture
-      }`;
+      response.profilePicture = `${req.protocol}://${req.get("host")}${user.metadata.profilePicture
+        }`;
     }
 
     res.status(200).json(response);
@@ -214,7 +217,7 @@ app.get("/download-profile/:username", (req, res) => {
   res.sendFile(filePath);
 });
 
-app.post("/init-oauth", async (req, res) => {
+app.post("/update-user-profile-metadata", async (req, res) => {
   const { email_verified, country, city, phone_number, address } = req.body;
   if (email_verified) {
     inMemoryUsers.metadata.email_verified = true;
