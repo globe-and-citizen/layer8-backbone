@@ -100,6 +100,9 @@ pub struct JWTClaims {
     #[serde(skip_serializing_if = "Option::is_none", rename(serialize = "sid", deserialize = "sid"))]
     pub ntor_session_id: Option<String>,
 
+    /// The `uuid` claim is used to uniquely identify the token and help prevent race conditions.
+    pub uuid: Option<String>,
+
     // Additional custom claims can be added here as needed.
 }
 
@@ -126,6 +129,7 @@ impl JWTClaims {
             jti: None,
             rp_host: None,
             ntor_session_id: None,
+            uuid: None,
         }
     }
 

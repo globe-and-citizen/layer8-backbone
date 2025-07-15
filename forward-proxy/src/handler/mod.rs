@@ -185,7 +185,8 @@ impl ForwardHandler {
             }
             Ok(res_from_rp) => {
                 let int_fp_jwt = {
-                    let claims = JWTClaims::new(Some(self.config.jwt_exp_in_hours));
+                    let mut claims = JWTClaims::new(Some(self.config.jwt_exp_in_hours));
+                    claims.uuid = Some(utils::new_uuid());
                     utils::jwt::create_jwt_token(claims, &self.config.jwt_secret)
                 };
 
