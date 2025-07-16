@@ -1,4 +1,6 @@
 pub mod jwt;
+pub mod cert;
+
 use url::Url;
 
 use std::collections::HashMap;

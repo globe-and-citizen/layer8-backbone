@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::error::Error;
 use std::sync::{Arc, Mutex};
 use log::{error, info};
 use pingora::http::StatusCode;
@@ -7,6 +8,7 @@ use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
 use pingora_router::handler::{APIHandlerResponse, DefaultHandlerTrait, RequestBodyTrait};
 use crate::handler::types::response::{ErrorResponse, FpHealthcheckError, FpHealthcheckSuccess, InitTunnelResponseFromRP, InitTunnelResponseToINT};
 use pingora_router::handler::ResponseBodyTrait;
+use serde::Deserialize;
 use crate::handler::types::request::{InitTunnelRequest};
 use utils;
 use utils::jwt::JWTClaims;
@@ -17,6 +19,7 @@ pub mod consts;
 pub struct ForwardConfig {
     pub jwt_secret: Vec<u8>,
     pub jwt_exp_in_hours: i64,
+    pub auth_server_token: String,
 }
 
 pub struct ForwardHandler {
@@ -26,6 +29,7 @@ pub struct ForwardHandler {
 
 impl DefaultHandlerTrait for ForwardHandler {}
 
+#[derive(Debug)]
 struct NTorServerCertificate {
     server_id: String,
     public_key: Vec<u8>,
@@ -51,15 +55,12 @@ impl ForwardHandler {
         ctx: &mut Layer8Context,
     ) -> Result<NTorServerCertificate, APIHandlerResponse>
     {
-        let token = {
-            let claims = utils::jwt::JWTClaims::new(Some(self.config.jwt_exp_in_hours));
-            utils::jwt::create_jwt_token(claims, &self.config.jwt_secret)
-        };
         let client = Client::new();
 
+        let backend_url = "localhost:8000";
         return match client
             .get(format!("{}{}", consts::LAYER8_GET_CERTIFICATE_PATH.as_str(), backend_url))
-            .header("Authorization", format!("Bearer {}", token))
+            .header("Authorization", format!("Bearer {}", self.config.auth_server_token))
             .send()
             .await
         {
@@ -68,7 +69,7 @@ impl ForwardHandler {
                     let response_body = ErrorResponse {
                         error: format!("Failed to get public key from layer8, status code: {}", res.status().as_u16()),
                     };
-                    info!("Sending error response: {:?}", response_body);
+                    error!("Sending error response: {:?}", response_body);
 
                     ctx.insert_response_header("Connection", "close"); // Ensure connection closes???
 
@@ -77,11 +78,40 @@ impl ForwardHandler {
                         body: Some(response_body.to_bytes()),
                     })
                 } else {
-                    // todo extract public key from response
-                    Ok(NTorServerCertificate {
-                        server_id: "".to_string(),
-                        public_key: vec![],
-                    })
+
+                    #[derive(Deserialize, Debug)]
+                    struct AuthServerResponse {
+                        pub x509_certificate: String
+                    }
+
+                    match res.json::<AuthServerResponse>().await {
+                        Ok(cert) => {
+                            let (pub_key, server_id) = match utils::cert::extract_x509_pem(cert.x509_certificate.clone()) {
+                                Ok((pub_key, subject)) => (pub_key, subject.replace("CN=", "")),
+                                Err(err) => {
+                                    error!("Failed to parse x509 certificate: {:?}", err);
+                                    return Err(APIHandlerResponse {
+                                        status: StatusCode::INTERNAL_SERVER_ERROR,
+                                        body: None,
+                                    })
+                                }
+                            };
+
+                            info!("AuthenticationServer response: {:?}", cert);
+
+                            Ok(NTorServerCertificate {
+                                server_id,
+                                public_key: pub_key
+                            })
+                        }
+                        Err(err) => {
+                            error!("Failed to parse authentication server response: {:?}", err);
+                            return Err(APIHandlerResponse {
+                                status: StatusCode::INTERNAL_SERVER_ERROR,
+                                body: None,
+                            })
+                        }
+                    }
                 }
             }
             Err(e) => {
@@ -147,17 +177,21 @@ impl ForwardHandler {
             // it's safe to use unwrap here because this param was already checked in `request_filter`
             let backend_url = ctx.param("backend_url").unwrap().to_string();
 
-            //todo handle result_certificate, if no certificate found, return error
-            let _result_certificate = self.get_public_key(backend_url.to_string(), ctx).await;
-            // println!("public_key: {:?}", result_public_key);
+            let server_certificate = match self.get_public_key(backend_url.to_string(), ctx).await {
+                Ok(cert) => cert,
+                Err(err) => return err
+            };
+            info!("Server certificate: {:?}", server_certificate);
 
             ctx.set(
                 consts::NTOR_SERVER_ID.to_string(),
-                consts::NTOR_SERVER_ID_TMP_VALUE.to_string(), // replace with real value
+                // consts::NTOR_SERVER_ID_TMP_VALUE.to_string(), // replace with real value
+                server_certificate.server_id
             );
             ctx.set(
                 consts::NTOR_STATIC_PUBLIC_KEY.to_string(),
-                hex::encode(consts::NTOR_STATIC_PUBLIC_KEY_TMP_VALUE), // replace with real value
+                // hex::encode(consts::NTOR_STATIC_PUBLIC_KEY_TMP_VALUE), // replace with real value
+                hex::encode(server_certificate.public_key)
             );
         }
 
