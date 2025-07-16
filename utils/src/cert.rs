@@ -1,14 +1,14 @@
 use x509_parser::parse_x509_certificate;
 use x509_parser::pem::parse_x509_pem;
 
-pub fn extract_x509_pem(pem: String) -> Result<(Vec<u8>, String), Box<dyn std::error::Error>> {
+pub fn extract_x509_pem(pem: String) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
     let (_, pem) = parse_x509_pem(pem.as_bytes())?;
 
     // Parse the certificate
     let (_, cert) = parse_x509_certificate(&pem.contents)?;
 
     // Extract subject
-    let subject = cert.subject();
+    // let subject = cert.subject();
     // println!("📛 Subject: {}", subject);
 
     // Extract public key bytes
@@ -20,5 +20,5 @@ pub fn extract_x509_pem(pem: String) -> Result<(Vec<u8>, String), Box<dyn std::e
     // Optional: show key algorithm
     // println!("🧬 Algorithm: {}", spki.algorithm.algorithm);
 
-    Ok((pubkey_bytes.to_vec(), subject.to_string()))
+    Ok(pubkey_bytes.to_vec())
 }

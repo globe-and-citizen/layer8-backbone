@@ -19,7 +19,7 @@ pub mod consts;
 pub struct ForwardConfig {
     pub jwt_secret: Vec<u8>,
     pub jwt_exp_in_hours: i64,
-    pub auth_server_token: String,
+    pub auth_access_token: String,
 }
 
 pub struct ForwardHandler {
@@ -57,10 +57,9 @@ impl ForwardHandler {
     {
         let client = Client::new();
 
-        let backend_url = "localhost:8000";
         return match client
             .get(format!("{}{}", consts::LAYER8_GET_CERTIFICATE_PATH.as_str(), backend_url))
-            .header("Authorization", format!("Bearer {}", self.config.auth_server_token))
+            .header("Authorization", format!("Bearer {}", self.config.auth_access_token))
             .send()
             .await
         {
@@ -86,8 +85,8 @@ impl ForwardHandler {
 
                     match res.json::<AuthServerResponse>().await {
                         Ok(cert) => {
-                            let (pub_key, server_id) = match utils::cert::extract_x509_pem(cert.x509_certificate.clone()) {
-                                Ok((pub_key, subject)) => (pub_key, subject.replace("CN=", "")),
+                            let pub_key = match utils::cert::extract_x509_pem(cert.x509_certificate.clone()) {
+                                Ok(pub_key) => pub_key,
                                 Err(err) => {
                                     error!("Failed to parse x509 certificate: {:?}", err);
                                     return Err(APIHandlerResponse {
@@ -100,7 +99,7 @@ impl ForwardHandler {
                             info!("AuthenticationServer response: {:?}", cert);
 
                             Ok(NTorServerCertificate {
-                                server_id,
+                                server_id: backend_url, // todo consider server_id value
                                 public_key: pub_key
                             })
                         }

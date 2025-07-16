@@ -44,7 +44,7 @@ fn main() {
         ForwardConfig {
             jwt_secret: jwt_secret.as_bytes().to_vec(),
             jwt_exp_in_hours: jwt_exp,
-            auth_server_token,
+            auth_access_token: auth_server_token,
         }
     };
 
