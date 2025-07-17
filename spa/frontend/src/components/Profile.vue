@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref, computed } from 'vue';
 import { getToken } from '@/utils.js';
+import router from '@/router';
 
 const profile = ref({
     username: "",
@@ -82,6 +83,37 @@ const initializeAuth = async () => {
         console.error('Error initializing auth:', err);
     }
 };
+
+const loginWithLayer8Popup = async () => {
+    const response = await fetch("http://localhost:6191/api/login/layer8/auth")
+    const data = await response.json()
+    // create opener window
+    const popup = window.open(data.authURL, "Login with Layer8", "width=1200,height=900");
+
+    window.addEventListener("message", async (event) => {
+        if (event.data.redr) {
+            setTimeout(() => {
+                fetch("http://localhost:6191/authorization-callback", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "Application/Json"
+                    },
+                    body: JSON.stringify({
+                        code: event.data.code
+                    })
+                })
+                    .then(res => res.json())
+                    .then(data => {
+                        router.push({ name: 'profile' })
+                        if (popup) {
+                            popup.close();
+                        }
+                    })
+                    .catch(err => console.log(err))
+            }, 1000);
+        }
+    });
+}
 
 // Compute reputation score based on filled metadata
 const reputationScore = computed(() => {
@@ -189,7 +221,7 @@ onMounted(() => {
                     <button @click="downloadProfilePicture" class="download-button" :disabled="!profile.profilePicture">
                         Download Profile Picture
                     </button>
-                    <button @click="openAuthModal" class="init-auth-button">
+                    <button @click="loginWithLayer8Popup" class="init-auth-button">
                         Initialize Auth
                     </button>
                 </div>

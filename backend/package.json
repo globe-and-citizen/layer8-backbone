@@ -9,6 +9,7 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
+    "client-oauth2": "^4.3.3",
     "cors": "^2.8.5",
     "express": "^5.1.0",
     "express-winston": "^4.2.0",

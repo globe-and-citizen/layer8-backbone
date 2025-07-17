@@ -46,6 +46,12 @@ const router = createRouter({
             component: UploadView,
             meta: {requiresAuth: true},
         },
+        // {
+        //     path: '/oauth2/callback',
+        //     name: 'callback',
+        //     component: () => import('@/components/Callback.vue'),
+        //     meta: {requiresGuest: true},
+        // }
     ],
 })
 

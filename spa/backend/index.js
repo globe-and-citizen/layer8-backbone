@@ -7,6 +7,7 @@ const jwt = require("jsonwebtoken");
 const fs = require("fs");
 const path = require("path");
 const multer = require("multer");
+const ClientOAuth2 = require("client-oauth2");
 
 const app = express();
 const port = 6191;
@@ -18,10 +19,22 @@ app.use(cors());
 let inMemoryUsers = users[0];
 
 // Hard-coded variables for now
-const layer8Secret = "26dfd78d-be7a-4321-bcfb-5927da21c7fb";
-const layer8Uuid = "be3caef54fc0ec0dcd87b0a65cf24f81598243b5f01b4cce6a344718db854fe6";
+const layer8Secret = "be3caef54fc0ec0dcd87b0a65cf24f81598243b5f01b4cce6a344718db854fe6";
+const layer8Uuid = "26dfd78d-be7a-4321-bcfb-5927da21c7fb";
+const LAYER8_URL = "http://localhost:5001";
+const LAYER8_CALLBACK_URL = "http://localhost:5173/oauth2/callback";
+const LAYER8_RESOURCE_URL = "http://localhost:5001/api/user";
 
-console.log("inMemoryUsers: ", inMemoryUsers);
+const layer8Auth = new ClientOAuth2({
+  clientId: layer8Uuid,
+  clientSecret: layer8Secret,
+  accessTokenUri: `${LAYER8_URL}/api/oauth`,
+  authorizationUri: `${LAYER8_URL}/authorize`,
+  redirectUri: LAYER8_CALLBACK_URL,
+  scopes: ["read:user"],
+});
+
+// console.log("inMemoryUsers: ", inMemoryUsers);
 
 // Configure storage for uploaded files
 const storage = multer.diskStorage({
@@ -235,6 +248,51 @@ app.post("/update-user-profile-metadata", async (req, res) => {
     inMemoryUsers.metadata.address = "123 Main St, Test Address";
   }
   res.status(200).json({ message: "Metadata updated successfully" });
+});
+
+app.get("/api/login/layer8/auth", async (req, res) => {
+  console.log("layer8 Auth URL: ", layer8Auth.code.getUri());
+  res.status(200).json({ authURL: layer8Auth.code.getUri() });
+});
+
+app.post("/authorization-callback", async (req, res) => {
+  console.log("code: ", req.body.code);
+
+  const myHeaders = new Headers();
+  myHeaders.append("Content-Type", "application/json");
+
+  const raw = JSON.stringify({
+    "authorization_code": req.body.code,
+    "redirect_uri": LAYER8_CALLBACK_URL,
+    "client_oauth_uuid": layer8Uuid,
+    "client_oauth_secret": layer8Secret
+  });
+
+  const requestOptions = {
+    method: "POST",
+    headers: myHeaders,
+    body: raw,
+    redirect: "follow"
+  };
+
+  // Variable to store the Layer8 token response
+  let layer8TokenResponse;
+
+  await fetch("http://localhost:5001/api/token", requestOptions)
+    .then((response) => response.text())
+    .then((result) => {
+      layer8TokenResponse = result;
+    })
+    .catch((error) => console.error(error));
+    
+    console.log("layer8TokenResponse", layer8TokenResponse);
+
+    // layer8TokenResponse 2:  {"is_success":true,"message":"access token generated successfully","errors":null,"data":{"access_token":"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE3NTI3NTc3MjksImlhdCI6MTc1Mjc1NzEyOSwiaXNzIjoiR2xvYmUgYW5kIENpdGl6ZW4iLCJzdWIiOiIyNmRmZDc4ZC1iZTdhLTQzMjEtYmNmYi01OTI3ZGEyMWM3ZmIiLCJVc2VySUQiOjEsIlNjb3BlcyI6ImNvdW50cnksZW1haWxfdmVyaWZpZWQsZGlzcGxheV9uYW1lLGNvbG9yIn0.0Umong9zxiW_wmBVmbtQ2xJyGavOQSDau6Uq22zo6TU","token_type":"bearer","expires_in_minutes":10}}
+
+    const accessToken = JSON.parse(layer8TokenResponse).data.access_token;
+    console.log("accessToken", accessToken);
+    
+  res.status(200).json({ message: "Layer8 auth successful" });
 });
 
 app.listen(port, () => {
