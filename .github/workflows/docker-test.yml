@@ -1,0 +1,16 @@
+# Create a build that does cargo build and install all ssl-dev dependancies for it to function on ubuntu
+
+name: Build and Test
+
+on: [pull_request]
+
+jobs:
+  build-image:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+      - name: Build Docker image
+        run: |
+            cd forward-proxy
+            docker build -t test-build .

@@ -20,4 +20,3 @@ boring = "4.5"
 env_logger = "0.11.8"
 utils = { git = "https://github.com/globe-and-citizen/layer8-backbone.git", branch = "upd/dockerfile-and-workspaces" }          # TODO: point to an official release when available
 hex = "0.4.3"
-# openssl = { version = "0.10", features = ["vendored"] }

@@ -1,33 +1,23 @@
-FROM rust:1.88 AS builder
+FROM ubuntu:latest
 
-# Install system dependencies
-# RUN apt-get update && apt-get install -y \
-#     openssl \
-#     musl-tools \
-#     pkg-config \
-#     libssl-dev \
-#     build-essential \
-#     clang \
-#     cmake \
-#     llvm \
-#     perl \
-#     ca-certificates \
-#     && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y \
+    curl \
+    cmake \
+    build-essential \
+    pkg-config \
+    libssl-dev \
+    perl \
+    git \
+    clang
 
-RUN apt-get update && apt-get install -y cmake gcc sshguard pkg-config libssl-dev git build-essential libclang-dev
-
-# Use vendored OpenSSL to avoid all system library issues
-# ENV OPENSSL_STATIC=1
-# ENV OPENSSL_VENDORED=1
+# Install Rust
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+ENV PATH="/root/.cargo/bin:${PATH}"
 
 RUN mkdir /app
 WORKDIR /app
 COPY . .
 
-# RUN apt-file list libssl-dev | grep libssl.a | awk '{ print $2 }'
-
-# Build the application in release mode
-# RUN OPENSSL_DIR=/usr/ OPENSSL_LIB_DIR=/usr/lib/aarch64-linux-gnu/ PKG_CONFIG_PATH=/usr/lib/aarch64-linux-gnu/pkgconfig/ cargo build --release
 RUN cargo build --release
 
 EXPOSE 6191
