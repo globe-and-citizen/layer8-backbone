@@ -1,0 +1,4 @@
+# Ref: <https://github.com/cloudflare/pingora/blob/main/pingora-proxy/examples/conf.yaml>
+---
+upstream_debug_ssl_keylog: true
+ca_file: "../certs/generated/ca.pem"
