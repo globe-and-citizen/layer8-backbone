@@ -1,0 +1,14 @@
+version: "3.9"
+
+services:
+  forward-proxy:
+    build:
+      context: ./../layer8-backbone
+      dockerfile: ./forward-proxy/Dockerfile
+    image: forward-proxy
+    container_name: forward-proxy
+    ports:
+      - "6191:6191"
+    restart: on-failure
+    stdin_open: true
+    tty: true
