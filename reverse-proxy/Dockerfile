@@ -22,10 +22,10 @@ WORKDIR /usr/src/app
 # Copy source code
 COPY ./pingora-router ./pingora-router
 COPY ./utils ./utils
-COPY ./forward-proxy ./forward-proxy
+COPY ./reverse-proxy ./reverse-proxy
 
 # Set working directory to app crate
-WORKDIR /usr/src/app/forward-proxy
+WORKDIR /usr/src/app/reverse-proxy
 
 # Pre-cache dependencies
 RUN cargo fetch
@@ -42,10 +42,10 @@ FROM debian:bullseye-slim
 RUN useradd -m layer8
 
 # Copy only the built binary from the builder stage
-COPY --from=builder /usr/src/app/forward-proxy/target/release/forward-proxy /usr/local/bin/forward-proxy
+COPY --from=builder /usr/src/app/reverse-proxy/target/release/reverse-proxy /usr/local/bin/reverse-proxy
 
 # Switch to non-root user
 USER layer8
 
 # Default command
-CMD ["forward-proxy"]
+CMD ["reverse-proxy"]
