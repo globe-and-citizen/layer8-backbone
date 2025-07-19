@@ -5,6 +5,7 @@ RUN apt-get update && apt-get install -y \
     cmake \
     build-essential \
     pkg-config \
+    openssl \
     libssl-dev \
     perl \
     git \
@@ -18,7 +19,8 @@ RUN mkdir /app
 WORKDIR /app
 COPY . .
 
-RUN cargo build --release
+# FIXME: We have hardcoded the `x86_64` architecture here.
+RUN OPENSSL_DIR=/usr/ OPENSSL_LIB_DIR=/usr/lib/x86_64-linux-gnu/ OPENSSL_NO_VENDOR=Y cargo build --release
 
 EXPOSE 6191
 
