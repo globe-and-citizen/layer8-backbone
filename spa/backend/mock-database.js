@@ -74,9 +74,8 @@ module.exports = {
       "metadata": {
         "email_verified": false,
         "country": "",
-        "city": "",
-        "phone_number": "",
-        "address": "",
+        "display_name": "",
+        "color": ""
       }
     }
   ]

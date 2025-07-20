@@ -8,9 +8,9 @@ const profile = ref({
     metadata: {
         email_verified: false,
         country: "",
-        city: "",
-        phone_number: "",
-        address: ""
+        display_name: "",
+        color: "",
+
     },
     profilePicture: ""
 });
@@ -19,9 +19,8 @@ const showAuthModal = ref(false);
 const authOptions = ref({
     email_verified: false,
     country: false,
-    city: false,
-    phone_number: false,
-    address: false
+    display_name: false,
+    color: false
 });
 
 const downloadProfilePicture = () => {
@@ -69,9 +68,8 @@ const initializeAuth = async () => {
                 profile.value.metadata = {
                     email_verified: data.metadata.email_verified || false,
                     country: data.metadata.country || "",
-                    city: data.metadata.city || "",
-                    phone_number: data.metadata.phone_number || "",
-                    address: data.metadata.address || ""
+                    display_name: data.metadata.display_name || "",
+                    color: data.metadata.color || "",
                 };
             }
 
@@ -108,6 +106,8 @@ const loginWithLayer8Popup = async () => {
                         if (popup) {
                             popup.close();
                         }
+                        // Refetch the profile data
+                        fetchProfileData();
                     })
                     .catch(err => console.log(err))
             }, 1000);
@@ -125,9 +125,8 @@ const reputationScore = computed(() => {
     // Count each filled metadata (email_verified counts if true)
     if (metadata.email_verified) score++;
     if (metadata.country) score++;
-    if (metadata.city) score++;
-    if (metadata.phone_number) score++;
-    if (metadata.address) score++;
+    if (metadata.display_name) score++;
+    if (metadata.color) score++;
 
     return score;
 });
@@ -141,7 +140,7 @@ const reputationColor = computed(() => {
     return '#2ecc71'; // green (for 5)
 });
 
-onMounted(() => {
+const fetchProfileData = async () => {
     const token = getToken('jwt');
     if (!token) {
         console.error('No token found');
@@ -151,25 +150,28 @@ onMounted(() => {
     const payload = JSON.parse(atob(token.split('.')[1]));
     const username = payload.username;
 
-    fetch(`http://localhost:6191/profile/${username}`)
-        .then(response => response.json())
-        .then(data => {
-            profile.value.username = username;
-            profile.value.profilePicture = data.profilePicture || "";
+    try {
+        const response = await fetch(`http://localhost:6191/profile/${username}`);
+        const data = await response.json();
 
-            if (data.metadata) {
-                profile.value.metadata = {
-                    email_verified: data.metadata.email_verified || false,
-                    country: data.metadata.country || "",
-                    city: data.metadata.city || "",
-                    phone_number: data.metadata.phone_number || "",
-                    address: data.metadata.address || ""
-                };
-            }
-        })
-        .catch(err => {
-            console.error('Error fetching profile:', err);
-        });
+        profile.value.username = username;
+        profile.value.profilePicture = data.profilePicture || "";
+
+        if (data.metadata) {
+            profile.value.metadata = {
+                email_verified: data.metadata.email_verified || false,
+                country: data.metadata.country || "",
+                display_name: data.metadata.display_name || "",
+                color: data.metadata.color || "",
+            };
+        }
+    } catch (err) {
+        console.error('Error fetching profile:', err);
+    }
+};
+
+onMounted(() => {
+    fetchProfileData();
 });
 </script>
 
@@ -202,19 +204,14 @@ onMounted(() => {
                             <span>{{ profile.metadata.country }}</span>
                         </div>
 
-                        <div v-if="profile.metadata.city" class="metadata-item">
-                            <strong>City:</strong>
-                            <span>{{ profile.metadata.city }}</span>
+                        <div v-if="profile.metadata.display_name" class="metadata-item">
+                            <strong>Display Name:</strong>
+                            <span>{{ profile.metadata.display_name }}</span>
                         </div>
 
-                        <div v-if="profile.metadata.phone_number" class="metadata-item">
-                            <strong>Phone:</strong>
-                            <span>{{ profile.metadata.phone_number }}</span>
-                        </div>
-
-                        <div v-if="profile.metadata.address" class="metadata-item address">
-                            <strong>Address:</strong>
-                            <span>{{ profile.metadata.address }}</span>
+                        <div v-if="profile.metadata.color" class="metadata-item address">
+                            <strong>Color:</strong>
+                            <span>{{ profile.metadata.color }}</span>
                         </div>
                     </div>
 
@@ -247,14 +244,11 @@ onMounted(() => {
                             <li :class="{ 'completed': profile.metadata.country }">
                                 Country Provided
                             </li>
-                            <li :class="{ 'completed': profile.metadata.city }">
-                                City Provided
+                            <li :class="{ 'completed': profile.metadata.display_name }">
+                                Display Name Provided
                             </li>
-                            <li :class="{ 'completed': profile.metadata.phone_number }">
-                                Phone Number Provided
-                            </li>
-                            <li :class="{ 'completed': profile.metadata.address }">
-                                Address Provided
+                            <li :class="{ 'completed': profile.metadata.color }">
+                                Color Provided
                             </li>
                         </ul>
                     </div>
@@ -289,18 +283,13 @@ onMounted(() => {
                             </div>
 
                             <div class="auth-option">
-                                <input type="checkbox" id="city" v-model="authOptions.city">
-                                <label for="city">Share City</label>
+                                <input type="checkbox" id="display_name" v-model="authOptions.display_name">
+                                <label for="display_name">Share Display Name</label>
                             </div>
 
                             <div class="auth-option">
-                                <input type="checkbox" id="phone_number" v-model="authOptions.phone_number">
-                                <label for="phone_number">Share Phone Number</label>
-                            </div>
-
-                            <div class="auth-option">
-                                <input type="checkbox" id="address" v-model="authOptions.address">
-                                <label for="address">Share Address</label>
+                                <input type="checkbox" id="color" v-model="authOptions.color">
+                                <label for="color">Share Color</label>
                             </div>
                         </div>
                         <div class="modal-footer">
