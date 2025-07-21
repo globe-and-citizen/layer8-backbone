@@ -1,0 +1,34 @@
+
+services:
+  forward-proxy:
+    build:
+      context: ./../layer8-backbone
+      dockerfile: ./forward-proxy/Dockerfile
+    image: forward-proxy:0.1.0
+    container_name: forward-proxy
+    environment:
+      - RUST_LOG=trace
+    env_file:
+      - ./forward-proxy/.env
+    ports:
+      - "6191:6191"
+    restart: on-failure
+    stdin_open: true
+    tty: true
+
+  reverse-proxy:
+    build:
+      context: ./../layer8-backbone
+      dockerfile: ./reverse-proxy/Dockerfile
+    image: reverse-proxy:0.1.0
+    container_name: reverse-proxy
+    environment:
+      - RUST_LOG=trace
+      - CONFIG_PATH=/usr/local/bin/config.toml
+    env_file:
+      - ./reverse-proxy/.env
+    ports:
+      - "6193:6193"
+    restart: on-failure
+    stdin_open: true
+    tty: true

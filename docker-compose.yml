@@ -1,27 +1,33 @@
 
 services:
   forward-proxy:
-    build:
-      context: ./../layer8-backbone
-      dockerfile: ./forward-proxy/Dockerfile
-    image: forward-proxy:0.1.0
-    container_name: forward-proxy:0.1.0
+    image: dtpthao/forward-proxy:0.1.0
+    container_name: forward-proxy
     environment:
       - RUST_LOG=trace
+      - JWT_VIRTUAL_CONNECTION_KEY=secret
+      - JWT_EXP_IN_HOUR=24
+      - AUTH_SERVER_TOKEN=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE5MTYyMzkwMjIsInVzZXJfaWQiOiJmMTZkNGM4MC1jMjUxLTQ1YjMtOWRhZC05MWRmMzczNWY3YzciLCJ1c2VybmFtZSI6ImxheWVyOCJ9.YzLHdM2Wr7VeCTJD9pZm2gRwcA_wNwh2bYrwYieK918
+      - PATH_TO_CA_CERT="/usr/local/certs/generated/ca.pem"
+      - PATH_TO_CERT="/usr/local/certs/generated/forward_proxy.pem"
+      - PATH_TO_KEY="/usr/local/certs/generated/forward_proxy-key.pem"
     ports:
       - "6191:6191"
+    env_file:
+      - ./forward-proxy/.env
     restart: on-failure
     stdin_open: true
     tty: true
 
   reverse-proxy:
-    build:
-      context: ./../layer8-backbone
-      dockerfile: ./reverse-proxy/Dockerfile
-    image: reverse-proxy:0.1.0
-    container_name: reverse-proxy:0.1.0
+    image: dtpthao/reverse-proxy:0.1.0
+    container_name: reverse-proxy
     environment:
       - RUST_LOG=trace
+      - CONFIG_PATH=/usr/local/bin/config.toml
+      - PATH_TO_CA_CERT="/usr/local/certs/generated/ca.pem"
+      - PATH_TO_CERT="/usr/local/certs/generated/reverse_proxy.pem"
+      - PATH_TO_KEY="/usr/local/certs/generated/reverse_proxy-key.pem"
     ports:
       - "6193:6193"
     restart: on-failure
