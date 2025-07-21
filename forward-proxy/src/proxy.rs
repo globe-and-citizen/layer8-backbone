@@ -15,7 +15,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use pingora_router::handler::{ResponseBodyTrait};
 use crate::handler::consts::HeaderKeys;
-use crate::handler::{ForwardHandler};
+use crate::handler::{consts, ForwardHandler};
 use crate::handler::types::response::ErrorResponse;
 
 pub struct ForwardProxy {
@@ -58,8 +58,8 @@ impl ProxyHttp for ForwardProxy {
         //
         // Code below is for step 4(this is a client to RP), presenting the client's TLS certificate.
 
-        let addr = ctx.get("upstream_addr").unwrap();
-        let sni = ctx.get("upstream_sni").unwrap();
+        let addr = ctx.get(&consts::CtxKeys::UpstreamAddress.to_string()).unwrap();
+        let sni = ctx.get(&consts::CtxKeys::UpstreamSNI.to_string()).unwrap();
         debug!("upstream_addr: {}, upstream_sni: {}", addr, sni);
 
         let mut peer = HttpPeer::new(addr, true, sni.to_string());
@@ -166,8 +166,8 @@ impl ProxyHttp for ForwardProxy {
                     if let Some(url) = utils::validate_url(url) {
                         let addr = url.host_str().unwrap();
                         let port = url.port().map(|p| format!(":{}", p)).unwrap_or_default();
-                        ctx.set("upstream_addr".to_string(), format!("{}{}", addr, port));
-                        ctx.set("upstream_sni".to_string(), url.domain().unwrap().to_string());
+                        ctx.set(consts::CtxKeys::UpstreamAddress.to_string(), format!("{}{}", addr, port));
+                        ctx.set(consts::CtxKeys::UpstreamSNI.to_string(), url.domain().unwrap().to_string());
                     } else {
                         error_response_bytes = ErrorResponse {
                             error: "Invalid backend_url".to_string()

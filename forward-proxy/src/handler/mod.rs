@@ -1,29 +1,23 @@
 use std::collections::HashMap;
-use std::error::Error;
 use std::sync::{Arc, Mutex};
 use log::{error, info};
 use pingora::http::StatusCode;
-use reqwest::{Client};
+use reqwest::Client;
 use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
 use pingora_router::handler::{APIHandlerResponse, DefaultHandlerTrait, RequestBodyTrait};
 use crate::handler::types::response::{ErrorResponse, FpHealthcheckError, FpHealthcheckSuccess, InitTunnelResponseFromRP, InitTunnelResponseToINT};
 use pingora_router::handler::ResponseBodyTrait;
 use serde::Deserialize;
-use crate::handler::types::request::{InitTunnelRequest};
+use crate::handler::types::request::InitTunnelRequest;
 use utils;
 use utils::jwt::JWTClaims;
+use crate::config::HandlerConfig;
 
 pub mod types;
 pub mod consts;
 
-pub struct ForwardConfig {
-    pub jwt_secret: Vec<u8>,
-    pub jwt_exp_in_hours: i64,
-    pub auth_access_token: String,
-}
-
 pub struct ForwardHandler {
-    pub config: ForwardConfig,
+    pub config: HandlerConfig,
     jwts_storage: Arc<Mutex<HashMap<String, IntFPSession>>>,
 }
 
@@ -42,7 +36,7 @@ pub struct IntFPSession {
 }
 
 impl ForwardHandler {
-    pub fn new(config: ForwardConfig) -> Self {
+    pub fn new(config: HandlerConfig) -> Self {
         ForwardHandler {
             config,
             jwts_storage: Arc::new(Mutex::new(HashMap::new())),
@@ -58,7 +52,7 @@ impl ForwardHandler {
         let client = Client::new();
 
         return match client
-            .get(format!("{}{}", consts::LAYER8_GET_CERTIFICATE_PATH.as_str(), backend_url))
+            .get(format!("{}{}", self.config.auth_get_certificate_url, backend_url))
             .header("Authorization", format!("Bearer {}", self.config.auth_access_token))
             .send()
             .await
@@ -131,8 +125,8 @@ impl ForwardHandler {
         &self,
         token: &str,
     ) -> Result<IntFPSession, String> {
-        return match utils::jwt::verify_jwt_token(token, &self.config.jwt_secret) {
-            Ok(claims) => {
+        return match utils::jwt::verify_jwt_token(token, &self.config.jwt_virtual_connection_key) {
+            Ok(_claims) => {
                 // todo check claims if needed
 
                 match {
@@ -183,13 +177,11 @@ impl ForwardHandler {
             info!("Server certificate: {:?}", server_certificate);
 
             ctx.set(
-                consts::NTOR_SERVER_ID.to_string(),
-                // consts::NTOR_SERVER_ID_TMP_VALUE.to_string(), // replace with real value
+                consts::CtxKeys::NTorServerId.to_string(),
                 server_certificate.server_id
             );
             ctx.set(
-                consts::NTOR_STATIC_PUBLIC_KEY.to_string(),
-                // hex::encode(consts::NTOR_STATIC_PUBLIC_KEY_TMP_VALUE), // replace with real value
+                consts::CtxKeys::NTorStaticPublicKey.to_string(),
                 hex::encode(server_certificate.public_key)
             );
         }
@@ -201,9 +193,9 @@ impl ForwardHandler {
     }
 
     pub fn handle_init_tunnel_response(&self, ctx: &mut Layer8Context) -> APIHandlerResponse {
-        let ntor_server_id = ctx.get(&*consts::NTOR_SERVER_ID.to_string()).unwrap().clone();
+        let ntor_server_id = ctx.get(&consts::CtxKeys::NTorServerId.to_string()).unwrap().clone();
         let ntor_static_public_key = hex::decode(
-            ctx.get(&*consts::NTOR_STATIC_PUBLIC_KEY.to_string()).clone().unwrap()
+            ctx.get(&consts::CtxKeys::NTorStaticPublicKey.to_string()).clone().unwrap()
         ).unwrap();
 
         let response_body = ctx.get_response_body();
@@ -220,7 +212,7 @@ impl ForwardHandler {
                 let int_fp_jwt = {
                     let mut claims = JWTClaims::new(Some(self.config.jwt_exp_in_hours));
                     claims.uuid = Some(utils::new_uuid());
-                    utils::jwt::create_jwt_token(claims, &self.config.jwt_secret)
+                    utils::jwt::create_jwt_token(claims, &self.config.jwt_virtual_connection_key)
                 };
 
                 let int_fp_session = IntFPSession {
