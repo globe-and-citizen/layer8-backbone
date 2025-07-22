@@ -27,3 +27,5 @@ config = "0.15.11"
 toml = "0.8.23"
 uuid = { version = "1.16.0", features = ["v4"] }
 utils = { path = "../utils" }
+envy = "0.4.2"
+hex = "0.4.3"

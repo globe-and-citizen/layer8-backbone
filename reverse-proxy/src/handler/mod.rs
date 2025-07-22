@@ -9,7 +9,7 @@ use pingora_router::handler::{APIHandlerResponse, ResponseBodyTrait};
 use init_tunnel::handler::InitTunnelHandler;
 use proxy::handler::ProxyHandler;
 use init_tunnel::InitEncryptedTunnelResponse;
-use utils::{new_uuid, string_to_array32};
+use utils::{new_uuid};
 use utils::jwt::JWTClaims;
 use crate::config::{HandlerConfig, RPConfig};
 
@@ -24,19 +24,17 @@ thread_local! {
 
 pub struct ReverseHandler {
     config: HandlerConfig,
-    host: String,
     jwt_secret: Vec<u8>,
     ntor_static_secret: [u8; 32],
 }
 
 impl ReverseHandler {
     pub fn new(config: RPConfig) -> Self {
-        let ntor_secret = string_to_array32(config.handler.ntor_static_secret.clone()).unwrap();
-        let jwt_secret = config.handler.jwt_virtual_connection_secret.as_bytes().to_vec();
+        let ntor_secret = config.handler.ntor_static_secret.clone();
+        let jwt_secret = config.handler.jwt_virtual_connection_secret.clone();
 
         ReverseHandler {
             config: config.handler,
-            host: config.server.host,
             jwt_secret,
             ntor_static_secret: ntor_secret,
         }
@@ -92,13 +90,13 @@ impl ReverseHandler {
         let ntor_session_id = new_uuid();
 
         let int_rp_jwt = {
-            let mut claims = JWTClaims::new(Some(self.config.jwt_exp));
+            let mut claims = JWTClaims::new(Some(self.config.jwt_exp_in_hours));
             claims.ntor_session_id = Some(ntor_session_id.clone());
             utils::jwt::create_jwt_token(claims, &self.jwt_secret)
         };
 
         let fp_rp_jwt = {
-            let claims = JWTClaims::new(Some(self.config.jwt_exp));
+            let claims = JWTClaims::new(Some(self.config.jwt_exp_in_hours));
             utils::jwt::create_jwt_token(claims, &self.jwt_secret)
         };
 
