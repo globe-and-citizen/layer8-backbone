@@ -14,17 +14,20 @@ use reqwest::header::TRANSFER_ENCODING;
 use std::sync::Arc;
 use std::time::Duration;
 use pingora_router::handler::{ResponseBodyTrait};
+use crate::config::TlsConfig;
 use crate::handler::consts::HeaderKeys;
 use crate::handler::{consts, ForwardHandler};
 use crate::handler::types::response::ErrorResponse;
 
 pub struct ForwardProxy {
+    tls_config: TlsConfig,
     handler: ForwardHandler,
 }
 
 impl ForwardProxy {
-    pub fn new(handler: ForwardHandler) -> Self {
+    pub fn new(tls_config: TlsConfig, handler: ForwardHandler) -> Self {
         ForwardProxy {
+            tls_config,
             handler,
         }
     }
@@ -65,13 +68,13 @@ impl ProxyHttp for ForwardProxy {
         let mut peer = HttpPeer::new(addr, true, sni.to_string());
 
         {
-            let cert = X509::from_pem(&certs::cert())
+            let cert = X509::from_pem(&self.tls_config.cert)
                 .or_err(TLS_CONF_ERR, "Failed to load FP's certificate")?;
 
-            let ca_cert = X509::from_pem(&certs::ca_pem())
+            let ca_cert = X509::from_pem(&self.tls_config.ca_cert)
                 .or_err(TLS_CONF_ERR, "Failed to load CA certificate")?;
 
-            let key = boring::pkey::PKey::private_key_from_pem(&certs::key())
+            let key = boring::pkey::PKey::private_key_from_pem(&self.tls_config.key)
                 .or_err(TLS_CONF_ERR, "Failed to load private key")?;
 
             // The certificate to present in mTLS connections to upstream
@@ -477,24 +480,5 @@ impl ProxyHttp for ForwardProxy {
     ) -> Box<Error> {
         error!("Failed to connect to upstream: {}", e);
         e
-    }
-}
-
-mod certs {
-    use std::fs;
-
-    pub fn ca_pem() -> Vec<u8> {
-        fs::read(std::env::var("PATH_TO_CA_CERT").expect("PATH_TO_CA_PERM must be set"))
-            .expect("Failed to read CA PEM file")
-    }
-
-    pub fn cert() -> Vec<u8> {
-        fs::read(std::env::var("PATH_TO_CERT").expect("PATH_TO_CERT must be set"))
-            .expect("Failed to read certificate file")
-    }
-
-    pub fn key() -> Vec<u8> {
-        fs::read(std::env::var("PATH_TO_KEY").expect("PATH_TO_KEY must be set"))
-            .expect("Failed to read key file")
     }
 }

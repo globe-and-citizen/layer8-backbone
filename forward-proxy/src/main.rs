@@ -5,7 +5,7 @@ mod config;
 use std::fs::OpenOptions;
 use crate::handler::ForwardHandler;
 use env_logger::{Env, Target};
-use log::{debug, info, LevelFilter};
+use log::{debug, info};
 use proxy::ForwardProxy;
 use pingora::prelude::*;
 use crate::config::FPConfig;
@@ -15,7 +15,9 @@ fn load_config() -> FPConfig {
     dotenv::dotenv().ok();
 
     // Deserialize from env vars
-    let config: FPConfig = envy::from_env().unwrap();
+    let mut config: FPConfig = envy::from_env().unwrap();
+
+    config.tls_config.load().expect("Failed to load TLS configuration");
 
     let target = match config.log_config.log_path.as_str() {
         "console" => Target::Stdout,
@@ -57,7 +59,7 @@ fn main() {
 
     let mut proxy = http_proxy_service(
         &server.configuration,
-        ForwardProxy::new(fp_handler)
+        ForwardProxy::new(config.tls_config, fp_handler)
     );
 
     proxy.add_tcp(&format!("{}:{}", config.listen_address, config.listen_port));

@@ -1,11 +1,15 @@
 use serde::Deserialize;
+use utils::deserializer;
 
 #[derive(Debug, Deserialize)]
 pub struct FPConfig {
     pub listen_address: String,
+    #[serde(deserialize_with = "deserializer::string_to_number")]
     pub listen_port: u16,
     #[serde(flatten)]
     pub log_config: LogConfig,
+    #[serde(flatten)]
+    pub tls_config: TlsConfig,
     #[serde(flatten)] // This flattens the HandlerConfig fields into this struct
     pub handler_config: HandlerConfig
 }
@@ -18,12 +22,25 @@ pub struct LogConfig {
 
 #[derive(Debug, Deserialize)]
 pub struct HandlerConfig {
-    #[serde(deserialize_with = "string_to_vec_u8")]
+    #[serde(deserialize_with = "deserializer::string_to_vec_u8")]
     pub jwt_virtual_connection_key: Vec<u8>,
-    #[serde(deserialize_with = "string_to_i64")]
+    #[serde(deserialize_with = "deserializer::string_to_number")]
     pub jwt_exp_in_hours: i64,
     pub auth_access_token: String,
     pub auth_get_certificate_url: String,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct TlsConfig {
+    pub path_to_ca_cert: String,
+    pub path_to_cert: String,
+    pub path_to_key: String,
+    #[serde(skip_deserializing)]
+    pub ca_cert: Vec<u8>,
+    #[serde(skip_deserializing)]
+    pub cert: Vec<u8>,
+    #[serde(skip_deserializing)]
+    pub key: Vec<u8>,
 }
 
 impl LogConfig {
@@ -40,18 +57,14 @@ impl LogConfig {
     }
 }
 
-fn string_to_i64<'de, D>(deserializer: D) -> Result<i64, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let s: String = Deserialize::deserialize(deserializer)?;
-    s.parse::<i64>().map_err(serde::de::Error::custom)
-}
-
-fn string_to_vec_u8<'de, D>(deserializer: D) -> Result<Vec<u8>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let s: String = Deserialize::deserialize(deserializer)?;
-    Ok(s.into_bytes())
+impl TlsConfig {
+    pub fn load(&mut self) -> Result<(), String> {
+        self.ca_cert = std::fs::read(&self.path_to_ca_cert)
+            .map_err(|e| format!("Failed to read CA certificate: {}", e))?;
+        self.cert = std::fs::read(&self.path_to_cert)
+            .map_err(|e| format!("Failed to read certificate: {}", e))?;
+        self.key = std::fs::read(&self.path_to_key)
+            .map_err(|e| format!("Failed to read key: {}", e))?;
+        Ok(())
+    }
 }
