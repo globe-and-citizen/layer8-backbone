@@ -18,6 +18,9 @@
 <script setup>
 import {ref} from 'vue';
 import * as interceptorWasm from "interceptor-wasm";
+import { getCurrentInstance } from 'vue';
+const { appContext } = getCurrentInstance();
+const backend_url = appContext.config.globalProperties.$backend_url;
 
 const username = ref('');
 const password = ref('');
@@ -37,7 +40,7 @@ const handleRegister = () => {
     "password": password.value
   }
 
-  interceptorWasm.fetch('http://localhost:3000/register', {
+  interceptorWasm.fetch(`${backend_url}/register`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json'

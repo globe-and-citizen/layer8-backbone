@@ -1,7 +1,7 @@
 mod proxy;
 mod handler;
 
-use crate::handler::ForwardHandler;
+use crate::handler::{ForwardConfig, ForwardHandler};
 use env_logger::{Env, Target};
 use log::info;
 use proxy::ForwardProxy;
@@ -29,7 +29,26 @@ fn main() {
     })).unwrap();
     server.bootstrap();
 
-    let fp_handler = ForwardHandler{};
+    let config = {
+        let jwt_secret = std::env::var("JWT_VIRTUAL_CONNECTION_KEY")
+            .expect("JWT_VIRTUAL_CONNECTION_KEY must be set");
+
+        let jwt_exp = std::env::var("JWT_EXP_IN_HOUR")
+            .expect("JWT_EXP_IN_HOUR must be set")
+            .parse::<i64>()
+            .expect("JWT_EXP_IN_HOUR must be a valid integer");
+
+        let auth_server_token = std::env::var("AUTH_SERVER_TOKEN")
+            .expect("AUTH_SERVER_TOKEN must be set");
+
+        ForwardConfig {
+            jwt_secret: jwt_secret.as_bytes().to_vec(),
+            jwt_exp_in_hours: jwt_exp,
+            auth_access_token: auth_server_token,
+        }
+    };
+
+    let fp_handler = ForwardHandler::new(config);
 
     let mut proxy = http_proxy_service(
         &server.configuration,

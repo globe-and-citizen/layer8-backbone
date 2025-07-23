@@ -21,7 +21,12 @@ impl RequestBodyTrait for InitTunnelRequestToBackend {}
 pub struct InitEncryptedTunnelResponse {
     pub public_key: Vec<u8>,
     pub t_b_hash: Vec<u8>,
-    pub session_id: String
+
+    #[serde(rename = "jwt1")]
+    pub int_rp_jwt: String,
+
+    #[serde(rename = "jwt2")]
+    pub fp_rp_jwt: String
 }
 
 impl ResponseBodyTrait for InitEncryptedTunnelResponse {}
