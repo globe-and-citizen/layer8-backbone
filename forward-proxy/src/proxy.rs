@@ -167,10 +167,10 @@ impl ProxyHttp for ForwardProxy {
             ("/init-tunnel", "POST") => {
                 if let Some(url) = ctx.param("backend_url") {
                     if let Some(url) = utils::validate_url(url) {
-                        let addr = url.host_str().unwrap();
+                        let addr = url.host_str().unwrap_or_default();
                         let port = url.port().map(|p| format!(":{}", p)).unwrap_or_default();
                         ctx.set(consts::CtxKeys::UpstreamAddress.to_string(), format!("{}{}", addr, port));
-                        ctx.set(consts::CtxKeys::UpstreamSNI.to_string(), url.domain().unwrap().to_string());
+                        ctx.set(consts::CtxKeys::UpstreamSNI.to_string(), url.domain().unwrap_or_default().to_string());
                     } else {
                         error_response_bytes = ErrorResponse {
                             error: "Invalid backend_url".to_string()
