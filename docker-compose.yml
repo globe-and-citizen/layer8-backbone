@@ -4,10 +4,14 @@ services:
     image: dtpthao/forward-proxy:0.1.0
     container_name: forward-proxy
     environment:
-      - RUST_LOG=trace
+      - LISTEN_ADDRESS=localhost
+      - LISTEN_PORT=6191
+      - LOG_LEVEL=trace
+      - LOG_PATH=console
       - JWT_VIRTUAL_CONNECTION_KEY=secret
-      - JWT_EXP_IN_HOUR=24
-      - AUTH_SERVER_TOKEN=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE5MTYyMzkwMjIsInVzZXJfaWQiOiJmMTZkNGM4MC1jMjUxLTQ1YjMtOWRhZC05MWRmMzczNWY3YzciLCJ1c2VybmFtZSI6ImxheWVyOCJ9.YzLHdM2Wr7VeCTJD9pZm2gRwcA_wNwh2bYrwYieK918
+      - JWT_EXP_IN_HOURS=24
+      - AUTH_ACCESS_TOKEN=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE5MTYyMzkwMjIsInVzZXJfaWQiOiJmMTZkNGM4MC1jMjUxLTQ1YjMtOWRhZC05MWRmMzczNWY3YzciLCJ1c2VybmFtZSI6ImxheWVyOCJ9.YzLHdM2Wr7VeCTJD9pZm2gRwcA_wNwh2bYrwYieK918
+      - AUTH_GET_CERTIFICATE_URL=http://localhost:5001/sp-pub-key?backend_url=
       - PATH_TO_CA_CERT="/usr/local/certs/generated/ca.pem"
       - PATH_TO_CERT="/usr/local/certs/generated/forward_proxy.pem"
       - PATH_TO_KEY="/usr/local/certs/generated/forward_proxy-key.pem"
@@ -23,8 +27,17 @@ services:
     image: dtpthao/reverse-proxy:0.1.0
     container_name: reverse-proxy
     environment:
-      - RUST_LOG=trace
-      - CONFIG_PATH=/usr/local/bin/config.toml
+      - LISTEN_ADDRESS=localhost
+      - LISTEN_PORT=6193
+      - PATH_TO_SERVER_CONF=../server_conf.yml
+      - LOG_LEVEL=trace
+      - LOG_PATH=console
+      - NTOR_SERVER_ID=ReverseProxyServer
+      - NTOR_STATIC_SECRET="this is 32-byte nTorStaticSecret"
+      - JWT_VIRTUAL_CONNECTION_SECRET="this is 32-byte rp's jwt secret!"
+      - JWT_EXP_IN_HOURS=24
+      - FORWARD_PROXY_URL=http://localhost:6191
+      - BACKEND_URL=http://localhost:3000
       - PATH_TO_CA_CERT="/usr/local/certs/generated/ca.pem"
       - PATH_TO_CERT="/usr/local/certs/generated/reverse_proxy.pem"
       - PATH_TO_KEY="/usr/local/certs/generated/reverse_proxy-key.pem"
@@ -33,3 +46,117 @@ services:
     restart: on-failure
     stdin_open: true
     tty: true
+
+  authentication-server:
+    image: authentication-server:0.1.0
+    container_name: authentication-server
+    environment:
+      - SERVER_PORT=5001
+      - UP_999_SECRET_KEY=secret_999
+      - MP_123_SECRET_KEY=secret_123
+      - JWT_SECRET_KEY=ThisIsASecret
+      - DB_NAME=development
+      - DB_HOST=auth-postgres
+      - DB_PORT=5432
+      - DB_USER=layer8development
+      - DB_PASSWORD=cRACtIeRChYsiNFinuMp
+      - DB_SETUP_MIGRATIONS_PATH=./migrations
+      - SSL_MODE=disable
+      - PROXY_URL=http://localhost:5001
+      - TEST_CLIENT_BACKEND_URL=http://host.docker.internal:6193
+      - MAILER_SEND_TEMPLATE_ID=v69oxl517mz4785k
+      - LAYER8_EMAIL_USERNAME=info
+      - LAYER8_EMAIL_DOMAIN=layer8proxy.net
+      - VERIFICATION_CODE_VALIDITY_DURATION=10m
+      - GENERATE_NEW_ZK_SNARKS_KEYS=true
+      - INFLUXDB_URL=http://auth-influxdb2:8086
+      - INFLUXDB_URL_TELEGRAF=http://host.docker.internal:8086
+      - INFLUXDB_USERNAME=admin
+      - INFLUXDB_PASSWORD=somethingthatyoudontknow
+      - INFLUXDB_ORG=layer8
+      - INFLUXDB_BUCKET=layer8
+      - INFLUXDB_TOKEN=DEFAULT_TOKEN_FOR_TESTING
+      - OTEL_EXPORTER_OTLP_ENDPOINT=auth-telegraf:4317
+      - CREATE_TEST_USER=true
+      - TEST_USER_EMAIL=test@layer8proxy.net
+      - TEST_USER_PASSWORD=12341234
+      - TEST_USER_USERNAME=tester
+      - TEST_USER_FIRST_NAME=john
+      - TEST_USER_LAST_NAME=doe
+      - TEST_USER_DISPLAY_NAME=john
+      - TEST_USER_COUNTRY=antartica
+      - CREATE_TEST_CLIENT=true
+      - TEST_CLIENT_NAME=layer8
+      - TEST_CLIENT_USERNAME=layer8
+      - TEST_CLIENT_PASSWORD=12341234
+      - TEST_CLIENT_REDIRECT_URI=http://localhost:5173/oauth2/callback
+      - TEST_CLIENT_BACKEND_URI=http://localhost:6193
+      - SCRAM_ITERATION_COUNT=4096
+      - SMART_CONTRACT_ADDRESS=0x5D3c62CD23ED2C46463C9F8B5DadC1e63EB95973
+      - UPDATE_CLIENT_USAGE_STATISTICS_TIME_INTERVAL=2m
+      - CLIENT_TRAFFIC_RATE_PER_BYTE=5
+      - WEBSOCKET_NODE_URL=wss://polygon-mainnet.g.alchemy.com/v2/dkGaa37QGa5qLAb4p6t0k0aF1YnSb45L
+    ports:
+      - "5001:5001"
+#    command: ["go", "run", "cmd/setup/setup.go"]
+    depends_on:
+      auth-postgres:
+        condition: service_healthy
+      auth-influxdb2:
+        condition: service_healthy
+      auth-telegraf:
+        condition: service_healthy
+    restart: on-failure
+    stdin_open: true
+    tty: true
+
+  auth-influxdb2:
+    container_name: layer8-influxdb2
+    image: influxdb:2
+    restart: always
+    ports:
+      - 8086:8086
+    volumes:
+      - ./layer8-volumes/influxdb2-data:/var/lib/influxdb2
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8086/health" ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  auth-telegraf:
+    image: telegraf:alpine
+    container_name: layer8-telegraf
+    restart: always
+    volumes:
+      - ./layer8-volumes/telegraf.conf:/etc/telegraf/telegraf.conf:ro
+    ports:
+      - 4317:4317
+    environment:
+      - INFLUXDB_URL_TELEGRAF=http://host.docker.internal:8086
+      - INFLUXDB_TOKEN=DEFAULT_TOKEN_FOR_TESTING
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: [ "CMD-SHELL", "nc -z localhost 4317" ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  auth-postgres:
+    container_name: layer8-postgres
+    image: postgres:13
+    restart: always
+    environment:
+      - POSTGRES_USER=layer8development
+      - POSTGRES_PASSWORD=cRACtIeRChYsiNFinuMp
+      - POSTGRES_DB=development
+    volumes:
+      - ./layer8-volumes/pg-data:/var/lib/postgresql/data
+    ports:
+      - 5433:5432
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U layer8development" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
