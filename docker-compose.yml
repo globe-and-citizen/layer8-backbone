@@ -10,7 +10,7 @@ services:
       - LOG_PATH=console
       - JWT_VIRTUAL_CONNECTION_KEY=secret
       - JWT_EXP_IN_HOURS=24
-      - AUTH_ACCESS_TOKEN=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE5MTYyMzkwMjIsInVzZXJfaWQiOiJmMTZkNGM4MC1jMjUxLTQ1YjMtOWRhZC05MWRmMzczNWY3YzciLCJ1c2VybmFtZSI6ImxheWVyOCJ9.YzLHdM2Wr7VeCTJD9pZm2gRwcA_wNwh2bYrwYieK918
+      - AUTH_ACCESS_TOKEN=eyJhbGciOiJIUzI1NiJ9.eyJleHAiOjE5MTYyMzkwMjIsInVzZXJfaWQiOiIxMjNlZmE4Yi1iOTJmLTRiOTEtYmEyOS05ZWE1ZGE4NWU5NGEiLCJ1c2VybmFtZSI6ImxheWVyOCJ9._rO0VnTqZC7RcL0guyH02Q88mro94ZdE9PaH9olcTvo
       - AUTH_GET_CERTIFICATE_URL=http://localhost:5001/sp-pub-key?backend_url=
       - PATH_TO_CA_CERT="/usr/local/certs/generated/ca.pem"
       - PATH_TO_CERT="/usr/local/certs/generated/forward_proxy.pem"
@@ -22,6 +22,9 @@ services:
     restart: on-failure
     stdin_open: true
     tty: true
+    networks:
+      layer8-network:
+        ipv4_address: 10.10.10.101
 
   reverse-proxy:
     image: dtpthao/reverse-proxy:0.1.0
@@ -46,9 +49,12 @@ services:
     restart: on-failure
     stdin_open: true
     tty: true
+    networks:
+      layer8-network:
+        ipv4_address: 10.10.10.102
 
   authentication-server:
-    image: authentication-server:0.1.0
+    image: dtpthao/authentication-server:0.1.0
     container_name: authentication-server
     environment:
       - SERVER_PORT=5001
@@ -90,7 +96,7 @@ services:
       - TEST_CLIENT_USERNAME=layer8
       - TEST_CLIENT_PASSWORD=12341234
       - TEST_CLIENT_REDIRECT_URI=http://localhost:5173/oauth2/callback
-      - TEST_CLIENT_BACKEND_URI=http://localhost:6193
+      - TEST_CLIENT_BACKEND_URI=http://10.10.10.102:6193
       - SCRAM_ITERATION_COUNT=4096
       - SMART_CONTRACT_ADDRESS=0x5D3c62CD23ED2C46463C9F8B5DadC1e63EB95973
       - UPDATE_CLIENT_USAGE_STATISTICS_TIME_INTERVAL=2m
@@ -109,6 +115,9 @@ services:
     restart: on-failure
     stdin_open: true
     tty: true
+    networks:
+      layer8-network:
+        ipv4_address: 10.10.10.103
 
   auth-influxdb2:
     container_name: layer8-influxdb2
@@ -123,6 +132,9 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+    networks:
+      layer8-network:
+        ipv4_address: 10.10.10.104
 
   auth-telegraf:
     image: telegraf:alpine
@@ -142,6 +154,9 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+    networks:
+      layer8-network:
+        ipv4_address: 10.10.10.105
 
   auth-postgres:
     container_name: layer8-postgres
@@ -160,3 +175,13 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    networks:
+      layer8-network:
+        ipv4_address: 10.10.10.106
+
+networks:
+  layer8-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.10.10.0/24

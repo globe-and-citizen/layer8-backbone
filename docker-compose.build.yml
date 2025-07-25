@@ -6,13 +6,20 @@ services:
       dockerfile: ./forward-proxy/Dockerfile
     image: forward-proxy:0.1.0
     container_name: forward-proxy
+    hostname: fp
+    domainname: layer8.com
     env_file:
-      - ./forward-proxy/.env
+      - ./forward-proxy/.env.docker
     ports:
       - "6191:6191"
     restart: on-failure
     stdin_open: true
     tty: true
+    networks:
+      layer8-network:
+        ipv4_address: 10.10.11.101
+    extra_hosts:
+      - "rp.layer8.com:10.10.11.102"
 
   reverse-proxy:
     build:
@@ -20,10 +27,22 @@ services:
       dockerfile: ./reverse-proxy/Dockerfile
     image: reverse-proxy:0.1.0
     container_name: reverse-proxy
+    hostname: rp
+    domainname: layer8.com
     env_file:
-      - ./reverse-proxy/.env
+      - ./reverse-proxy/.env.docker
     ports:
       - "6193:6193"
     restart: on-failure
     stdin_open: true
     tty: true
+    networks:
+      layer8-network:
+        ipv4_address: 10.10.11.102
+
+networks:
+  layer8-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.10.11.0/24
