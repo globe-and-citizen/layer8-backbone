@@ -27,7 +27,6 @@ COPY ./reverse-proxy ./reverse-proxy
 
 # Set working directory to app crate
 WORKDIR /usr/src/app/reverse-proxy
-COPY ./reverse-proxy/.env.dev .env
 
 # Pre-cache dependencies
 RUN cargo fetch

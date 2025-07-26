@@ -52,7 +52,17 @@ impl ForwardHandler {
         let client = Client::new();
 
         return match client
-            .get(format!("{}{}", self.config.auth_get_certificate_url, backend_url))
+            .get(
+                //todo
+                // the input backend_url is originally from interceptor request,
+                // the interceptor only accepts URLs with http(s) scheme.
+                // But the authentication server expects a URL without scheme
+                format!(
+                    "{}{}",
+                    self.config.auth_get_certificate_url,
+                    backend_url.replace("http://", "").replace("https://", "")
+                )
+            )
             .header("Authorization", format!("Bearer {}", self.config.auth_access_token))
             .send()
             .await
@@ -71,10 +81,9 @@ impl ForwardHandler {
                         body: Some(response_body.to_bytes()),
                     })
                 } else {
-
                     #[derive(Deserialize, Debug)]
                     struct AuthServerResponse {
-                        pub x509_certificate: String
+                        pub x509_certificate: String,
                     }
 
                     match res.json::<AuthServerResponse>().await {
@@ -86,15 +95,15 @@ impl ForwardHandler {
                                     return Err(APIHandlerResponse {
                                         status: StatusCode::INTERNAL_SERVER_ERROR,
                                         body: None,
-                                    })
+                                    });
                                 }
                             };
 
                             info!("AuthenticationServer response: {:?}", cert);
 
                             Ok(NTorServerCertificate {
-                                server_id: backend_url, // todo consider server_id value
-                                public_key: pub_key
+                                server_id: backend_url, // todo I still prefer taking the server_id value from certificate's subject
+                                public_key: pub_key,
                             })
                         }
                         Err(err) => {
@@ -102,7 +111,7 @@ impl ForwardHandler {
                             return Err(APIHandlerResponse {
                                 status: StatusCode::INTERNAL_SERVER_ERROR,
                                 body: None,
-                            })
+                            });
                         }
                     }
                 }
@@ -178,11 +187,11 @@ impl ForwardHandler {
 
             ctx.set(
                 consts::CtxKeys::NTorServerId.to_string(),
-                server_certificate.server_id
+                server_certificate.server_id,
             );
             ctx.set(
                 consts::CtxKeys::NTorStaticPublicKey.to_string(),
-                hex::encode(server_certificate.public_key)
+                hex::encode(server_certificate.public_key),
             );
         }
 

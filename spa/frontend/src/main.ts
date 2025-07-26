@@ -6,7 +6,7 @@ import router from './router'
 import { initEncryptedTunnel, ServiceProvider } from "interceptor-wasm"
 
 let forward_proxy_url = import.meta.env.VITE_FORWARD_PROXY_URL || 'http://localhost:6191';
-let backend_url = import.meta.env.VITE_BACKEND_URL || 'http://10.10.11.102:6193';
+let backend_url = import.meta.env.VITE_BACKEND_URL || 'http://10.10.10.102:6193';
 
 const layer8_ = async () => {
     try {
