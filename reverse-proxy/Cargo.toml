@@ -15,17 +15,16 @@ chrono = "0.4.40"
 reqwest = { version="0.11", default-features=false, features=["json", "rustls-tls"] }
 tokio-rustls = "0.26.2"
 tokio = "1.44.2"
-pingora-router = { path = "../pingora-router" }
+pingora-router = { path = "../pingora-router", version = "0.1.0" }
 pingora = { version = "0.5.0", features = ["lb", "boringssl"] }
 futures = "0.3.31"
 boring = "4.17.0"
 once_cell = "1.21.3"
 dotenv = "0.15.0"
-ntor = { git = "https://github.com/globe-and-citizen/ntor.git", tag = "0.1.1"}
-#ntor = { path = "../../../ntor" }
+ntor = { git = "https://github.com/globe-and-citizen/ntor.git", tag = "0.1.1" }
 config = "0.15.11"
 toml = "0.8.23"
 uuid = { version = "1.16.0", features = ["v4"] }
-utils = { path = "../utils" }
+utils = { path = "../utils", version = "0.1.0" }
 envy = "0.4.2"
 hex = "0.4.3"
