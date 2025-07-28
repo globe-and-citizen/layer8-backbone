@@ -7,6 +7,8 @@ services:
       - "6191:6191"
     env_file:
       - ./forward-proxy/.env.docker
+    volumes:
+      - ./logs/forward-proxy.log:/var/log/layer8/log.txt
     restart: on-failure
     stdin_open: true
     tty: true
@@ -21,6 +23,8 @@ services:
       - ./reverse-proxy/.env.docker
     ports:
       - "6193:6193"
+    volumes:
+      - ./logs/reverse-proxy.log:/var/log/layer8/log.txt
     restart: on-failure
     stdin_open: true
     tty: true

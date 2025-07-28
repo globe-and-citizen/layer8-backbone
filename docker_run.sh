@@ -2,6 +2,7 @@
 ### Run `./docker_run.sh init` to start the services and upload the certificate
 ### Run `./docker_run.sh start` to start the services
 ### Run `./docker_run.sh upload` to upload the certificate
+### Run `./docker_run.sh clean` to delete mounted data
 
 upload_cert() {
   # login to get token
@@ -25,6 +26,20 @@ upload_cert() {
     }"
 }
 
+start() {
+  mkdir logs
+  touch logs/reverse-proxy.log
+  touch logs/forward-proxy.log
+  docker compose up -d
+}
+
+clean() {
+  docker compose down
+  rm -rf logs
+  rm -rf layer8-volumes/influxdb2-data
+  rm -rf layer8-volumes/pg-data
+}
+
 # main
 if [ -z "$1" ]; then
   echo "Missing argument"
@@ -32,11 +47,15 @@ if [ -z "$1" ]; then
 fi
 
 if [ "$1" = "init" ]; then
-  docker compose up -d
+  start
   sleep 30
   upload_cert
 elif [ "$1" = "start" ]; then
-  docker compose up -d
+  start
 elif [ "$1" = "upload" ]; then
   upload_cert
+elif [ "$1" = "clean" ]; then
+  clean
 fi
+
+

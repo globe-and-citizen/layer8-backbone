@@ -9,3 +9,5 @@
 **/.git
 .dockerignore
 **/Dockerfile
+**/log.txt
+**/log_*.txt

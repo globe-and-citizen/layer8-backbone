@@ -18,6 +18,8 @@ target/
 .DS_Store/
 .vscode/
 **/log.txt
+**/log_*.txt
+logs
 
 # All node_modules
 node_modules/
