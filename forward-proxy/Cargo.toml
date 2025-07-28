@@ -1,5 +1,5 @@
 [package]
-name = "proxy"
+name = "forward-proxy"
 version = "0.1.0"
 edition = "2024"
 
@@ -17,10 +17,10 @@ pingora = { version = "0.5.0", features = ["lb", "boringssl"] }
 jsonwebtoken = "9.3.1"
 dotenv = "0.15.0"
 futures = "0.3.31"
-pingora-router = { path = "../pingora-router" }
+pingora-router = { git = "https://github.com/globe-and-citizen/layer8-backbone.git", branch = "development" } # TODO: Change to point to {path = "../xxx", version = "0.1.0"} when xxx is published
 once_cell = "1.21.3"
 pingora-error = "0.5.0"
 boring = "4.17.0"
 env_logger = "0.11.8"
-utils = { path = "../utils" }
+utils = { git = "https://github.com/globe-and-citizen/layer8-backbone.git", branch = "development" }          # TODO: Change to point to {path = "../xxx", version = "0.1.0"} when xxx is published
 hex = "0.4.3"
