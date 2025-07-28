@@ -51,82 +51,73 @@ impl ForwardHandler {
     {
         let client = Client::new();
 
-        return match client
-            .get(
-                //todo
-                // the input backend_url is originally from interceptor request,
-                // the interceptor only accepts URLs with http(s) scheme.
-                // But the authentication server expects a URL without scheme
-                format!(
-                    "{}{}",
-                    self.config.auth_get_certificate_url,
-                    backend_url.replace("http://", "").replace("https://", "")
-                )
+        let res = client.get(
+            //todo
+            // the input backend_url is originally from interceptor request,
+            // the interceptor only accepts URLs with http(s) scheme.
+            // But the authentication server expects a URL without scheme
+            format!(
+                "{}{}",
+                self.config.auth_get_certificate_url,
+                backend_url.replace("http://", "").replace("https://", "")
             )
+        )
             .header("Authorization", format!("Bearer {}", self.config.auth_access_token))
             .send()
             .await
-        {
-            Ok(res) => {
-                if !res.status().is_success() {
-                    let response_body = ErrorResponse {
-                        error: format!("Failed to get public key from layer8, status code: {}", res.status().as_u16()),
-                    };
-                    error!("Sending error response: {:?}", response_body);
-
-                    ctx.insert_response_header("Connection", "close"); // Ensure connection closes???
-
-                    Err(APIHandlerResponse {
-                        status: StatusCode::BAD_REQUEST,
-                        body: Some(response_body.to_bytes()),
-                    })
-                } else {
-                    #[derive(Deserialize, Debug)]
-                    struct AuthServerResponse {
-                        pub x509_certificate: String,
-                    }
-
-                    match res.json::<AuthServerResponse>().await {
-                        Ok(cert) => {
-                            let pub_key = match utils::cert::extract_x509_pem(cert.x509_certificate.clone()) {
-                                Ok(pub_key) => pub_key,
-                                Err(err) => {
-                                    error!("Failed to parse x509 certificate: {:?}", err);
-                                    return Err(APIHandlerResponse {
-                                        status: StatusCode::INTERNAL_SERVER_ERROR,
-                                        body: None,
-                                    });
-                                }
-                            };
-
-                            info!("AuthenticationServer response: {:?}", cert);
-
-                            Ok(NTorServerCertificate {
-                                server_id: backend_url, // todo I still prefer taking the server_id value from certificate's subject
-                                public_key: pub_key,
-                            })
-                        }
-                        Err(err) => {
-                            error!("Failed to parse authentication server response: {:?}", err);
-                            return Err(APIHandlerResponse {
-                                status: StatusCode::INTERNAL_SERVER_ERROR,
-                                body: None,
-                            });
-                        }
-                    }
-                }
-            }
-            Err(e) => {
+            .map_err(|e| {
                 let response_body = ErrorResponse {
                     error: format!("Failed to connect to layer8: {}", e)
                 };
 
-                Err(APIHandlerResponse {
+                APIHandlerResponse {
                     status: StatusCode::INTERNAL_SERVER_ERROR,
                     body: Some(response_body.to_bytes()),
-                })
+                }
+            })?;
+
+        if !res.status().is_success() {
+            let response_body = ErrorResponse {
+                error: format!("Failed to get public key from layer8, status code: {}", res.status().as_u16()),
+            };
+            error!("Sending error response: {:?}", response_body);
+
+            ctx.insert_response_header("Connection", "close"); // Ensure connection closes???
+
+            Err(APIHandlerResponse {
+                status: StatusCode::BAD_REQUEST,
+                body: Some(response_body.to_bytes()),
+            })
+        } else {
+            #[derive(Deserialize, Debug)]
+            struct AuthServerResponse {
+                pub x509_certificate: String,
             }
-        };
+
+            let cert: AuthServerResponse = res.json().await.map_err(|err| {
+                error!("Failed to parse authentication server response: {:?}", err);
+                APIHandlerResponse {
+                    status: StatusCode::INTERNAL_SERVER_ERROR,
+                    body: None,
+                }
+            })?;
+
+            let pub_key = utils::cert::extract_x509_pem(cert.x509_certificate.clone())
+                .map_err(|e| {
+                    error!("Failed to parse x509 certificate: {:?}", e);
+                    APIHandlerResponse {
+                        status: StatusCode::INTERNAL_SERVER_ERROR,
+                        body: None,
+                    }
+                })?;
+
+            info!("AuthenticationServer response: {:?}", cert);
+
+            Ok(NTorServerCertificate {
+                server_id: backend_url, // todo I still prefer taking the server_id value from certificate's subject
+                public_key: pub_key,
+            })
+        }
     }
 
     /// Verify `int_fp_jwt` and return `fp_rp_jwt`
@@ -161,15 +152,16 @@ impl ForwardHandler {
         >(&ctx.get_request_body())
         {
             Ok(res) => res.to_bytes(),
-            Err(err) => {
-                let body = match err {
-                    None => None,
-                    Some(e) => Some(e.to_bytes())
-                };
-
+            Err(Some(e)) => {
                 return APIHandlerResponse {
                     status: StatusCode::BAD_REQUEST,
-                    body,
+                    body: Some(e.to_bytes()),
+                };
+            }
+            Err(None) => {
+                return APIHandlerResponse {
+                    status: StatusCode::BAD_REQUEST,
+                    body: None,
                 };
             }
         };
