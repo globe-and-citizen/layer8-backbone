@@ -2,6 +2,9 @@
 import { onMounted, ref } from 'vue';
 import { getToken } from '@/utils.js';
 import * as interceptorWasm from "interceptor-wasm"
+import { getCurrentInstance } from 'vue';
+const { appContext } = getCurrentInstance();
+const backend_url = appContext.config.globalProperties.$backend_url;
 
 const profile = ref({
     username: "",
@@ -13,9 +16,9 @@ const profile = ref({
 
 const downloadProfilePicture = () => {
     if (!profile.value.username) return;
-    
+
     // Use the new download endpoint
-    window.location.href = `http://localhost:3000/download-profile/${profile.value.username}`;
+    window.location.href = `${backend_url}/download-profile/${profile.value.username}`;
 };
 
 onMounted(() => {
@@ -28,7 +31,7 @@ onMounted(() => {
     const payload = JSON.parse(atob(token.split('.')[1]));
     const username = payload.username;
 
-    interceptorWasm.fetch(`http://localhost:3000/profile/${username}`)
+    interceptorWasm.fetch(`${backend_url}/profile/${username}`)
         .then(response => response.json())
         .then(data => {
             profile.value.username = username;
@@ -72,8 +75,8 @@ onMounted(() => {
                 </div>
             </div>
 
-            <button 
-                @click="downloadProfilePicture" 
+            <button
+                @click="downloadProfilePicture"
                 class="download-button"
                 :disabled="!profile.profilePicture"
             >

@@ -4,14 +4,14 @@ use log::debug;
 use ntor::common::{InitSessionMessage, NTorParty};
 use ntor::server::NTorServer;
 use pingora::http::StatusCode;
-use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
+use pingora_router::ctx::{Layer8Context};
 use pingora_router::handler::{APIHandlerResponse, ResponseBodyTrait};
-use crate::handler::common::consts::HeaderKeys::{RpHeaderResponseKey};
 use init_tunnel::handler::InitTunnelHandler;
 use proxy::handler::ProxyHandler;
 use init_tunnel::InitEncryptedTunnelResponse;
 use utils::{new_uuid, string_to_array32};
-use crate::config::HandlerConfig;
+use utils::jwt::JWTClaims;
+use crate::config::{HandlerConfig, RPConfig};
 
 mod common;
 mod init_tunnel;
@@ -24,15 +24,20 @@ thread_local! {
 
 pub struct ReverseHandler {
     config: HandlerConfig,
+    host: String,
+    jwt_secret: Vec<u8>,
     ntor_static_secret: [u8; 32],
 }
 
 impl ReverseHandler {
-    pub fn new(config: HandlerConfig) -> Self {
-        let ntor_secret = string_to_array32(config.ntor_static_secret.clone()).unwrap();
+    pub fn new(config: RPConfig) -> Self {
+        let ntor_secret = string_to_array32(config.handler.ntor_static_secret.clone()).unwrap();
+        let jwt_secret = config.handler.jwt_virtual_connection_secret.as_bytes().to_vec();
 
         ReverseHandler {
-            config,
+            config: config.handler,
+            host: config.server.host,
+            jwt_secret,
             ntor_static_secret: ntor_secret,
         }
     }
@@ -51,12 +56,15 @@ impl ReverseHandler {
                     body: Some("Invalid or expired nTor session ID".as_bytes().to_vec()),
                 })
             }
-        }
+        };
     }
 
     pub async fn handle_init_tunnel(&self, ctx: &mut Layer8Context) -> APIHandlerResponse {
         // validate request body
-        let request_body = match InitTunnelHandler::validate_request_body(ctx).await {
+        let request_body = match InitTunnelHandler::validate_request_body(
+            ctx,
+            self.config.backend_url.clone(),
+        ).await {
             Ok(res) => res,
             Err(res) => return res
         };
@@ -68,33 +76,40 @@ impl ReverseHandler {
             self.ntor_static_secret,
         );
 
-        if request_body.public_key.len() != 32 {
-            return APIHandlerResponse {
-                status: StatusCode::BAD_REQUEST,
-                body: Some("Invalid public key length".as_bytes().to_vec()),
-            };
-        }
+        let init_session_response = {
+            if request_body.public_key.len() != 32 {
+                return APIHandlerResponse {
+                    status: StatusCode::BAD_REQUEST,
+                    body: Some("Invalid public key length".as_bytes().to_vec()),
+                };
+            }
 
-        // Client initializes session with the server
-        let init_session_msg = InitSessionMessage::from(request_body.public_key);
-
-        let init_session_response = ntor_server.accept_init_session_request(&init_session_msg);
+            // Client initializes session with the server
+            let init_session_msg = InitSessionMessage::from(request_body.public_key);
+            ntor_server.accept_init_session_request(&init_session_msg)
+        };
 
         let ntor_session_id = new_uuid();
+
+        let int_rp_jwt = {
+            let mut claims = JWTClaims::new(Some(self.config.jwt_exp));
+            claims.ntor_session_id = Some(ntor_session_id.clone());
+            utils::jwt::create_jwt_token(claims, &self.jwt_secret)
+        };
+
+        let fp_rp_jwt = {
+            let claims = JWTClaims::new(Some(self.config.jwt_exp));
+            utils::jwt::create_jwt_token(claims, &self.jwt_secret)
+        };
 
         let response = InitEncryptedTunnelResponse {
             public_key: init_session_response.public_key(),
             t_b_hash: init_session_response.t_b_hash(),
-            session_id: ntor_session_id.clone(),
+            int_rp_jwt,
+            fp_rp_jwt,
         };
 
-        // set ReverseProxy's response header
-        ctx.insert_response_header(
-            RpHeaderResponseKey.as_str(),
-            RpHeaderResponseKey.placeholder_value()
-        );
-
-        InitTunnelHandler::send_result_to_be(true).await;
+        InitTunnelHandler::send_result_to_be(self.config.backend_url.clone(), true).await;
 
         NTOR_SHARED_SECRETS.with(|memory| {
             let mut guard: MutexGuard<HashMap<String, Vec<u8>>> = memory.lock().unwrap();
@@ -110,7 +125,7 @@ impl ReverseHandler {
     pub async fn handle_proxy_request(&self, ctx: &mut Layer8Context) -> APIHandlerResponse {
 
         // validate request headers (nTor session ID)
-        let session_id = match ProxyHandler::validate_request_headers(ctx) {
+        let session_id = match ProxyHandler::validate_request_headers(ctx, &self.jwt_secret) {
             Ok(session_id) => session_id,
             Err(res) => return res,
         };
@@ -137,7 +152,10 @@ impl ReverseHandler {
         debug!("[REQUEST /proxy] Decrypted request: {:?}", wrapped_request);
 
         // reconstruct user request
-        let wrapped_response = match ProxyHandler::rebuild_user_request(wrapped_request).await {
+        let wrapped_response = match ProxyHandler::rebuild_user_request(
+            self.config.backend_url.clone(),
+            wrapped_request,
+        ).await {
             Ok(res) => res,
             Err(res) => return res,
         };
@@ -147,7 +165,7 @@ impl ReverseHandler {
         return match ProxyHandler::encrypt_response_body(
             wrapped_response,
             self.config.ntor_server_id.clone(),
-            shared_secret
+            shared_secret,
         ) {
             Ok(encrypted_message) => {
                 APIHandlerResponse {
@@ -156,6 +174,6 @@ impl ReverseHandler {
                 }
             }
             Err(res) => res
-        }
+        };
     }
 }

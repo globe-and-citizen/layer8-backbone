@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue';
 import * as interceptorWasm from "interceptor-wasm"
+import { getCurrentInstance } from 'vue';
+const { appContext } = getCurrentInstance();
+const backend_url = appContext.config.globalProperties.$backend_url;
 
 const poems = ref<any[]>([]);
 const selectedPoem = ref<any | null>(null);
@@ -8,7 +11,7 @@ const showModal = ref(false);
 const searchId = ref<string>('');
 
 function openPoem(id: string) {
-    interceptorWasm.fetch(`http://localhost:3000/poems?id=${id}`)
+    interceptorWasm.fetch(`${backend_url}/poems?id=${id}`)
         .then(response => response.json())
         .then(data => {
             selectedPoem.value = data;
@@ -28,7 +31,7 @@ function searchPoem() {
         fetchAllPoems();
         return;
     }
-    interceptorWasm.fetch(`http://localhost:3000/poems?id=${searchId.value}`)
+    interceptorWasm.fetch(`${backend_url}/poems?id=${searchId.value}`)
         .then(response => {
             if (!response.ok) throw new Error('Poem not found');
             return response.json();
@@ -43,7 +46,7 @@ function searchPoem() {
 }
 
 function fetchAllPoems() {
-    interceptorWasm.fetch('http://localhost:3000/poems')
+    interceptorWasm.fetch(`${backend_url}/poems`)
         .then(response => response.json())
         .then(data => {
             poems.value = data;
