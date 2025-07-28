@@ -20,6 +20,9 @@ pub enum CtxKeys {
     NTorStaticPublicKey,
     UpstreamAddress,
     UpstreamSNI,
+    IntRPJwt,
+    IntFPJwt,
+    FpRpJwt,
 }
 
 impl CtxKeys {
@@ -29,6 +32,9 @@ impl CtxKeys {
             CtxKeys::NTorStaticPublicKey => "ntor_static_public_key".to_string(),
             CtxKeys::UpstreamAddress => "upstream_address".to_string(),
             CtxKeys::UpstreamSNI => "upstream_sni".to_string(),
+            CtxKeys::IntRPJwt => "int_rp_jwt".to_string(),
+            CtxKeys::IntFPJwt => "int_fp_jwt".to_string(),
+            CtxKeys::FpRpJwt => "fp_rp_jwt".to_string(),
         }
     }
 }

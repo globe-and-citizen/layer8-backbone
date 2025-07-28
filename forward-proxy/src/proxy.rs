@@ -169,8 +169,14 @@ impl ProxyHttp for ForwardProxy {
                     if let Some(url) = utils::validate_url(url) {
                         let addr = url.host_str().unwrap_or_default();
                         let port = url.port().map(|p| format!(":{}", p)).unwrap_or_default();
-                        ctx.set(consts::CtxKeys::UpstreamAddress.to_string(), format!("{}{}", addr, port));
-                        ctx.set(consts::CtxKeys::UpstreamSNI.to_string(), url.domain().unwrap_or_default().to_string());
+                        ctx.set(
+                            consts::CtxKeys::UpstreamAddress.to_string(),
+                            format!("{}{}", addr, port)
+                        );
+                        ctx.set(
+                            consts::CtxKeys::UpstreamSNI.to_string(),
+                            url.domain().unwrap_or_default().to_string()
+                        );
                     } else {
                         error_response_bytes = ErrorResponse {
                             error: "Invalid backend_url".to_string()
@@ -193,19 +199,21 @@ impl ProxyHttp for ForwardProxy {
                         match self.handler.verify_int_fp_jwt(int_fp_jwt.as_str()) {
                             Ok(session) => {
                                 debug!("IntFPSession: {:?}", session);
-                                ctx.set("fp_rp_jwt".to_string(), session.fp_rp_jwt);
+                                ctx.set(consts::CtxKeys::FpRpJwt.to_string(), session.fp_rp_jwt);
+
                                 if let Some(url) = utils::validate_url(&session.rp_base_url) {
                                     let addr = url.host_str().unwrap();
                                     let port = url.port()
                                         .map(|p| format!(":{}", p))
                                         .unwrap_or_default();
+
                                     ctx.set(
-                                        "upstream_addr".to_string(),
-                                        format!("{}{}", addr, port),
+                                        consts::CtxKeys::UpstreamAddress.to_string(),
+                                        format!("{}{}", addr, port)
                                     );
                                     ctx.set(
-                                        "upstream_sni".to_string(),
-                                        url.domain().unwrap().to_string(),
+                                        consts::CtxKeys::UpstreamSNI.to_string(),
+                                        url.domain().unwrap_or_default().to_string()
                                     );
                                     vec![]
                                 } else {
