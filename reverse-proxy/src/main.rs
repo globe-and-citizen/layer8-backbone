@@ -68,10 +68,14 @@ fn main() {
     let handle_proxy: APIHandler<Arc<ReverseHandler>> =
         Box::new(|h, ctx| async move { h.handle_proxy_request(ctx).await }.boxed());
 
+    let handle_healthcheck: APIHandler<Arc<ReverseHandler>> =
+        Box::new(|h, ctx| async move { h.handle_healthcheck(ctx).await }.boxed());
+
     let rp_handler = Arc::new(ReverseHandler::new(rp_config.clone()));
     let mut router: Router<Arc<ReverseHandler>> = Router::new(rp_handler.clone());
     router.post("/init-tunnel".to_string(), Box::new([handle_init_tunnel]));
     router.post("/proxy".to_string(), Box::new([handle_proxy]));
+    router.get("/healthcheck".to_string(), Box::new([handle_healthcheck]));
 
     let mut my_proxy = http_proxy_service(
         &my_server.configuration,
