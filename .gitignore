@@ -30,3 +30,5 @@ test/cypress/screenshots
 
 layer8-volumes/influxdb2-data
 layer8-volumes/pg-data
+
+scripts/*.pem

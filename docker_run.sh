@@ -1,4 +1,4 @@
-
+!#!/bin/bash
 ### Run `./docker_run.sh init` to start the services and upload the certificate
 ### Run `./docker_run.sh start` to start the services
 ### Run `./docker_run.sh upload` to upload the certificate

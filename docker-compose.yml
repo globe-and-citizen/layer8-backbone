@@ -1,3 +1,4 @@
+name: Layer8
 
 services:
   forward-proxy:
@@ -5,6 +6,8 @@ services:
     container_name: forward-proxy
     ports:
       - "6191:6191"
+    hostname: fp
+    domainname: layer8.com
     env_file:
       - ./forward-proxy/.env.docker
     volumes:
@@ -15,6 +18,9 @@ services:
     networks:
       layer8-network:
         ipv4_address: 10.10.10.101
+    extra_hosts:
+      - "rp.layer8.com:10.10.10.102"
+      - "auth.layer8.com:10.10.10.103"
 
   reverse-proxy:
     image: dtpthao/reverse-proxy:0.1.0
@@ -23,6 +29,8 @@ services:
       - ./reverse-proxy/.env.docker
     ports:
       - "6193:6193"
+    hostname: rp
+    domainname: layer8.com
     volumes:
       - ./logs/reverse-proxy.log:/var/log/layer8/log.txt
     restart: on-failure
@@ -39,6 +47,8 @@ services:
       - ./layer8-volumes/.env.docker
     ports:
       - "5001:5001"
+    hostname: auth
+    domainname: layer8.com
     command: ["./main"]
     depends_on:
       auth-postgres:
