@@ -2,7 +2,7 @@ name: Layer8
 
 services:
   forward-proxy:
-    image: dtpthao/forward-proxy:0.1.0
+    image: dtpthao/forward-proxy:0.1.0-multiarch
     container_name: forward-proxy
     ports:
       - "6191:6191"
@@ -23,7 +23,7 @@ services:
       - "auth.layer8.com:10.10.10.103"
 
   reverse-proxy:
-    image: dtpthao/reverse-proxy:0.1.0
+    image: dtpthao/reverse-proxy:0.1.0-multiarch
     container_name: reverse-proxy
     env_file:
       - ./reverse-proxy/.env.docker
@@ -40,9 +40,9 @@ services:
       layer8-network:
         ipv4_address: 10.10.10.102
 
-  authentication-server:
-    image: dtpthao/authentication-server:0.1.0
-    container_name: authentication-server
+  auth-server:
+    image: dtpthao/auth-server:0.1.0-multiarch
+    container_name: auth-server
     env_file:
       - ./layer8-volumes/.env.docker
     ports:
@@ -125,7 +125,7 @@ services:
         ipv4_address: 10.10.10.106
 
   auth-setup:
-    image: dtpthao/authentication-server:0.1.0
+    image: dtpthao/auth-server:0.1.0-multiarch
     container_name: auth-setup
     environment:
       - DB_SETUP_MIGRATION_PATH=./migrations
