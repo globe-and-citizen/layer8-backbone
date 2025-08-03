@@ -17,7 +17,7 @@
 
 <script setup>
 import {ref} from 'vue';
-import * as interceptorWasm from "interceptor-wasm";
+import * as interceptorWasm from "layer8-interceptor-production";
 import { getCurrentInstance } from 'vue';
 const { appContext } = getCurrentInstance();
 const backend_url = appContext.config.globalProperties.$backend_url;
