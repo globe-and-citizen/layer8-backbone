@@ -4,15 +4,21 @@ use boring::{
 };
 use log::debug;
 use pingora::{listeners::TlsAccept, protocols::tls::TlsRef};
+use serde::Deserialize;
 
-pub struct TlsConfig;
+#[derive(Debug, Deserialize, Clone)]
+pub struct TlsConfig {
+    pub path_to_ca_cert: String,
+    pub path_to_cert: String,
+    pub path_to_key: String,
+}
 
 #[async_trait::async_trait]
 impl TlsAccept for TlsConfig {
     async fn certificate_callback(&self, ssl: &mut TlsRef) {
-        let ca_pem = cert::ca_pem();
-        let server_pem = cert::cert();
-        let server_key = cert::key();
+        let ca_pem = cert::ca_pem(self.path_to_ca_cert.clone());
+        let server_pem = cert::cert(self.path_to_cert.clone());
+        let server_key = cert::key(self.path_to_key.clone());
 
         // set the hostname for the SSL context
         ssl.set_hostname("localhost")
@@ -105,18 +111,15 @@ impl TlsConfig {
 }
 
 mod cert {
-    pub fn ca_pem() -> Vec<u8> {
-        std::fs::read(std::env::var("PATH_TO_CA_CERT").expect("Failed to read CA PEM file"))
-            .expect("Failed to read CA PEM file")
+    pub fn ca_pem(ca_path: String) -> Vec<u8> {
+        std::fs::read(ca_path).expect("Failed to read CA PEM file")
     }
 
-    pub fn cert() -> Vec<u8> {
-        std::fs::read(std::env::var("PATH_TO_CERT").expect("Failed to read cert PEM file"))
-            .expect("Failed to read cert PEM file")
+    pub fn cert(cert_path: String) -> Vec<u8> {
+        std::fs::read(cert_path).expect("Failed to read cert PEM file")
     }
 
-    pub fn key() -> Vec<u8> {
-        std::fs::read(std::env::var("PATH_TO_KEY").expect("Failed to read key PEM file"))
-            .expect("Failed to read key PEM file")
+    pub fn key(key_path: String) -> Vec<u8> {
+        std::fs::read(key_path).expect("Failed to read key PEM file")
     }
 }

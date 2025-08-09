@@ -1,25 +1,51 @@
 mod proxy;
 mod handler;
+mod config;
 
-use crate::handler::{ForwardConfig, ForwardHandler};
+use std::fs::OpenOptions;
+use crate::handler::ForwardHandler;
 use env_logger::{Env, Target};
-use log::info;
+use log::{debug, info};
 use proxy::ForwardProxy;
 use pingora::prelude::*;
+use crate::config::FPConfig;
 
-fn main() {
+fn load_config() -> FPConfig {
     // Load environment variables from .env file
     dotenv::dotenv().ok();
 
-    // let log_file = fs::File::create("log.txt").expect("Failed to create log file");
-    // let config = ConfigBuilder::new().set_time_to_local(true).build();
-    // WriteLogger::init(LevelFilter::Debug, config, log_file).expect("Failed to initialize logger");
+    // Deserialize from env vars
+    let mut config: FPConfig = envy::from_env().unwrap();
+
+    config.tls_config.load().expect("Failed to load TLS configuration");
+
+    let target = match config.log_config.log_path.as_str() {
+        "console" => Target::Stdout,
+        path => {
+            let file = OpenOptions::new()
+                .append(true)
+                .create(true)
+                .open(path)
+                .expect("Can't create log file!");
+
+            Target::Pipe(Box::new(file))
+        }
+    };
+
     env_logger::Builder::from_env(Env::default()
         .write_style_or("RUST_LOG_STYLE", "always"))
         .format_file(true)
         .format_line_number(true)
-        .target(Target::Stdout)
+        .filter(None, config.log_config.to_level_filter())
+        .target(target)
         .init();
+
+    debug!("Loaded ForwardProxyConfig: {:?}", config);
+    config
+}
+
+fn main() {
+    let config = load_config();
 
     info!("Starting server...");
 
@@ -29,33 +55,14 @@ fn main() {
     })).unwrap();
     server.bootstrap();
 
-    let config = {
-        let jwt_secret = std::env::var("JWT_VIRTUAL_CONNECTION_KEY")
-            .expect("JWT_VIRTUAL_CONNECTION_KEY must be set");
-
-        let jwt_exp = std::env::var("JWT_EXP_IN_HOUR")
-            .expect("JWT_EXP_IN_HOUR must be set")
-            .parse::<i64>()
-            .expect("JWT_EXP_IN_HOUR must be a valid integer");
-
-        let auth_server_token = std::env::var("AUTH_SERVER_TOKEN")
-            .expect("AUTH_SERVER_TOKEN must be set");
-
-        ForwardConfig {
-            jwt_secret: jwt_secret.as_bytes().to_vec(),
-            jwt_exp_in_hours: jwt_exp,
-            auth_access_token: auth_server_token,
-        }
-    };
-
-    let fp_handler = ForwardHandler::new(config);
+    let fp_handler = ForwardHandler::new(config.handler_config);
 
     let mut proxy = http_proxy_service(
         &server.configuration,
-        ForwardProxy::new(fp_handler)
+        ForwardProxy::new(config.tls_config, fp_handler)
     );
 
-    proxy.add_tcp("localhost:6191");
+    proxy.add_tcp(&format!("{}:{}", config.listen_address, config.listen_port));
 
     server.add_service(proxy);
 

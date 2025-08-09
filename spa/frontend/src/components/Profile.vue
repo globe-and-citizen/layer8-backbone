@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue';
+import { onMounted, ref, watch } from 'vue';
 import { getToken } from '@/utils.js';
 import * as interceptorWasm from "interceptor-wasm"
 import { getCurrentInstance } from 'vue';
@@ -21,6 +21,26 @@ const downloadProfilePicture = () => {
     window.location.href = `${backend_url}/download-profile/${profile.value.username}`;
 };
 
+const loadProfilePicture = async (pictureUrl: string) => {
+    let image = pictureUrl.split('uploads/')[1];
+    let new_url = "";
+    await interceptorWasm.fetch(`${backend_url}/uploads/${image}`)
+        .then(response => {
+            if (!response.ok) {
+                throw new Error('Network response was not ok');
+            }
+            return response.blob();
+        })
+        .then(blob => {
+            new_url = window.URL.createObjectURL(blob);
+        })
+        .catch(error => {
+            console.error('Error loading profile picture:', error);
+        });
+
+    return new_url;
+}
+
 onMounted(() => {
     const token = getToken('jwt');
     if (!token) {
@@ -35,7 +55,6 @@ onMounted(() => {
         .then(response => response.json())
         .then(data => {
             profile.value.username = username;
-
             if (data.metadata) {
                 profile.value = {
                     ...profile.value,
@@ -50,14 +69,24 @@ onMounted(() => {
             console.error('Error fetching profile:', err);
         });
 });
+
+let profilePictureUrl = ref("");
+watch(() => profile.value.profilePicture, async (newUrl) => {
+    if (newUrl) {
+        profilePictureUrl.value = await loadProfilePicture(newUrl);
+    } else {
+        profilePictureUrl.value = "";
+    }
+}, { immediate: true });
+
 </script>
 
 <template>
     <div class="profile-container">
         <div class="profile-card">
             <!-- Profile picture section -->
-            <div v-if="profile.profilePicture" class="profile-picture">
-                <img :src="profile.profilePicture" :alt="`${profile.username}'s profile picture`" />
+            <div v-if="profilePictureUrl" class="profile-picture">
+                <img :src="profilePictureUrl" :alt="`${profile.username}'s profile picture`" />
             </div>
             <div v-else class="profile-picture placeholder">
                 <span>{{ profile.username.charAt(0).toUpperCase() }}</span>
@@ -75,11 +104,7 @@ onMounted(() => {
                 </div>
             </div>
 
-            <button
-                @click="downloadProfilePicture"
-                class="download-button"
-                :disabled="!profile.profilePicture"
-            >
+            <button @click="downloadProfilePicture" class="download-button" :disabled="!profile.profilePicture">
                 Download Profile Picture
             </button>
         </div>

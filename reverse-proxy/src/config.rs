@@ -1,45 +1,27 @@
-use std::fs;
 use serde::Deserialize;
-use toml;
+use crate::tls_conf::TlsConfig;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct RPConfig {
-    pub upstream: UpstreamConfig,
+    #[serde(flatten)]
     pub log: LogConfig,
+    #[serde(flatten)]
     pub server: ServerConfig,
+    #[serde(flatten)]
+    pub tls: TlsConfig,
+    #[serde(flatten)]
     pub handler: HandlerConfig
 }
 
-impl RPConfig {
-    /// panic if unable to validate.
-    /// assuming after this validation, all configs are valid
-    pub fn validate(&self) {
-        // todo
-    }
-}
-
-impl RPConfig {
-    pub fn from_file(path: &str) -> Self {
-        let content = fs::read_to_string(path).expect("Failed to read configuration file");
-        toml::from_str(&content).expect("Failed to parse configuration file")
-    }
-}
-
-#[derive(Debug, Deserialize)]
-pub(super) struct UpstreamConfig {
-    pub host: String,
-    pub port: u16,
-}
-
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub(super) struct LogConfig {
-    pub path: String,
-    pub level: String,
+    pub log_path: String,
+    pub log_level: String,
 }
 
 impl LogConfig {
     pub fn to_level_filter(&self) -> log::LevelFilter {
-        match self.level.to_uppercase().as_str() {
+        match self.log_level.to_uppercase().as_str() {
             "INFO" => log::LevelFilter::Info,
             "DEBUG" => log::LevelFilter::Debug,
             "WARNING" => log::LevelFilter::Warn,
@@ -51,20 +33,22 @@ impl LogConfig {
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub(super) struct ServerConfig {
-    pub host: String,
-    pub port: u16
+    pub listen_address: String,
+    #[serde(deserialize_with = "utils::deserializer::string_to_number")]
+    pub listen_port: u16
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub(super) struct HandlerConfig {
     pub ntor_server_id: String,
-    pub ntor_static_secret: String,
-    pub jwt_virtual_connection_secret: String,
-    pub jwt_exp: i64,
+    #[serde(deserialize_with = "utils::deserializer::string_to_u8_32")]
+    pub ntor_static_secret: [u8; 32],
+    #[serde(deserialize_with = "utils::deserializer::string_to_vec_u8")]
+    pub jwt_virtual_connection_secret: Vec<u8>,
+    #[serde(deserialize_with = "utils::deserializer::string_to_number")]
+    pub jwt_exp_in_hours: i64,
     pub forward_proxy_url: Option<String>,
     pub backend_url: String,
 }
-
-
