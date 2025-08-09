@@ -1,5 +1,5 @@
 import {computed} from "vue";
-import * as interceptorWasm from "interceptor-wasm"
+import * as interceptorWasm from "layer8-interceptor-production";
 
 function getCookie(name: string): string | undefined {
     const value = `; ${document.cookie}`;
@@ -54,16 +54,16 @@ export function revokeURL(url: string) {
 }
 
 
-let backendConfig = new interceptorWasm.WGPBackendConfig();
-backendConfig.base_url = "http://localhost:6191";
-backendConfig.login = "/login";
-backendConfig.register = "/register";
-backendConfig.get_image_path = "/images?id={}";
-backendConfig.get_images_path = "/images";
-backendConfig.get_poem_path = "/poems?id={}";
-backendConfig.get_poems_path = "/poems";
-backendConfig.get_profile_path = "/profile";
+// let backendConfig = new interceptorWasm.WGPBackendConfig();
+// backendConfig.base_url = "http://localhost:6191";
+// backendConfig.login = "/login";
+// backendConfig.register = "/register";
+// backendConfig.get_image_path = "/images?id={}";
+// backendConfig.get_images_path = "/images";
+// backendConfig.get_poem_path = "/poems?id={}";
+// backendConfig.get_poems_path = "/poems";
+// backendConfig.get_profile_path = "/profile";
 
-export const wasmBackend = new interceptorWasm.WGPBackend(backendConfig);
+// export const wasmBackend = new interceptorWasm.WGPBackend(backendConfig);
 
 
