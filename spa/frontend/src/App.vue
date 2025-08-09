@@ -1,178 +1,111 @@
 <script setup lang="ts">
-import { RouterLink, RouterView } from 'vue-router'
-import { isLoggedIn, logout } from "@/utils.ts";
-// import { checkPendingState } from "interceptor-wasm"
-// import { ref } from 'vue'
-
-// const providerUrls = ref(checkPendingState())
+import {RouterLink, RouterView} from 'vue-router'
+import {isLoggedIn, logout} from "@/utils.ts";
 </script>
 
 <template>
-  <!-- Loader in top right corner -->
-  <!-- <div v-if="providerUrls && providerUrls.length" class="loader-container" id="loaderContainer">
-    <div v-for="url in providerUrls" :key="url" style="display: flex; align-items: center; gap: 8px;">
-      <div class="loader"></div>
-      <span class="loading-text">Connecting to: {{ url }}</span>
-    </div>
-  </div> -->
-
-  <div style="position: relative; min-height: 4rem;">
+  <div class="navbar-container">
     <nav>
-      <RouterLink v-if="!isLoggedIn" to="/">Home</RouterLink>
-      <RouterLink v-if="!isLoggedIn" to="/register">Register</RouterLink>
-      <div v-if="isLoggedIn">
-        <RouterLink to="/poems">Poems</RouterLink>
-        <RouterLink to="/pictures">Pictures</RouterLink>
-        <RouterLink to="/profile">Profile</RouterLink>
-        <RouterLink to="/upload">Upload</RouterLink>
-        <a href="/" @click.prevent="logout" style="padding:0 1rem;cursor:pointer;">Logout</a>
+      <div class="nav-content">
+        <div class="nav-links">
+          <RouterLink v-if="!isLoggedIn" to="/">Home</RouterLink>
+          <RouterLink v-if="!isLoggedIn" to="/register">Register</RouterLink>
+          <div v-if="isLoggedIn" class="logged-in-links">
+            <RouterLink to="/poems">Poems</RouterLink>
+            <RouterLink to="/pictures">Pictures</RouterLink>
+            <RouterLink to="/profile">Profile</RouterLink>
+            <RouterLink to="/upload">Upload</RouterLink>
+            <a href="/" @click.prevent="logout" class="logout-link">Logout</a>
+          </div>
+        </div>
       </div>
     </nav>
   </div>
 
-  <div style="height: 4rem;"></div>
+  <div class="spacer"></div>
 
   <div class="body">
-    <RouterView />
+    <RouterView/>
   </div>
-
 </template>
 
 <style scoped>
+.navbar-container {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 1000;
+  background-color: #000;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+}
+
 nav {
   width: 100%;
-  font-size: 1rem;
-  text-align: right;
-  padding: 1rem 0;
-  margin-top: 0;
-  position: static;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 1rem;
 }
 
-nav a.router-link-exact-active {
-  color: var(--color-text);
+.nav-content {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 4rem;
 }
 
-nav a.router-link-exact-active:hover {
-  background-color: transparent;
+.nav-links {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 1rem;
 }
 
 nav a {
-  display: inline-block;
-  padding: 0 1rem;
-  border-left: 1px solid var(--color-border);
-}
-
-nav a:first-of-type {
-  border: 0;
-}
-
-@media (min-width: 1024px) {
-  nav {
-    width: 100%;
-    font-size: 1rem;
-    text-align: right;
-    padding: 1rem 0;
-    margin-top: 0;
-    position: static;
-  }
-}
-
-/* Loader Container */
-.loader-container {
-  position: fixed;
-  top: 20px;
-  right: 20px;
-  z-index: 9999;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  background: rgba(255, 255, 255, 0.9);
-  padding: 15px 20px;
-  border-radius: 8px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-  backdrop-filter: blur(10px);
-}
-
-
-/* Spinning Circle Loader */
-.loader {
-  width: 24px;
-  height: 24px;
-  border: 3px solid #e3e3e3;
-  border-top: 3px solid #007bff;
-  border-radius: 50%;
-  animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-  0% {
-    transform: rotate(0deg);
-  }
-
-  100% {
-    transform: rotate(360deg);
-  }
-}
-
-/* Loading Text */
-.loading-text {
-  font-size: 14px;
-  color: #333;
+  color: white;
+  text-decoration: none;
   font-weight: 500;
+  transition: all 0.3s ease;
+  padding: 0.5rem 1rem;
+  border-radius: 4px;
 }
 
-/* Hidden state */
-.loader-container.hidden {
-  display: none;
+nav a:hover {
+  color: #ccc;
+  background-color: rgba(255, 255, 255, 0.1);
 }
 
-/* Alternative loader styles */
-.loader.dots {
-  border: none;
-  width: 30px;
-  height: 8px;
-  background: linear-gradient(90deg, #007bff 0%, #007bff 33%, transparent 33%, transparent 66%, #007bff 66%);
-  background-size: 12px 8px;
-  animation: dots 1.2s infinite;
+nav a.router-link-exact-active {
+  color: #fff;
+  background-color: rgba(255, 255, 255, 0.2);
 }
 
-@keyframes dots {
-  0% {
-    background-position: 0 0;
-  }
-
-  50% {
-    background-position: 12px 0;
-  }
-
-  100% {
-    background-position: 24px 0;
-  }
+.logout-link {
+  cursor: pointer;
 }
 
-.loader.pulse {
-  border: none;
-  width: 24px;
-  height: 24px;
-  background: #007bff;
-  border-radius: 50%;
-  animation: pulse 1.5s ease-in-out infinite;
+.logout-link:hover {
+  color: #ff6b6b;
 }
 
-@keyframes pulse {
-  0% {
-    transform: scale(0.8);
-    opacity: 1;
+.spacer {
+  height: 4rem;
+}
+
+@media (max-width: 768px) {
+  .nav-links {
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    padding: 0.5rem 0;
   }
 
-  50% {
-    transform: scale(1.2);
-    opacity: 0.5;
+  nav a {
+    padding: 0.5rem;
+    font-size: 0.9rem;
   }
 
-  100% {
-    transform: scale(0.8);
-    opacity: 1;
+  .spacer {
+    height: 3.5rem;
   }
 }
 </style>

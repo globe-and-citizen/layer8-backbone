@@ -26,15 +26,6 @@ const username = ref('');
 const password = ref('');
 
 const handleRegister = () => {
-  // wasmBackend.register(username.value, password.value)
-  //     .then(response => {
-  //       alert("Registration successful! You can now log in.");
-  //       location.href = '/';
-  //     }).catch(() => {
-  //   alert('An error occurred while registering.');
-  // });
-
-  // Request to localhost:6191/register, a simple fetch
   let body = {
     "username": username.value,
     "password": password.value
