@@ -242,18 +242,18 @@ impl ForwardHandler {
     }
 
     pub fn handle_healthcheck(&self, ctx: &mut Layer8Context) -> APIHandlerResponse {
-        let error = ctx.param("error").unwrap();
+        if let Some(error) = ctx.param("error") {
+            if error == "true" {
+                let response_bytes = FpHealthcheckError {
+                    fp_healthcheck_error: "this is placeholder for a custom error".to_string()
+                }.to_bytes();
 
-        if error == "true" {
-            let response_bytes = FpHealthcheckError {
-                fp_healthcheck_error: "this is placeholder for a custom error".to_string()
-            }.to_bytes();
-
-            ctx.insert_response_header("x-fp-healthcheck-error", "response-header-error");
-            return APIHandlerResponse {
-                status: StatusCode::IM_A_TEAPOT,
-                body: Some(response_bytes),
-            };
+                ctx.insert_response_header("x-fp-healthcheck-error", "response-header-error");
+                return APIHandlerResponse {
+                    status: StatusCode::IM_A_TEAPOT,
+                    body: Some(response_bytes),
+                };
+            }
         }
 
         let response_bytes = FpHealthcheckSuccess {
