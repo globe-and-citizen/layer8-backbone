@@ -2,7 +2,7 @@
 services:
   forward-proxy:
     build:
-      context: ./../layer8-backbone
+      context: ..
       dockerfile: ./forward-proxy/Dockerfile
     image: forward-proxy:0.1.0
     container_name: forward-proxy
@@ -23,7 +23,7 @@ services:
 
   reverse-proxy:
     build:
-      context: ./../layer8-backbone
+      context: ..
       dockerfile: ./reverse-proxy/Dockerfile
     image: reverse-proxy:0.1.0
     container_name: reverse-proxy

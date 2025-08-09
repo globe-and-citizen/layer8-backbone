@@ -2,14 +2,14 @@ name: Layer8
 
 services:
   forward-proxy:
-    image: dtpthao/forward-proxy:0.1.0-multiarch
+    image: dtpthao/forward-proxy:0.1.1
     container_name: forward-proxy
     ports:
       - "6191:6191"
     hostname: fp
     domainname: layer8.com
     env_file:
-      - ./forward-proxy/.env.docker
+      - ../forward-proxy/.env.docker
     volumes:
       - ./logs/forward-proxy.log:/var/log/layer8/log.txt
     restart: on-failure
@@ -23,10 +23,10 @@ services:
       - "auth.layer8.com:10.10.10.103"
 
   reverse-proxy:
-    image: dtpthao/reverse-proxy:0.1.0-multiarch
+    image: dtpthao/reverse-proxy:0.1.1-multiarch
     container_name: reverse-proxy
     env_file:
-      - ./reverse-proxy/.env.docker
+      - ../reverse-proxy/.env.docker
     ports:
       - "6193:6193"
     hostname: rp
@@ -41,10 +41,10 @@ services:
         ipv4_address: 10.10.10.102
 
   auth-server:
-    image: dtpthao/auth-server:0.1.0-multiarch
+    image: layer8server/auth_image:0.3.0
     container_name: auth-server
     env_file:
-      - ./layer8-volumes/.env.docker
+      - layer8-volumes/.env.docker
     ports:
       - "5001:5001"
     hostname: auth
@@ -125,12 +125,12 @@ services:
         ipv4_address: 10.10.10.106
 
   auth-setup:
-    image: dtpthao/auth-server:0.1.0-multiarch
+    image: layer8server/auth_image:0.3.0
     container_name: auth-setup
     environment:
       - DB_SETUP_MIGRATION_PATH=./migrations
     env_file:
-      - ./layer8-volumes/.env.docker
+      - layer8-volumes/.env.docker
     command: [ "./setup", "docker" ]
     depends_on:
       auth-postgres:

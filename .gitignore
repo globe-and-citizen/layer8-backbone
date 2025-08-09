@@ -28,7 +28,7 @@ test/cypress/screenshots
 
 **/Cargo.lock
 
-layer8-volumes/influxdb2-data
-layer8-volumes/pg-data
+docker/layer8-volumes/influxdb2-data
+docker/layer8-volumes/pg-data
 
-scripts/*.pem
+certs/ntor/*.pem
