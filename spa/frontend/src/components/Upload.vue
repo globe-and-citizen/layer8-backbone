@@ -44,7 +44,7 @@ const uploadImage = async () => {
         const formData = new FormData();
         formData.append('profile_pic', selectedFile.value);
 
-        const response = await fetch(`http://localhost:6191/profile/${username}/upload`, {
+        const response = await fetch(`http://localhost:6192/profile/${username}/upload`, {
             method: 'POST',
             body: formData
         });

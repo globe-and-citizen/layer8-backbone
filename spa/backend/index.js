@@ -10,7 +10,7 @@ const multer = require("multer");
 const ClientOAuth2 = require("client-oauth2");
 
 const app = express();
-const port = 6191;
+const port = 6192;
 const SECRET_KEY = "my_very_secret_key";
 
 app.use(express.json());
@@ -20,8 +20,8 @@ let inMemoryUsers = users[0];
 
 // Hard-coded variables for now
 const layer8Secret =
-  "be3caef54fc0ec0dcd87b0a65cf24f81598243b5f01b4cce6a344718db854fe6";
-const layer8Uuid = "26dfd78d-be7a-4321-bcfb-5927da21c7fb";
+  "9d55ec9e9e5f459dafad895dba693f5e";
+const layer8Uuid = "d792b443-4421-49db-a1c6-b6bf083710d9";
 const LAYER8_URL = "http://localhost:5001";
 const LAYER8_CALLBACK_URL = "http://localhost:5173/oauth2/callback";
 const LAYER8_RESOURCE_URL = "http://localhost:5001/api/user";

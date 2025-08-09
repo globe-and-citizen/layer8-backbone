@@ -25,7 +25,7 @@ const authOptions = ref({
 
 const downloadProfilePicture = () => {
     if (!profile.value.username) return;
-    window.location.href = `http://localhost:6191/download-profile/${profile.value.username}`;
+    window.location.href = `http://localhost:6192/download-profile/${profile.value.username}`;
 };
 
 const openAuthModal = () => {
@@ -44,7 +44,7 @@ const initializeAuth = async () => {
     }
 
     try {
-        const response = await fetch('http://localhost:6191/update-user-profile-metadata', {
+        const response = await fetch('http://localhost:6192/update-user-profile-metadata', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -58,7 +58,7 @@ const initializeAuth = async () => {
             const payload = JSON.parse(atob(token.split('.')[1]));
             const username = payload.username;
 
-            const profileResponse = await fetch(`http://localhost:6191/profile/${username}`);
+            const profileResponse = await fetch(`http://localhost:6192/profile/${username}`);
             const data = await profileResponse.json();
 
             profile.value.username = username;
@@ -83,7 +83,7 @@ const initializeAuth = async () => {
 };
 
 const loginWithLayer8Popup = async () => {
-    const response = await fetch("http://localhost:6191/api/login/layer8/auth")
+    const response = await fetch("http://localhost:6192/api/login/layer8/auth")
     const data = await response.json()
     // create opener window
     const popup = window.open(data.authURL, "Login with Layer8", "width=1200,height=900");
@@ -91,7 +91,7 @@ const loginWithLayer8Popup = async () => {
     window.addEventListener("message", async (event) => {
         if (event.data.redr) {
             setTimeout(() => {
-                fetch("http://localhost:6191/authorization-callback", {
+                fetch("http://localhost:6192/authorization-callback", {
                     method: "POST",
                     headers: {
                         "Content-Type": "Application/Json"
@@ -151,7 +151,7 @@ const fetchProfileData = async () => {
     const username = payload.username;
 
     try {
-        const response = await fetch(`http://localhost:6191/profile/${username}`);
+        const response = await fetch(`http://localhost:6192/profile/${username}`);
         const data = await response.json();
 
         profile.value.username = username;

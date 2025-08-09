@@ -9,7 +9,7 @@ const code = ref(new URLSearchParams(window.location.search).get("code"))
 // Cookie:     &http.Cookie{Name: "code", Value: code, Path: "/", MaxAge: 60 * 10, HttpOnly: true},
 const token = ref(document.cookie.split(';').filter(item => item.trim().startsWith('token=')).map(c => c.split('=')[1])[0])
 console.log("Auth JWT token: ", token.value)
-const BACKEND_URL =  "http://localhost:6191"
+const BACKEND_URL =  "http://localhost:6192"
 
 
 onMounted(() => {

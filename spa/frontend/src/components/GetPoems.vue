@@ -10,7 +10,7 @@ const errorMessage = ref<string | null>(null);
 
 function openPoem(id: string) {
     isLoading.value = true;
-    fetch(`http://localhost:6191/poems?id=${id}`)
+    fetch(`http://localhost:6192/poems?id=${id}`)
         .then(response => response.json())
         .then(data => {
             selectedPoem.value = data;
@@ -38,7 +38,7 @@ function searchPoem() {
     }
 
     isLoading.value = true;
-    fetch(`http://localhost:6191/poems?id=${searchId.value}`)
+    fetch(`http://localhost:6192/poems?id=${searchId.value}`)
         .then(response => {
             if (!response.ok) throw new Error('Poem not found');
             return response.json();
@@ -58,7 +58,7 @@ function searchPoem() {
 
 function fetchAllPoems() {
     isLoading.value = true;
-    fetch('http://localhost:6191/poems')
+    fetch('http://localhost:6192/poems')
         .then(response => response.json())
         .then(data => {
             poems.value = data;
