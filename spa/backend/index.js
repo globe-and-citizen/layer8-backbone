@@ -19,9 +19,11 @@ app.use(cors());
 let inMemoryUsers = users[0];
 
 // Hard-coded variables for now
+// Please login as client (layer8/12341234) to http://localhost:5001 and
+// replace the layer8secret and layer8Uuid with the values you get from the Layer8 client
 const layer8Secret =
-  "9d55ec9e9e5f459dafad895dba693f5e";
-const layer8Uuid = "d792b443-4421-49db-a1c6-b6bf083710d9";
+  "9f234ab798e441086760e8114211f2f7b47f6c4a95de45a8ae3a89270cd482bf";
+const layer8Uuid = "a953a6fe-19d3-4510-9581-57367f8b2f10";
 const LAYER8_URL = "http://localhost:5001";
 const LAYER8_CALLBACK_URL = "http://localhost:3030/oauth2/callback";
 const LAYER8_RESOURCE_URL = "http://localhost:5001/api/user";

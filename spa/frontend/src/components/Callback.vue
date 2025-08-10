@@ -3,6 +3,8 @@
 import { computed, ref } from "vue";
 import { onMounted } from 'vue'
 import { useRouter } from 'vue-router'
+import * as interceptorWasm from "layer8-interceptor-production";
+
 
 const router = useRouter()
 const code = ref(new URLSearchParams(window.location.search).get("code"))
@@ -16,7 +18,7 @@ const BACKEND_URL = appContext.config.globalProperties.$backend_url;
 
 onMounted(() => {
     setTimeout(() => {
-        fetch(BACKEND_URL + "/api/login/layer8/auth", {
+        interceptorWasm.fetch(BACKEND_URL + "/api/login/layer8/auth", {
             method: "POST",
             headers: {
                 "Content-Type": "Application/Json"

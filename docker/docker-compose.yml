@@ -7,7 +7,7 @@ services:
     ports:
       - "6191:6191"
     hostname: fp
-    domainname: layer8.com
+    domainname: layer8proxy.net
     env_file:
       - ../forward-proxy/.env.docker
     volumes:
@@ -30,7 +30,7 @@ services:
     ports:
       - "6193:6193"
     hostname: rp
-    domainname: layer8.com
+    domainname: layer8proxy.net
     volumes:
       - ./logs/reverse-proxy.log:/var/log/layer8/log.txt
     restart: on-failure
@@ -41,14 +41,14 @@ services:
         ipv4_address: 10.10.10.102
 
   auth-server:
-    image: layer8server/auth_image:0.3.0
+    image: layer8server/auth_image:0.3.3
     container_name: auth-server
     env_file:
       - layer8-volumes/.env.docker
     ports:
       - "5001:5001"
     hostname: auth
-    domainname: layer8.com
+    domainname: layer8proxy.net
     command: ["./main"]
     depends_on:
       auth-postgres:
@@ -125,7 +125,7 @@ services:
         ipv4_address: 10.10.10.106
 
   auth-setup:
-    image: layer8server/auth_image:0.3.0
+    image: layer8server/auth_image:0.3.3
     container_name: auth-setup
     environment:
       - DB_SETUP_MIGRATION_PATH=./migrations
