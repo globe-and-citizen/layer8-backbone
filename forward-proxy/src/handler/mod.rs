@@ -1,29 +1,23 @@
 use std::collections::HashMap;
-use std::error::Error;
 use std::sync::{Arc, Mutex};
 use log::{error, info};
 use pingora::http::StatusCode;
-use reqwest::{Client};
+use reqwest::Client;
 use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
 use pingora_router::handler::{APIHandlerResponse, DefaultHandlerTrait, RequestBodyTrait};
 use crate::handler::types::response::{ErrorResponse, FpHealthcheckError, FpHealthcheckSuccess, InitTunnelResponseFromRP, InitTunnelResponseToINT};
 use pingora_router::handler::ResponseBodyTrait;
 use serde::Deserialize;
-use crate::handler::types::request::{InitTunnelRequest};
+use crate::handler::types::request::InitTunnelRequest;
 use utils;
 use utils::jwt::JWTClaims;
+use crate::config::HandlerConfig;
 
 pub mod types;
 pub mod consts;
 
-pub struct ForwardConfig {
-    pub jwt_secret: Vec<u8>,
-    pub jwt_exp_in_hours: i64,
-    pub auth_access_token: String,
-}
-
 pub struct ForwardHandler {
-    pub config: ForwardConfig,
+    pub config: HandlerConfig,
     jwts_storage: Arc<Mutex<HashMap<String, IntFPSession>>>,
 }
 
@@ -42,7 +36,7 @@ pub struct IntFPSession {
 }
 
 impl ForwardHandler {
-    pub fn new(config: ForwardConfig) -> Self {
+    pub fn new(config: HandlerConfig) -> Self {
         ForwardHandler {
             config,
             jwts_storage: Arc::new(Mutex::new(HashMap::new())),
@@ -57,73 +51,73 @@ impl ForwardHandler {
     {
         let client = Client::new();
 
-        return match client
-            .get(format!("{}{}", consts::LAYER8_GET_CERTIFICATE_PATH.as_str(), backend_url))
+        let res = client.get(
+            //todo
+            // the input backend_url is originally from interceptor request,
+            // the interceptor only accepts URLs with http(s) scheme.
+            // But the authentication server expects a URL without scheme
+            format!(
+                "{}{}",
+                self.config.auth_get_certificate_url,
+                backend_url.replace("http://", "").replace("https://", "")
+            )
+        )
             .header("Authorization", format!("Bearer {}", self.config.auth_access_token))
             .send()
             .await
-        {
-            Ok(res) => {
-                if !res.status().is_success() {
-                    let response_body = ErrorResponse {
-                        error: format!("Failed to get public key from layer8, status code: {}", res.status().as_u16()),
-                    };
-                    error!("Sending error response: {:?}", response_body);
-
-                    ctx.insert_response_header("Connection", "close"); // Ensure connection closes???
-
-                    Err(APIHandlerResponse {
-                        status: StatusCode::BAD_REQUEST,
-                        body: Some(response_body.to_bytes()),
-                    })
-                } else {
-
-                    #[derive(Deserialize, Debug)]
-                    struct AuthServerResponse {
-                        pub x509_certificate: String
-                    }
-
-                    match res.json::<AuthServerResponse>().await {
-                        Ok(cert) => {
-                            let pub_key = match utils::cert::extract_x509_pem(cert.x509_certificate.clone()) {
-                                Ok(pub_key) => pub_key,
-                                Err(err) => {
-                                    error!("Failed to parse x509 certificate: {:?}", err);
-                                    return Err(APIHandlerResponse {
-                                        status: StatusCode::INTERNAL_SERVER_ERROR,
-                                        body: None,
-                                    })
-                                }
-                            };
-
-                            info!("AuthenticationServer response: {:?}", cert);
-
-                            Ok(NTorServerCertificate {
-                                server_id: backend_url, // todo consider server_id value
-                                public_key: pub_key
-                            })
-                        }
-                        Err(err) => {
-                            error!("Failed to parse authentication server response: {:?}", err);
-                            return Err(APIHandlerResponse {
-                                status: StatusCode::INTERNAL_SERVER_ERROR,
-                                body: None,
-                            })
-                        }
-                    }
-                }
-            }
-            Err(e) => {
+            .map_err(|e| {
                 let response_body = ErrorResponse {
                     error: format!("Failed to connect to layer8: {}", e)
                 };
 
-                Err(APIHandlerResponse {
+                APIHandlerResponse {
                     status: StatusCode::INTERNAL_SERVER_ERROR,
                     body: Some(response_body.to_bytes()),
-                })
+                }
+            })?;
+
+        if !res.status().is_success() {
+            let response_body = ErrorResponse {
+                error: format!("Failed to get public key from layer8, status code: {}", res.status().as_u16()),
+            };
+            error!("Sending error response: {:?}", response_body);
+
+            ctx.insert_response_header("Connection", "close"); // Ensure connection closes???
+
+            Err(APIHandlerResponse {
+                status: StatusCode::BAD_REQUEST,
+                body: Some(response_body.to_bytes()),
+            })
+        } else {
+            #[derive(Deserialize, Debug)]
+            struct AuthServerResponse {
+                pub x509_certificate: String,
             }
-        };
+
+            let cert: AuthServerResponse = res.json().await.map_err(|err| {
+                error!("Failed to parse authentication server response: {:?}", err);
+                APIHandlerResponse {
+                    status: StatusCode::INTERNAL_SERVER_ERROR,
+                    body: None,
+                }
+            })?;
+
+            let pub_key = utils::cert::extract_x509_pem(cert.x509_certificate.clone())
+                .map_err(|e| {
+                    error!("Failed to parse x509 certificate: {:?}", e);
+                    APIHandlerResponse {
+                        status: StatusCode::INTERNAL_SERVER_ERROR,
+                        body: None,
+                    }
+                })?;
+
+            info!("AuthenticationServer response: {:?}", cert);
+
+            Ok(NTorServerCertificate {
+                server_id: backend_url, // todo I still prefer taking the server_id value from certificate's subject
+                public_key: pub_key,
+            })
+        }
     }
 
     /// Verify `int_fp_jwt` and return `fp_rp_jwt`
@@ -131,8 +125,8 @@ impl ForwardHandler {
         &self,
         token: &str,
     ) -> Result<IntFPSession, String> {
-        return match utils::jwt::verify_jwt_token(token, &self.config.jwt_secret) {
-            Ok(claims) => {
+        return match utils::jwt::verify_jwt_token(token, &self.config.jwt_virtual_connection_key) {
+            Ok(_claims) => {
                 // todo check claims if needed
 
                 match {
@@ -158,15 +152,16 @@ impl ForwardHandler {
         >(&ctx.get_request_body())
         {
             Ok(res) => res.to_bytes(),
-            Err(err) => {
-                let body = match err {
-                    None => None,
-                    Some(e) => Some(e.to_bytes())
-                };
-
+            Err(Some(e)) => {
                 return APIHandlerResponse {
                     status: StatusCode::BAD_REQUEST,
-                    body,
+                    body: Some(e.to_bytes()),
+                };
+            }
+            Err(None) => {
+                return APIHandlerResponse {
+                    status: StatusCode::BAD_REQUEST,
+                    body: None,
                 };
             }
         };
@@ -183,14 +178,12 @@ impl ForwardHandler {
             info!("Server certificate: {:?}", server_certificate);
 
             ctx.set(
-                consts::NTOR_SERVER_ID.to_string(),
-                // consts::NTOR_SERVER_ID_TMP_VALUE.to_string(), // replace with real value
-                server_certificate.server_id
+                consts::CtxKeys::NTorServerId.to_string(),
+                server_certificate.server_id,
             );
             ctx.set(
-                consts::NTOR_STATIC_PUBLIC_KEY.to_string(),
-                // hex::encode(consts::NTOR_STATIC_PUBLIC_KEY_TMP_VALUE), // replace with real value
-                hex::encode(server_certificate.public_key)
+                consts::CtxKeys::NTorStaticPublicKey.to_string(),
+                hex::encode(server_certificate.public_key),
             );
         }
 
@@ -201,9 +194,9 @@ impl ForwardHandler {
     }
 
     pub fn handle_init_tunnel_response(&self, ctx: &mut Layer8Context) -> APIHandlerResponse {
-        let ntor_server_id = ctx.get(&*consts::NTOR_SERVER_ID.to_string()).unwrap().clone();
+        let ntor_server_id = ctx.get(&consts::CtxKeys::NTorServerId.to_string()).unwrap().clone();
         let ntor_static_public_key = hex::decode(
-            ctx.get(&*consts::NTOR_STATIC_PUBLIC_KEY.to_string()).clone().unwrap()
+            ctx.get(&consts::CtxKeys::NTorStaticPublicKey.to_string()).clone().unwrap()
         ).unwrap();
 
         let response_body = ctx.get_response_body();
@@ -220,7 +213,7 @@ impl ForwardHandler {
                 let int_fp_jwt = {
                     let mut claims = JWTClaims::new(Some(self.config.jwt_exp_in_hours));
                     claims.uuid = Some(utils::new_uuid());
-                    utils::jwt::create_jwt_token(claims, &self.config.jwt_secret)
+                    utils::jwt::create_jwt_token(claims, &self.config.jwt_virtual_connection_key)
                 };
 
                 let int_fp_session = IntFPSession {
@@ -249,18 +242,18 @@ impl ForwardHandler {
     }
 
     pub fn handle_healthcheck(&self, ctx: &mut Layer8Context) -> APIHandlerResponse {
-        let error = ctx.param("error").unwrap();
+        if let Some(error) = ctx.param("error") {
+            if error == "true" {
+                let response_bytes = FpHealthcheckError {
+                    fp_healthcheck_error: "this is placeholder for a custom error".to_string()
+                }.to_bytes();
 
-        if error == "true" {
-            let response_bytes = FpHealthcheckError {
-                fp_healthcheck_error: "this is placeholder for a custom error".to_string()
-            }.to_bytes();
-
-            ctx.insert_response_header("x-fp-healthcheck-error", "response-header-error");
-            return APIHandlerResponse {
-                status: StatusCode::IM_A_TEAPOT,
-                body: Some(response_bytes),
-            };
+                ctx.insert_response_header("x-fp-healthcheck-error", "response-header-error");
+                return APIHandlerResponse {
+                    status: StatusCode::IM_A_TEAPOT,
+                    body: Some(response_bytes),
+                };
+            }
         }
 
         let response_bytes = FpHealthcheckSuccess {

@@ -1,5 +1,6 @@
 pub mod jwt;
 pub mod cert;
+pub mod deserializer;
 
 use url::Url;
 

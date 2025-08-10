@@ -18,6 +18,8 @@ target/
 .DS_Store/
 .vscode/
 **/log.txt
+**/log_*.txt
+logs
 
 # All node_modules
 node_modules/
@@ -25,3 +27,8 @@ node_modules/
 test/cypress/screenshots
 
 **/Cargo.lock
+
+docker/layer8-volumes/influxdb2-data
+docker/layer8-volumes/pg-data
+
+certs/ntor/*.pem

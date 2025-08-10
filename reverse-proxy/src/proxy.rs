@@ -7,20 +7,13 @@ use bytes::Bytes;
 use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
 use pingora_router::router::Router;
 
-const UPSTREAM_HOST: &str = "localhost";
-pub const UPSTREAM_IP: &str = "0.0.0.0";
-pub const BACKEND_PORT: u16 = 3000;
-
 pub struct ReverseProxy<T> {
-    addr: std::net::SocketAddr,
     router: Router<T>
 }
 
 impl<T> ReverseProxy<T> {
-
-    pub fn new(addr: std::net::SocketAddr, router: Router<T>) -> Self {
+    pub fn new(router: Router<T>) -> Self {
         ReverseProxy {
-            addr,
             router
         }
     }
@@ -73,7 +66,7 @@ impl<T: Sync> ProxyHttp for ReverseProxy<T> {
         _ctx: &mut Self::CTX,
     ) -> pingora::Result<Box<HttpPeer>> {
         let peer: Box<HttpPeer> =
-            Box::new(HttpPeer::new(self.addr, false, UPSTREAM_HOST.to_owned()));
+            Box::new(HttpPeer::new("", false, "".to_string()));
         Ok(peer)
     }
 
@@ -126,7 +119,6 @@ impl<T: Sync> ProxyHttp for ReverseProxy<T> {
             .map_or(0, |resp| resp.status.as_u16());
 
         if !e.is_none() {
-            // log error
             error!(
                 "{} error: {}",
                 self.request_summary(session, ctx),
@@ -134,7 +126,6 @@ impl<T: Sync> ProxyHttp for ReverseProxy<T> {
             );
         }
 
-        // access log
         info!(
             "{} response code: {response_code}",
             self.request_summary(session, ctx)

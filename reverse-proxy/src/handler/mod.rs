@@ -4,18 +4,20 @@ use log::debug;
 use ntor::common::{InitSessionMessage, NTorParty};
 use ntor::server::NTorServer;
 use pingora::http::StatusCode;
-use pingora_router::ctx::{Layer8Context};
+use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
 use pingora_router::handler::{APIHandlerResponse, ResponseBodyTrait};
 use init_tunnel::handler::InitTunnelHandler;
 use proxy::handler::ProxyHandler;
 use init_tunnel::InitEncryptedTunnelResponse;
-use utils::{new_uuid, string_to_array32};
+use utils::{new_uuid};
 use utils::jwt::JWTClaims;
 use crate::config::{HandlerConfig, RPConfig};
+use crate::handler::healthcheck::{RpHealthcheckError, RpHealthcheckSuccess};
 
 mod common;
 mod init_tunnel;
 mod proxy;
+mod healthcheck;
 
 thread_local! {
     // <session_id, shared_secret>
@@ -24,19 +26,17 @@ thread_local! {
 
 pub struct ReverseHandler {
     config: HandlerConfig,
-    host: String,
     jwt_secret: Vec<u8>,
     ntor_static_secret: [u8; 32],
 }
 
 impl ReverseHandler {
     pub fn new(config: RPConfig) -> Self {
-        let ntor_secret = string_to_array32(config.handler.ntor_static_secret.clone()).unwrap();
-        let jwt_secret = config.handler.jwt_virtual_connection_secret.as_bytes().to_vec();
+        let ntor_secret = config.handler.ntor_static_secret.clone();
+        let jwt_secret = config.handler.jwt_virtual_connection_secret.clone();
 
         ReverseHandler {
             config: config.handler,
-            host: config.server.host,
             jwt_secret,
             ntor_static_secret: ntor_secret,
         }
@@ -92,13 +92,13 @@ impl ReverseHandler {
         let ntor_session_id = new_uuid();
 
         let int_rp_jwt = {
-            let mut claims = JWTClaims::new(Some(self.config.jwt_exp));
+            let mut claims = JWTClaims::new(Some(self.config.jwt_exp_in_hours));
             claims.ntor_session_id = Some(ntor_session_id.clone());
             utils::jwt::create_jwt_token(claims, &self.jwt_secret)
         };
 
         let fp_rp_jwt = {
-            let claims = JWTClaims::new(Some(self.config.jwt_exp));
+            let claims = JWTClaims::new(Some(self.config.jwt_exp_in_hours));
             utils::jwt::create_jwt_token(claims, &self.jwt_secret)
         };
 
@@ -174,6 +174,33 @@ impl ReverseHandler {
                 }
             }
             Err(res) => res
+        };
+    }
+
+    pub async fn handle_healthcheck(&self, ctx: &mut Layer8Context) -> APIHandlerResponse {
+        if let Some(error) = ctx.param("error") {
+            if error == "true" {
+                let response_bytes = RpHealthcheckError {
+                    rp_healthcheck_error: "this is placeholder for a custom error".to_string()
+                }.to_bytes();
+
+                ctx.insert_response_header("x-rp-healthcheck-error", "response-header-error");
+                return APIHandlerResponse {
+                    status: StatusCode::IM_A_TEAPOT,
+                    body: Some(response_bytes),
+                };
+            }
+        }
+
+        let response_bytes = RpHealthcheckSuccess {
+            rp_healthcheck_success: "this is placeholder for a custom body".to_string(),
+        }.to_bytes();
+
+        ctx.insert_response_header("x-rp-healthcheck-success", "response-header-success");
+
+        return APIHandlerResponse {
+            status: StatusCode::OK,
+            body: Some(response_bytes),
         };
     }
 }
