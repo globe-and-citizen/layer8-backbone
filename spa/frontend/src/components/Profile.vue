@@ -1,15 +1,20 @@
 <script setup lang="ts">
-import { onMounted, ref, computed } from 'vue';
+import { onMounted, ref, watch, computed } from 'vue';
 import { getToken } from '@/utils.js';
+import router from '@/router';
+import * as interceptorWasm from "layer8-interceptor-production";
+import { getCurrentInstance } from 'vue';
+const { appContext } = getCurrentInstance();
+const backend_url = appContext.config.globalProperties.$backend_url;
 
 const profile = ref({
     username: "",
     metadata: {
         email_verified: false,
         country: "",
-        city: "",
-        phone_number: "",
-        address: ""
+        display_name: "",
+        color: "",
+
     },
     profilePicture: ""
 });
@@ -18,19 +23,38 @@ const showAuthModal = ref(false);
 const authOptions = ref({
     email_verified: false,
     country: false,
-    city: false,
-    phone_number: false,
-    address: false
+    display_name: false,
+    color: false
 });
 
 const downloadProfilePicture = () => {
     if (!profile.value.username) return;
-    window.location.href = `http://localhost:6191/download-profile/${profile.value.username}`;
+    window.location.href = `${backend_url}/download-profile/${profile.value.username}`;
 };
 
 const openAuthModal = () => {
     showAuthModal.value = true;
 };
+
+const loadProfilePicture = async (pictureUrl: string) => {
+    let image = pictureUrl.split('uploads/')[1];
+    let new_url = "";
+    await interceptorWasm.fetch(`${backend_url}/uploads/${image}`)
+        .then(response => {
+            if (!response.ok) {
+                throw new Error('Network response was not ok');
+            }
+            return response.blob();
+        })
+        .then(blob => {
+            new_url = window.URL.createObjectURL(blob);
+        })
+        .catch(error => {
+            console.error('Error loading profile picture:', error);
+        });
+
+    return new_url;
+}
 
 const closeAuthModal = () => {
     showAuthModal.value = false;
@@ -44,7 +68,7 @@ const initializeAuth = async () => {
     }
 
     try {
-        const response = await fetch('http://localhost:6191/init-oauth', {
+        const response = await interceptorWasm.fetch(`${backend_url}/update-user-profile-metadata`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -58,7 +82,7 @@ const initializeAuth = async () => {
             const payload = JSON.parse(atob(token.split('.')[1]));
             const username = payload.username;
 
-            const profileResponse = await fetch(`http://localhost:6191/profile/${username}`);
+            const profileResponse = await interceptorWasm.fetch(`${backend_url}/profile/${username}`);
             const data = await profileResponse.json();
 
             profile.value.username = username;
@@ -68,9 +92,8 @@ const initializeAuth = async () => {
                 profile.value.metadata = {
                     email_verified: data.metadata.email_verified || false,
                     country: data.metadata.country || "",
-                    city: data.metadata.city || "",
-                    phone_number: data.metadata.phone_number || "",
-                    address: data.metadata.address || ""
+                    display_name: data.metadata.display_name || "",
+                    color: data.metadata.color || "",
                 };
             }
 
@@ -83,6 +106,39 @@ const initializeAuth = async () => {
     }
 };
 
+const loginWithLayer8Popup = async () => {
+    const response = await interceptorWasm.fetch(`${backend_url}/api/login/layer8/auth`)
+    const data = await response.json()
+    // create opener window
+    const popup = window.open(data.authURL, "Login with Layer8", "width=1200,height=900");
+
+    window.addEventListener("message", async (event) => {
+        if (event.data.redr) {
+            setTimeout(() => {
+                interceptorWasm.fetch(`${backend_url}/authorization-callback`, {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "Application/Json"
+                    },
+                    body: JSON.stringify({
+                        code: event.data.code
+                    })
+                })
+                    .then(res => res.json())
+                    .then(data => {
+                        router.push({ name: 'profile' })
+                        if (popup) {
+                            popup.close();
+                        }
+                        // Refetch the profile data
+                        fetchProfileData();
+                    })
+                    .catch(err => console.log(err))
+            }, 1000);
+        }
+    });
+}
+
 // Compute reputation score based on filled metadata
 const reputationScore = computed(() => {
     if (!profile.value.metadata) return 0;
@@ -93,9 +149,8 @@ const reputationScore = computed(() => {
     // Count each filled metadata (email_verified counts if true)
     if (metadata.email_verified) score++;
     if (metadata.country) score++;
-    if (metadata.city) score++;
-    if (metadata.phone_number) score++;
-    if (metadata.address) score++;
+    if (metadata.display_name) score++;
+    if (metadata.color) score++;
 
     return score;
 });
@@ -109,7 +164,7 @@ const reputationColor = computed(() => {
     return '#2ecc71'; // green (for 5)
 });
 
-onMounted(() => {
+const fetchProfileData = async () => {
     const token = getToken('jwt');
     if (!token) {
         console.error('No token found');
@@ -119,26 +174,39 @@ onMounted(() => {
     const payload = JSON.parse(atob(token.split('.')[1]));
     const username = payload.username;
 
-    fetch(`http://localhost:6191/profile/${username}`)
-        .then(response => response.json())
-        .then(data => {
-            profile.value.username = username;
-            profile.value.profilePicture = data.profilePicture || "";
+    try {
+        const response = await interceptorWasm.fetch(`${backend_url}/profile/${username}`);
+        const data = await response.json();
 
-            if (data.metadata) {
-                profile.value.metadata = {
-                    email_verified: data.metadata.email_verified || false,
-                    country: data.metadata.country || "",
-                    city: data.metadata.city || "",
-                    phone_number: data.metadata.phone_number || "",
-                    address: data.metadata.address || ""
-                };
-            }
-        })
-        .catch(err => {
-            console.error('Error fetching profile:', err);
-        });
+        profile.value.username = username;
+        profile.value.profilePicture = data.profilePicture || "";
+
+        if (data.metadata) {
+            profile.value.metadata = {
+                email_verified: data.metadata.email_verified || false,
+                country: data.metadata.country || "",
+                display_name: data.metadata.display_name || "",
+                color: data.metadata.color || "",
+            };
+        }
+    } catch (err) {
+        console.error('Error fetching profile:', err);
+    }
+};
+
+onMounted(() => {
+    fetchProfileData();
 });
+
+let profilePictureUrl = ref("");
+watch(() => profile.value.profilePicture, async (newUrl) => {
+    if (newUrl) {
+        profilePictureUrl.value = await loadProfilePicture(newUrl);
+    } else {
+        profilePictureUrl.value = "";
+    }
+}, { immediate: true });
+
 </script>
 
 <template>
@@ -148,8 +216,8 @@ onMounted(() => {
                 <!-- Left side - Profile info -->
                 <div class="profile-info">
                     <!-- Profile picture section -->
-                    <div v-if="profile.profilePicture" class="profile-picture">
-                        <img :src="profile.profilePicture" :alt="`${profile.username}'s profile picture`" />
+                    <div v-if="profilePictureUrl" class="profile-picture">
+                        <img :src="profilePictureUrl" :alt="`${profile.username}'s profile picture`" />
                     </div>
                     <div v-else class="profile-picture placeholder">
                         <span>{{ profile.username.charAt(0).toUpperCase() }}</span>
@@ -170,26 +238,21 @@ onMounted(() => {
                             <span>{{ profile.metadata.country }}</span>
                         </div>
 
-                        <div v-if="profile.metadata.city" class="metadata-item">
-                            <strong>City:</strong>
-                            <span>{{ profile.metadata.city }}</span>
+                        <div v-if="profile.metadata.display_name" class="metadata-item">
+                            <strong>Display Name:</strong>
+                            <span>{{ profile.metadata.display_name }}</span>
                         </div>
 
-                        <div v-if="profile.metadata.phone_number" class="metadata-item">
-                            <strong>Phone:</strong>
-                            <span>{{ profile.metadata.phone_number }}</span>
-                        </div>
-
-                        <div v-if="profile.metadata.address" class="metadata-item address">
-                            <strong>Address:</strong>
-                            <span>{{ profile.metadata.address }}</span>
+                        <div v-if="profile.metadata.color" class="metadata-item address">
+                            <strong>Color:</strong>
+                            <span>{{ profile.metadata.color }}</span>
                         </div>
                     </div>
 
                     <button @click="downloadProfilePicture" class="download-button" :disabled="!profile.profilePicture">
                         Download Profile Picture
                     </button>
-                    <button @click="openAuthModal" class="init-auth-button">
+                    <button @click="loginWithLayer8Popup" class="init-auth-button">
                         Initialize Auth
                     </button>
                 </div>
@@ -215,14 +278,11 @@ onMounted(() => {
                             <li :class="{ 'completed': profile.metadata.country }">
                                 Country Provided
                             </li>
-                            <li :class="{ 'completed': profile.metadata.city }">
-                                City Provided
+                            <li :class="{ 'completed': profile.metadata.display_name }">
+                                Display Name Provided
                             </li>
-                            <li :class="{ 'completed': profile.metadata.phone_number }">
-                                Phone Number Provided
-                            </li>
-                            <li :class="{ 'completed': profile.metadata.address }">
-                                Address Provided
+                            <li :class="{ 'completed': profile.metadata.color }">
+                                Color Provided
                             </li>
                         </ul>
                     </div>
@@ -257,18 +317,13 @@ onMounted(() => {
                             </div>
 
                             <div class="auth-option">
-                                <input type="checkbox" id="city" v-model="authOptions.city">
-                                <label for="city">Share City</label>
+                                <input type="checkbox" id="display_name" v-model="authOptions.display_name">
+                                <label for="display_name">Share Display Name</label>
                             </div>
 
                             <div class="auth-option">
-                                <input type="checkbox" id="phone_number" v-model="authOptions.phone_number">
-                                <label for="phone_number">Share Phone Number</label>
-                            </div>
-
-                            <div class="auth-option">
-                                <input type="checkbox" id="address" v-model="authOptions.address">
-                                <label for="address">Share Address</label>
+                                <input type="checkbox" id="color" v-model="authOptions.color">
+                                <label for="color">Share Color</label>
                             </div>
                         </div>
                         <div class="modal-footer">

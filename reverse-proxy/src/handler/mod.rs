@@ -1,128 +1,120 @@
-use log::{debug, error, info};
+use std::collections::HashMap;
+use std::sync::{Mutex, MutexGuard};
+use log::debug;
+use ntor::common::{InitSessionMessage, NTorParty};
+use ntor::server::NTorServer;
 use pingora::http::StatusCode;
-use reqwest::{Client};
 use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
-use pingora_router::handler::{APIHandlerResponse, DefaultHandlerTrait, RequestBodyTrait, ResponseBodyTrait};
-use reqwest::header::HeaderMap;
-use crate::handler::consts::{INIT_TUNNEL_TO_BACKEND_PATH, PROXY_TO_BACKEND_PATH};
-use crate::handler::consts::HeaderKeys::{FpHeaderRequestKey, IntHeaderRequestKey, RpHeaderRequestKey, RpHeaderResponseKey};
-use crate::handler::types::{ErrorResponse, InitEncryptedTunnelRequest, InitEncryptedTunnelResponse, InitTunnelRequestToBackend, ProxyRequest, ProxyRequestToBackend, ProxyResponse, ProxyResponseFromBackend};
+use pingora_router::handler::{APIHandlerResponse, ResponseBodyTrait};
+use init_tunnel::handler::InitTunnelHandler;
+use proxy::handler::ProxyHandler;
+use init_tunnel::InitEncryptedTunnelResponse;
+use utils::{new_uuid};
+use utils::jwt::JWTClaims;
+use crate::config::{HandlerConfig, RPConfig};
+use crate::handler::healthcheck::{RpHealthcheckError, RpHealthcheckSuccess};
 
-pub mod types;
-mod consts;
-mod utils;
+mod common;
+mod init_tunnel;
+mod proxy;
+mod healthcheck;
 
-pub struct ReverseHandler {}
+thread_local! {
+    // <session_id, shared_secret>
+    static NTOR_SHARED_SECRETS: Mutex<HashMap<String, Vec<u8>>> = Mutex::new(HashMap::new());
+}
 
-impl DefaultHandlerTrait for ReverseHandler {}
+pub struct ReverseHandler {
+    config: HandlerConfig,
+    jwt_secret: Vec<u8>,
+    ntor_static_secret: [u8; 32],
+}
 
 impl ReverseHandler {
-    /// Add response headers to `ctx` to respond to FP:
-    /// - *Copy* Backend's response header in `headers` - *update* `Content-Length`
-    /// - *Add* custom ReverseProxy's response headers `custom_header`
-    fn create_response_headers(
-        headers: HeaderMap,
-        ctx: &mut Layer8Context,
-        custom_header: &str,
-        content_length: usize,
-    ) {
-        for (key, val) in headers.iter() {
-            if let (k, Ok(v)) = (key.to_string(), val.to_str()) {
-                ctx.insert_response_header(k.as_str(), v);
-            }
+    pub fn new(config: RPConfig) -> Self {
+        let ntor_secret = config.handler.ntor_static_secret.clone();
+        let jwt_secret = config.handler.jwt_virtual_connection_secret.clone();
+
+        ReverseHandler {
+            config: config.handler,
+            jwt_secret,
+            ntor_static_secret: ntor_secret,
         }
-
-        ctx.insert_response_header(
-            RpHeaderResponseKey.as_str(),
-            custom_header,
-        );
-
-        ctx.insert_response_header("Content-Length", &*content_length.to_string())
     }
 
-    /// Create request header to send/forward to BE:
-    /// - *Copy* origin request headers from ForwardProxy `ctx`
-    /// - *Add* custom ReverseProxy's request headers `custom_header`
-    /// - *Set* universal Content-Type and Content-Length
-    fn create_forward_request_headers(
-        ctx: &mut Layer8Context,
-        custom_header: &str,
-        content_length: usize,
-    ) -> HeaderMap {
-        // copy all origin header to new request
-        let origin_headers = ctx.get_request_header().clone();
-        let mut reqwest_header = utils::to_reqwest_header(origin_headers);
+    fn get_ntor_shared_secret(&self, session_id: String) -> Result<Vec<u8>, APIHandlerResponse> {
+        let shared_secret = NTOR_SHARED_SECRETS.with(|memory| {
+            let guard = memory.lock().unwrap();
+            guard.get(&session_id).cloned()
+        });
 
-        // add forward proxy header `fp_request_header`
-        reqwest_header.insert(
-            RpHeaderRequestKey.as_str(),
-            custom_header.parse().unwrap(),
-        );
-
-        reqwest_header.insert("Content-Length", content_length.to_string().parse().unwrap());
-        reqwest_header.insert("Content-Type", "application/json".parse().unwrap());
-        reqwest_header.remove(IntHeaderRequestKey.as_str());
-        reqwest_header.remove(FpHeaderRequestKey.as_str());
-
-        reqwest_header
-    }
-
-    async fn init_tunnel_result_to_be(result: bool) {
-        let body = InitTunnelRequestToBackend {
-            success: result,
+        return match shared_secret {
+            Some(secret) => Ok(secret.clone()),
+            None => {
+                Err(APIHandlerResponse {
+                    status: StatusCode::UNAUTHORIZED,
+                    body: Some("Invalid or expired nTor session ID".as_bytes().to_vec()),
+                })
+            }
         };
-        let log_meta = format!("[FORWARD {}]", INIT_TUNNEL_TO_BACKEND_PATH.as_str());
-        info!("{log_meta} request to BE body: {:?}", body);
-
-        let client = Client::new();
-        match client.post(INIT_TUNNEL_TO_BACKEND_PATH.as_str())
-            .header("Content-Type", "application/json")
-            .json(&body)
-            .send()
-            .await
-        {
-            Ok(res) => {
-                info!("{log_meta} Response sending init-tunnel result to BE: {:?}", res)
-            }
-            Err(err) => {
-                error!("{log_meta} Error sending init-tunnel result to BE: {:?}", err)
-            }
-        }
     }
 
     pub async fn handle_init_tunnel(&self, ctx: &mut Layer8Context) -> APIHandlerResponse {
         // validate request body
-        let request_body = match ReverseHandler::parse_request_body::
-        <InitEncryptedTunnelRequest, ErrorResponse>(&ctx.get_request_body())
-        {
-            Ok(res) => res.to_bytes(),
-            Err(err) => {
-                let body = match err {
-                    None => None,
-                    Some(err_response) => Some(err_response.to_bytes())
-                };
-
-                ReverseHandler::init_tunnel_result_to_be(false).await;
-
-                return APIHandlerResponse {
-                    status: StatusCode::BAD_REQUEST,
-                    body,
-                };
-            }
+        let request_body = match InitTunnelHandler::validate_request_body(
+            ctx,
+            self.config.backend_url.clone(),
+        ).await {
+            Ok(res) => res,
+            Err(res) => return res
         };
         debug!("[REQUEST /init-tunnel] Parsed body: {:?}", request_body);
 
-        // todo validate request headers
+        // todo I think there are prettier ways to use nTor since we are free to modify the nTor crate, but I'm lazy
+        let mut ntor_server = NTorServer::new_with_secret(
+            self.config.ntor_server_id.clone(),
+            self.ntor_static_secret,
+        );
 
-        // set ReverseProxy's response header
-        ctx.insert_response_header(RpHeaderResponseKey.as_str(), RpHeaderResponseKey.placeholder_value());
+        let init_session_response = {
+            if request_body.public_key.len() != 32 {
+                return APIHandlerResponse {
+                    status: StatusCode::BAD_REQUEST,
+                    body: Some("Invalid public key length".as_bytes().to_vec()),
+                };
+            }
 
-        // ReverseProxy's response body
-        let response = InitEncryptedTunnelResponse {
-            rp_response_body: "body added in ReverseProxy".to_string(),
+            // Client initializes session with the server
+            let init_session_msg = InitSessionMessage::from(request_body.public_key);
+            ntor_server.accept_init_session_request(&init_session_msg)
         };
 
-        ReverseHandler::init_tunnel_result_to_be(true).await;
+        let ntor_session_id = new_uuid();
+
+        let int_rp_jwt = {
+            let mut claims = JWTClaims::new(Some(self.config.jwt_exp_in_hours));
+            claims.ntor_session_id = Some(ntor_session_id.clone());
+            utils::jwt::create_jwt_token(claims, &self.jwt_secret)
+        };
+
+        let fp_rp_jwt = {
+            let claims = JWTClaims::new(Some(self.config.jwt_exp_in_hours));
+            utils::jwt::create_jwt_token(claims, &self.jwt_secret)
+        };
+
+        let response = InitEncryptedTunnelResponse {
+            public_key: init_session_response.public_key(),
+            t_b_hash: init_session_response.t_b_hash(),
+            int_rp_jwt,
+            fp_rp_jwt,
+        };
+
+        InitTunnelHandler::send_result_to_be(self.config.backend_url.clone(), true).await;
+
+        NTOR_SHARED_SECRETS.with(|memory| {
+            let mut guard: MutexGuard<HashMap<String, Vec<u8>>> = memory.lock().unwrap();
+            guard.insert(ntor_session_id, ntor_server.get_shared_secret().unwrap());
+        });
 
         APIHandlerResponse {
             status: StatusCode::OK,
@@ -130,130 +122,85 @@ impl ReverseHandler {
         }
     }
 
-    /// - get spa_request_body from received request body
-    /// - send spa body to backend with ReverseProxy header
-    async fn proxy_request_to_backend(
-        &self,
-        ctx: &mut Layer8Context,
-        headers: HeaderMap,
-        body: ProxyRequestToBackend,
-    ) -> APIHandlerResponse {
-        let new_body_string = String::from_utf8_lossy(&body.to_bytes()).to_string();
+    pub async fn handle_proxy_request(&self, ctx: &mut Layer8Context) -> APIHandlerResponse {
 
-        let log_meta = format!("[FORWARD {}]", PROXY_TO_BACKEND_PATH.as_str());
-        info!("{log_meta} request to BE headers: {:?}", headers);
-        info!("{log_meta} request to BE body: {}", new_body_string);
+        // validate request headers (nTor session ID)
+        let session_id = match ProxyHandler::validate_request_headers(ctx, &self.jwt_secret) {
+            Ok(session_id) => session_id,
+            Err(res) => return res,
+        };
 
-        let client = Client::new();
-        let response = client.post(PROXY_TO_BACKEND_PATH.as_str())
-            .header("Content-Type", "application/json")
-            .headers(headers)
-            .body(new_body_string)
-            .send()
-            .await;
+        let shared_secret = match self.get_ntor_shared_secret(session_id) {
+            Ok(secret) => secret,
+            Err(res) => return res,
+        };
 
-        match response {
-            Ok(reqw_response) if reqw_response.status().is_success() => {
-                let headers = reqw_response.headers().clone();
-                info!("{log_meta} response from BE headers: {:?}", reqw_response.headers());
-                return match reqw_response.json::<ProxyResponseFromBackend>().await {
-                    Ok(res) => {
-                        info!("{log_meta} response from BE body: {:?}", res);
-                        // create new response body from backend's response
-                        let proxy_response = ProxyResponse {
-                            be_response_body: res.be_response_body,
-                            rp_response_body: "body added in ReverseProxy".to_string(),
-                        }.to_bytes();
+        // validate request body
+        let request_body = match ProxyHandler::validate_request_body(ctx) {
+            Ok(res) => res,
+            Err(res) => return res,
+        };
 
-                        ReverseHandler::create_response_headers(
-                            headers,
-                            ctx,
-                            RpHeaderResponseKey.placeholder_value(),
-                            proxy_response.len(),
-                        );
+        let wrapped_request = match ProxyHandler::decrypt_request_body(
+            request_body,
+            self.config.ntor_server_id.clone(),
+            shared_secret.clone(),
+        ) {
+            Ok(req) => req,
+            Err(res) => return res,
+        };
+        debug!("[REQUEST /proxy] Decrypted request: {:?}", wrapped_request);
 
-                        APIHandlerResponse {
-                            status: StatusCode::OK,
-                            body: Some(proxy_response),
-                        }
-                    }
-                    Err(err) => {
-                        error!("Parsing backend body error: {:?}", err);
-                        APIHandlerResponse {
-                            status: StatusCode::INTERNAL_SERVER_ERROR,
-                            body: None,
-                        }
-                    }
-                };
-            }
-            Ok(res) => {
-                // Handle 4xx/5xx errors
-                let status = res.status();
-                error!("{log_meta} BE Response: {:?}", res);
+        // reconstruct user request
+        let wrapped_response = match ProxyHandler::rebuild_user_request(
+            self.config.backend_url.clone(),
+            wrapped_request,
+        ).await {
+            Ok(res) => res,
+            Err(res) => return res,
+        };
 
-                let error_body = match res.content_length() {
-                    None => "internal-server-error".to_string(),
-                    Some(_) => {
-                        res.text().await.unwrap_or_else(|_e| "".to_string())
-                    }
-                };
+        debug!("[RESPONSE /proxy] Wrapped Backend response: {:?}", wrapped_response);
 
-                let response_bytes = ErrorResponse {
-                    error: error_body
-                }.to_bytes();
-
+        return match ProxyHandler::encrypt_response_body(
+            wrapped_response,
+            self.config.ntor_server_id.clone(),
+            shared_secret,
+        ) {
+            Ok(encrypted_message) => {
                 APIHandlerResponse {
-                    status: StatusCode::try_from(status.as_u16()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
-                    body: Some(response_bytes),
+                    status: StatusCode::OK,
+                    body: Some(encrypted_message.to_bytes()),
                 }
             }
-            Err(err) => {
-                error!("{log_meta} Error: {:?}", err);
-                let status = err.status().unwrap_or(reqwest::StatusCode::INTERNAL_SERVER_ERROR);
-                let err_body = ErrorResponse {
-                    error: format!("Backend error: {}", status),
-                };
-
-                APIHandlerResponse {
-                    status: StatusCode::BAD_GATEWAY,
-                    body: Some(err_body.to_bytes()),
-                }
-            }
-        }
+            Err(res) => res
+        };
     }
 
-    pub async fn handle_proxy_request(&self, ctx: &mut Layer8Context) -> APIHandlerResponse {
-        // validate request body
-        let body = ctx.get_request_body();
-        let request_body = match ReverseHandler::parse_request_body::<ProxyRequest, ErrorResponse>(&body) {
-            Ok(proxy_request) => proxy_request,
-            Err(err) => {
-                let err_body = match err {
-                    None => None,
-                    Some(err_response) => {
-                        error!("Error parsing request body: {}", err_response.error);
-                        Some(err_response.to_bytes())
-                    }
-                };
+    pub async fn handle_healthcheck(&self, ctx: &mut Layer8Context) -> APIHandlerResponse {
+        if let Some(error) = ctx.param("error") {
+            if error == "true" {
+                let response_bytes = RpHealthcheckError {
+                    rp_healthcheck_error: "this is placeholder for a custom error".to_string()
+                }.to_bytes();
 
+                ctx.insert_response_header("x-rp-healthcheck-error", "response-header-error");
                 return APIHandlerResponse {
-                    status: StatusCode::BAD_REQUEST,
-                    body: err_body,
+                    status: StatusCode::IM_A_TEAPOT,
+                    body: Some(response_bytes),
                 };
             }
+        }
+
+        let response_bytes = RpHealthcheckSuccess {
+            rp_healthcheck_success: "this is placeholder for a custom body".to_string(),
+        }.to_bytes();
+
+        ctx.insert_response_header("x-rp-healthcheck-success", "response-header-success");
+
+        return APIHandlerResponse {
+            status: StatusCode::OK,
+            body: Some(response_bytes),
         };
-
-        let new_body = ProxyRequestToBackend {
-            spa_request_body: request_body.spa_request_body,
-        };
-
-        // todo validate request headers
-        let new_header = ReverseHandler::create_forward_request_headers(
-            ctx,
-            RpHeaderRequestKey.placeholder_value(),
-            new_body.to_bytes().len(),
-        );
-
-        self.proxy_request_to_backend(ctx, new_header, new_body).await
     }
 }

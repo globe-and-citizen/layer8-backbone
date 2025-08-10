@@ -17,26 +17,21 @@
 
 <script setup>
 import {ref} from 'vue';
+import * as interceptorWasm from "layer8-interceptor-production";
+import { getCurrentInstance } from 'vue';
+const { appContext } = getCurrentInstance();
+const backend_url = appContext.config.globalProperties.$backend_url;
 
 const username = ref('');
 const password = ref('');
 
 const handleRegister = () => {
-  // wasmBackend.register(username.value, password.value)
-  //     .then(response => {
-  //       alert("Registration successful! You can now log in.");
-  //       location.href = '/';
-  //     }).catch(() => {
-  //   alert('An error occurred while registering.');
-  // });
-
-  // Request to localhost:6191/register, a simple fetch
   let body = {
     "username": username.value,
     "password": password.value
   }
 
-  fetch('http://localhost:6191/register', {
+  interceptorWasm.fetch(`${backend_url}/register`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json'

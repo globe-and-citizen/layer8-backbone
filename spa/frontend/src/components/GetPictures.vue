@@ -1,11 +1,15 @@
 <script setup lang="ts">
-import {onMounted, ref} from 'vue';
+import { onMounted, ref } from 'vue';
+import * as interceptorWasm from "layer8-interceptor-production";
+import { getCurrentInstance } from 'vue';
+const { appContext } = getCurrentInstance();
+const backend_url = appContext.config.globalProperties.$backend_url;
 
 const images = ref<any[]>([]);
 const searchName = ref<string>('');
 
 function openImage(id: string) {
-    fetch(`http://localhost:6191/images?id=${id}`)
+    interceptorWasm.fetch(`${backend_url}/images?id=${id}`)
         .then(response => response.json())
         .catch(err => {
             console.error('Error fetching image:', err);
@@ -17,8 +21,8 @@ function searchImage() {
         fetchAllImages();
         return;
     }
-    
-    fetch(`http://localhost:6191/images?name=${searchName.value}`)
+
+    interceptorWasm.fetch(`${backend_url}/images?name=${searchName.value}`)
         .then(response => {
             if (!response.ok) throw new Error('Image not found');
             return response.json();
@@ -37,7 +41,7 @@ function searchImage() {
 }
 
 function fetchAllImages() {
-    fetch('http://localhost:6191/images')
+    interceptorWasm.fetch(`${backend_url}/images`)
         .then(response => response.json())
         .then(data => {
             images.value = data.map((img: any) => ({

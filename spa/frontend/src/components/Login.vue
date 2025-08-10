@@ -18,28 +18,21 @@
 <script setup>
 import {ref} from 'vue';
 import {saveToken} from "@/utils.js";
+import * as interceptorWasm from "layer8-interceptor-production";
+import { getCurrentInstance } from 'vue';
+const { appContext } = getCurrentInstance();
+const backend_url = appContext.config.globalProperties.$backend_url;
 
 const username = ref('');
 const password = ref('');
 
 const handleLogin = () => {
-  // wasmBackend.login(username.value, password.value)
-  //     .then(data => {
-  //       let token = data.token || data["token"] || data.get("token");
-  //       saveToken(token);
-  //       alert(`Logged in as: ${username.value}`);
-  //       location.href = '/profile';
-  //     }).catch((err) => {
-  //       alert(`An error occurred while logging in. ${err}`);
-  // });
-
-  // Request to localhost:6191/login, a simple fetch
   let body = {
     "username": username.value,
     "password": password.value
   }
 
-  fetch('http://localhost:6191/login', {
+  interceptorWasm.fetch(`${backend_url}/login`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json'

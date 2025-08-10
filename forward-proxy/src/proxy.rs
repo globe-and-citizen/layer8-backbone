@@ -1,30 +1,42 @@
-use std::sync::Arc;
-
 use async_trait::async_trait;
 use boring::x509::X509;
 use bytes::Bytes;
-use log::info;
-use pingora::upstreams::peer::PeerOptions;
-use pingora::utils::tls::CertKey;
+use log::{debug, error, info};
+use pingora::Error;
 use pingora::OrErr;
-use pingora::http::{ResponseHeader, StatusCode};
+use pingora::http::{RequestHeader, ResponseHeader, StatusCode};
 use pingora::listeners::tls::TLS_CONF_ERR;
 use pingora::prelude::{HttpPeer, ProxyHttp, Session};
+use pingora::upstreams::peer::PeerOptions;
+use pingora::utils::tls::CertKey;
 use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
-use pingora_router::router::Router;
+use reqwest::header::TRANSFER_ENCODING;
+use std::sync::Arc;
+use std::time::Duration;
+use pingora_router::handler::{ResponseBodyTrait};
+use crate::config::TlsConfig;
+use crate::handler::consts::HeaderKeys;
+use crate::handler::{consts, ForwardHandler};
+use crate::handler::types::response::ErrorResponse;
 
-pub struct ForwardProxy<T> {
-    router: Router<T>,
+pub struct ForwardProxy {
+    tls_config: TlsConfig,
+    handler: ForwardHandler,
 }
 
-impl<T> ForwardProxy<T> {
-    pub fn new(router: Router<T>) -> Self {
-        ForwardProxy { router }
+impl ForwardProxy {
+    pub fn new(tls_config: TlsConfig, handler: ForwardHandler) -> Self {
+        ForwardProxy {
+            tls_config,
+            handler,
+        }
     }
 }
 
+/// To see the order of execution and how the request is processed, refer to the documentation
+/// see https://github.com/cloudflare/pingora/blob/main/docs/user_guide/phase.md
 #[async_trait]
-impl<T: Sync> ProxyHttp for ForwardProxy<T> {
+impl ProxyHttp for ForwardProxy {
     type CTX = Layer8Context;
 
     fn new_ctx(&self) -> Self::CTX {
@@ -34,7 +46,7 @@ impl<T: Sync> ProxyHttp for ForwardProxy<T> {
     async fn upstream_peer(
         &self,
         _session: &mut Session,
-        _ctx: &mut Self::CTX,
+        ctx: &mut Self::CTX,
     ) -> pingora::Result<Box<HttpPeer>> {
         // testing certs data; fixme to be dynamic
 
@@ -48,20 +60,21 @@ impl<T: Sync> ProxyHttp for ForwardProxy<T> {
         // 7. Client and server exchange information over encrypted TLS connection
         //
         // Code below is for step 4(this is a client to RP), presenting the client's TLS certificate.
-        let mut peer = HttpPeer::new(
-            String::from("localhost:6193"),
-            true,
-            "localhost".to_string(),
-        );
+
+        let addr = ctx.get(&consts::CtxKeys::UpstreamAddress.to_string()).unwrap();
+        let sni = ctx.get(&consts::CtxKeys::UpstreamSNI.to_string()).unwrap();
+        debug!("upstream_addr: {}, upstream_sni: {}", addr, sni);
+
+        let mut peer = HttpPeer::new(addr, true, sni.to_string());
 
         {
-            let cert = X509::from_pem(&certs::cert())
+            let cert = X509::from_pem(&self.tls_config.cert)
                 .or_err(TLS_CONF_ERR, "Failed to load FP's certificate")?;
 
-            let ca_cert = X509::from_pem(&certs::ca_pem())
+            let ca_cert = X509::from_pem(&self.tls_config.ca_cert)
                 .or_err(TLS_CONF_ERR, "Failed to load CA certificate")?;
 
-            let key = boring::pkey::PKey::private_key_from_pem(&certs::key())
+            let key = boring::pkey::PKey::private_key_from_pem(&self.tls_config.key)
                 .or_err(TLS_CONF_ERR, "Failed to load private key")?;
 
             // The certificate to present in mTLS connections to upstream
@@ -92,67 +105,292 @@ impl<T: Sync> ProxyHttp for ForwardProxy<T> {
         Self::CTX: Send + Sync,
     {
         // create Context
-        // ctx.update(session).await?;
-        // let request_summary = format!(
-        //     "{} {}",
-        //     session.req_header().method,
-        //     session.req_header().uri.to_string()
-        // );
-        // println!();
-        // info!("[REQUEST {}] {:?}", request_summary, ctx.request);
-        // info!(
-        //     "[REQUEST {}] Decoded body: {}",
-        //     request_summary,
-        //     String::from_utf8_lossy(&*ctx.get_request_body())
-        // );
-        // println!();
+        ctx.update(session).await?;
+        let request_summary = session.request_summary();
+        println!();
+        info!("[REQUEST {}] {:?}", request_summary, ctx.request);
+        println!();
 
-        // let handler_response = self.router.call_handler(ctx).await;
-        // if handler_response.status == StatusCode::NOT_FOUND && handler_response.body == None {
-        //     return Ok(false);
-        // }
+        match session.req_header().method {
+            pingora::http::Method::OPTIONS => {
+                // Handle CORS preflight request
+                let mut header = ResponseHeader::build(StatusCode::NO_CONTENT, None)?;
+                header.insert_header("Access-Control-Allow-Origin", "*")?;
+                header.insert_header("Access-Control-Allow-Methods", "POST")?;
+                header.insert_header("Access-Control-Allow-Headers", "*")?;
+                session.write_response_header_ref(&header).await?;
+                session.set_keepalive(None);
+                return Ok(true);
+            }
+            _ => {}
+        }
 
-        // // set headers
-        // let mut header = ResponseHeader::build(handler_response.status, None)?;
-        // let response_header = ctx.get_response_header().clone();
-        // for (key, val) in response_header.iter() {
-        //     header.insert_header(key.clone(), val.clone()).unwrap();
-        // }
+        let mut error_response_bytes: Vec<u8> = vec![];
+        match (
+            session.req_header().uri.path(),
+            session.req_header().method.as_str()
+        ) {
+            ("/healthcheck", "GET") => {
+                let handler_response = self.handler.handle_healthcheck(ctx);
+                let mut header = ResponseHeader::build(handler_response.status, None)?;
+                let response_headers = header.headers.clone();
+                for (key, val) in response_headers.iter() {
+                    header.insert_header(key.clone(), val.clone()).unwrap();
+                };
 
-        // let mut response_bytes = vec![];
-        // if let Some(body_bytes) = handler_response.body {
-        //     header
-        //         .insert_header("Content-length", &body_bytes.len().to_string())
-        //         .unwrap();
-        //     response_bytes = body_bytes;
-        // };
+                let mut response_bytes = vec![];
+                if let Some(body_bytes) = handler_response.body {
+                    header
+                        .insert_header("Content-length", &body_bytes.len().to_string())
+                        .unwrap();
+                    response_bytes = body_bytes;
+                };
 
-        // debug!("HEADERS: {:?}", header.headers);
+                session.write_response_header_ref(&header).await?;
 
-        // session.write_response_header_ref(&header).await?;
+                println!();
+                info!("[RESPONSE {}] Header: {:?}", request_summary, header.headers);
+                info!(
+                    "[RESPONSE {}] Body: {}",
+                    request_summary,
+                    String::from_utf8_lossy(&*response_bytes)
+                );
+                println!();
 
-        // println!();
-        // info!(
-        //     "[RESPONSE {}] Header: {:?}",
-        //     request_summary, header.headers
-        // );
-        // info!(
-        //     "[RESPONSE {}] Body: {}",
-        //     request_summary,
-        //     String::from_utf8_lossy(&*response_bytes)
-        // );
-        // println!();
+                // Write the response body to the session after setting headers
+                session
+                    .write_response_body(Some(Bytes::from(response_bytes)), true)
+                    .await?;
 
-        // Write the response body to the session after setting headers
+                return Ok(true);
+            }
+            ("/init-tunnel", "POST") => {
+                if let Some(url) = ctx.param("backend_url") {
+                    if let Some(url) = utils::validate_url(url) {
+                        let addr = url.host_str().unwrap_or_default();
+                        let port = url.port().map(|p| format!(":{}", p)).unwrap_or_default();
+                        ctx.set(
+                            consts::CtxKeys::UpstreamAddress.to_string(),
+                            format!("{}{}", addr, port)
+                        );
+                        ctx.set(
+                            consts::CtxKeys::UpstreamSNI.to_string(),
+                            url.domain().unwrap_or_default().to_string()
+                        );
+                    } else {
+                        error_response_bytes = ErrorResponse {
+                            error: "Invalid backend_url".to_string()
+                        }.to_bytes();
+                    }
+                } else {
+                    error_response_bytes = ErrorResponse {
+                        error: "backend_url is a required param".to_string()
+                    }.to_bytes();
+                }
+            }
+            ("/proxy", "POST") => {
+                error_response_bytes = match ctx.get_request_header().get(HeaderKeys::IntFpJwtKey.as_str()) {
+                    None => {
+                        ErrorResponse {
+                            error: "Missing int_fp_jwt header".to_string()
+                        }.to_bytes()
+                    }
+                    Some(int_fp_jwt) => {
+                        match self.handler.verify_int_fp_jwt(int_fp_jwt.as_str()) {
+                            Ok(session) => {
+                                debug!("IntFPSession: {:?}", session);
+                                ctx.set(consts::CtxKeys::FpRpJwt.to_string(), session.fp_rp_jwt);
 
-        // let response_bytes = if response_bytes.is_empty() {
-        //     None
-        // } else {
-        //     Some(Bytes::from(response_bytes))
-        // };
+                                if let Some(url) = utils::validate_url(&session.rp_base_url) {
+                                    let addr = url.host_str().unwrap();
+                                    let port = url.port()
+                                        .map(|p| format!(":{}", p))
+                                        .unwrap_or_default();
 
-        // session.write_response_body(response_bytes, true).await?;
+                                    ctx.set(
+                                        consts::CtxKeys::UpstreamAddress.to_string(),
+                                        format!("{}{}", addr, port)
+                                    );
+                                    ctx.set(
+                                        consts::CtxKeys::UpstreamSNI.to_string(),
+                                        url.domain().unwrap_or_default().to_string()
+                                    );
+                                    vec![]
+                                } else {
+                                    ErrorResponse {
+                                        error: "Invalid backend_url".to_string()
+                                    }.to_bytes()
+                                }
+                            }
+                            Err(err) => {
+                                error!("Error verifying int_fp_jwt: {}", err);
+                                ErrorResponse { error: err }.to_bytes()
+                            }
+                        }
+                    }
+                }
+            }
+            _ => {
+                let header = ResponseHeader::build(StatusCode::NOT_FOUND, None)?;
+                session.write_response_header_ref(&header).await?;
+                session.set_keepalive(None);
+                return Ok(true);
+            }
+        }
+
+        if error_response_bytes.len() > 0 {
+            error!("[RESPONSE] Error: {}", utils::bytes_to_string(&error_response_bytes));
+            let header = ResponseHeader::build(StatusCode::BAD_REQUEST, None)?;
+            session.write_response_header_ref(&header).await?;
+            session.write_response_body(Some(Bytes::from(error_response_bytes)), true).await?;
+            session.set_keepalive(None);
+            return Ok(true);
+        }
+
         Ok(false)
+    }
+
+    async fn request_body_filter(
+        &self,
+        session: &mut Session,
+        body: &mut Option<Bytes>,
+        end_of_stream: bool,
+        ctx: &mut Self::CTX,
+    ) -> pingora::Result<()>
+    where
+        Self::CTX: Send + Sync,
+    {
+        if let Some(b) = body {
+            ctx.extend_request_body(b.to_vec());
+            // drop the body
+            b.clear();
+        }
+
+        if end_of_stream {
+            info!(
+                "[REQUEST {}] Decoded body: {}",
+                session.request_summary(),
+                String::from_utf8_lossy(&*ctx.get_request_body()),
+            );
+
+            // This is the last chunk, we can process the data now
+
+            let handler_response = match session.req_header().uri.path() {
+                "/init-tunnel" => self.handler.handle_init_tunnel_request(ctx).await,
+                _ => {
+                    info!(
+                        "[FORWARD {}] FP forward request body: {}",
+                        session.request_summary(),
+                        utils::bytes_to_string(&ctx.get_request_body())
+                    );
+                    *body = Some(Bytes::copy_from_slice(ctx.get_request_body().as_slice()));
+                    return Ok(());
+                }
+            };
+
+            if handler_response.status != StatusCode::OK {
+                error!(
+                    "[FORWARD {}] Error in request handler with status: {}, error: {}",
+                    session.request_summary(),
+                    handler_response.status,
+                    utils::bytes_to_string(&handler_response.body.unwrap_or_default())
+                );
+                return Err(pingora::Error::new(
+                    pingora::ErrorType::HTTPStatus(u16::from(handler_response.status)),
+                ));
+            }
+
+            info!(
+                "[FORWARD {}] Request handler response: status: {}, body: {}",
+                session.request_summary(),
+                handler_response.status,
+                utils::bytes_to_string(&handler_response.body.as_ref().unwrap_or(&vec![]))
+            );
+            let fp_req_body = handler_response.body.as_ref().unwrap_or(&vec![]).clone();
+
+            *body = Some(Bytes::copy_from_slice(fp_req_body.as_slice()));
+        }
+
+        Ok(())
+    }
+
+    async fn upstream_request_filter(
+        &self,
+        session: &mut Session,
+        upstream_request: &mut RequestHeader,
+        _ctx: &mut Self::CTX,
+    ) -> pingora::Result<()>
+    where
+        Self::CTX: Send + Sync,
+    {
+        match session.req_header().uri.path() {
+            "/proxy" => {
+                match upstream_request.headers.get(HeaderKeys::IntFpJwtKey.as_str()) {
+                    None => {
+                        error!(
+                            "[REQUEST {}] Missing required header: {}",
+                            session.request_summary(),
+                            HeaderKeys::IntFpJwtKey.as_str()
+                        );
+                        return Err(pingora::Error::new(
+                            pingora::ErrorType::HTTPStatus(u16::from(StatusCode::BAD_REQUEST)),
+                        ));
+                    }
+                    Some(token) => {
+                        let token_str = token.to_str().or_err(
+                            pingora::ErrorType::InvalidHTTPHeader,
+                            "Invalid header value for token",
+                        )?;
+
+                        if token_str.is_empty() {
+                            error!(
+                                "[REQUEST {}] Empty value for header: {}",
+                                session.request_summary(),
+                                HeaderKeys::IntFpJwtKey.as_str()
+                            );
+                            return Err(pingora::Error::new(
+                                pingora::ErrorType::HTTPStatus(u16::from(StatusCode::BAD_REQUEST)),
+                            ));
+                        }
+
+                        match self.handler.verify_int_fp_jwt(token_str) {
+                            Ok(session) => {
+                                upstream_request
+                                    .insert_header(HeaderKeys::FpRpJwtKey.as_str(), session.fp_rp_jwt)
+                                    .unwrap();
+                                upstream_request
+                                    .remove_header(HeaderKeys::IntFpJwtKey.as_str())
+                                    .unwrap();
+                            }
+                            Err(err) => {
+                                error!(
+                                    "[REQUEST {}] Error verify {} token: {}",
+                                    session.request_summary(),
+                                    HeaderKeys::IntFpJwtKey.as_str(),
+                                    err
+                                );
+                                return Err(
+                                    pingora::Error::explain(
+                                        pingora::ErrorType::InvalidHTTPHeader,
+                                        err,
+                                    )
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+
+        if upstream_request.headers.get("x-empty-body").is_none() {
+            upstream_request.remove_header("content-length");
+            upstream_request
+                .insert_header(TRANSFER_ENCODING.as_str(), "chunked")
+                .unwrap();
+        }
+
+        Ok(())
     }
 
     async fn response_filter(
@@ -160,29 +398,95 @@ impl<T: Sync> ProxyHttp for ForwardProxy<T> {
         _session: &mut Session,
         upstream_response: &mut ResponseHeader,
         _ctx: &mut Self::CTX,
-    ) -> pingora::Result<()> {
+    ) -> pingora::Result<()>
+    {
         upstream_response.insert_header("Access-Control-Allow-Origin", "*")?;
-        upstream_response.insert_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")?;
-        upstream_response.insert_header("Access-Control-Allow-Headers", "Content-Type")?;
+        upstream_response.insert_header("Access-Control-Allow-Methods", "POST")?;
+        upstream_response.insert_header("Access-Control-Allow-Headers", "*")?;
+
+        if let Some(length) = upstream_response.headers.get("content-length") {
+            if length != "0" {
+                upstream_response.remove_header("content-length");
+                upstream_response.insert_header(TRANSFER_ENCODING.as_str(), "chunked")?;
+            }
+        }
+
         Ok(())
     }
-}
 
-mod certs {
-    use std::fs;
+    fn response_body_filter(
+        &self,
+        session: &mut Session,
+        body: &mut Option<Bytes>,
+        end_of_stream: bool,
+        ctx: &mut Self::CTX,
+    ) -> pingora::Result<Option<Duration>>
+    where
+        Self::CTX: Send + Sync,
+    {
+        if let Some(b) = body {
+            ctx.extend_response_body(b.to_vec());
+            // drop the body
+            b.clear();
+        }
 
-    pub fn ca_pem() -> Vec<u8> {
-        fs::read(std::env::var("PATH_TO_CA_CERT").expect("PATH_TO_CA_PERM must be set"))
-            .expect("Failed to read CA PEM file")
+        if end_of_stream {
+            // This is the last chunk, we can process the data now
+            info!(
+                "[FORWARD {}] RP Response decoded body: {}",
+                session.request_summary(),
+                String::from_utf8_lossy(&*ctx.get_response_body()),
+            );
+
+            let handler_response = match session.req_header().uri.path() {
+                "/init-tunnel" => self.handler.handle_init_tunnel_response(ctx),
+                _ => {
+                    info!(
+                        "[RESPONSE {}] FP forward response body: {}",
+                        session.request_summary(),
+                        utils::bytes_to_string(&ctx.get_response_body())
+                    );
+                    *body = Some(Bytes::copy_from_slice(ctx.get_response_body().as_slice()));
+                    return Ok(None);
+                }
+            };
+
+            if handler_response.status != StatusCode::OK {
+                error!(
+                    "[RESPONSE {}] Error in response handler with status: {}, error: {}",
+                    session.request_summary(),
+                    handler_response.status,
+                    utils::bytes_to_string(&handler_response.body.unwrap_or_default())
+                );
+                return Err(pingora::Error::new(
+                    pingora::ErrorType::HTTPStatus(
+                        u16::from(StatusCode::INTERNAL_SERVER_ERROR)
+                    ),
+                ));
+            }
+
+            info!(
+                "[RESPONSE {}] FP response with status: {}, body: {}",
+                session.request_summary(),
+                handler_response.status,
+                utils::bytes_to_string(&handler_response.body.as_ref().unwrap_or(&vec![]))
+            );
+            let fp_res_body = handler_response.body.as_ref().unwrap_or(&vec![]).clone();
+
+            *body = Some(Bytes::copy_from_slice(fp_res_body.as_slice()));
+        }
+
+        Ok(None)
     }
 
-    pub fn cert() -> Vec<u8> {
-        fs::read(std::env::var("PATH_TO_CERT").expect("PATH_TO_CERT must be set"))
-            .expect("Failed to read certificate file")
-    }
-
-    pub fn key() -> Vec<u8> {
-        fs::read(std::env::var("PATH_TO_KEY").expect("PATH_TO_KEY must be set"))
-            .expect("Failed to read key file")
+    fn fail_to_connect(
+        &self,
+        _session: &mut Session,
+        _peer: &HttpPeer,
+        _ctx: &mut Self::CTX,
+        e: Box<Error>,
+    ) -> Box<Error> {
+        error!("Failed to connect to upstream: {}", e);
+        e
     }
 }

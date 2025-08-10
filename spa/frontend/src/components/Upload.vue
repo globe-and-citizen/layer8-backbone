@@ -1,6 +1,10 @@
 <script setup lang="ts">
 import { ref } from 'vue';
 import { getToken } from '@/utils.js';
+import * as interceptorWasm from "layer8-interceptor-production";
+import { getCurrentInstance } from 'vue';
+const { appContext } = getCurrentInstance();
+const backend_url = appContext.config.globalProperties.$backend_url;
 
 const selectedFile = ref<File | null>(null);
 const previewImage = ref<string | null>(null);
@@ -44,7 +48,7 @@ const uploadImage = async () => {
         const formData = new FormData();
         formData.append('profile_pic', selectedFile.value);
 
-        const response = await fetch(`http://localhost:6191/profile/${username}/upload`, {
+        const response = await interceptorWasm.fetch(`${backend_url}/profile/${username}/upload`, {
             method: 'POST',
             body: formData
         });

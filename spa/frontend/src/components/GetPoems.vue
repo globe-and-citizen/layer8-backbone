@@ -1,5 +1,9 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue';
+import * as interceptorWasm from "layer8-interceptor-production";
+import { getCurrentInstance } from 'vue';
+const { appContext } = getCurrentInstance();
+const backend_url = appContext.config.globalProperties.$backend_url;
 
 const poems = ref<any[]>([]);
 const selectedPoem = ref<any | null>(null);
@@ -10,7 +14,7 @@ const errorMessage = ref<string | null>(null);
 
 function openPoem(id: string) {
     isLoading.value = true;
-    fetch(`http://localhost:6191/poems?id=${id}`)
+    interceptorWasm.fetch(`${backend_url}/poems?id=${id}`)
         .then(response => response.json())
         .then(data => {
             selectedPoem.value = data;
@@ -38,7 +42,7 @@ function searchPoem() {
     }
 
     isLoading.value = true;
-    fetch(`http://localhost:6191/poems?id=${searchId.value}`)
+    interceptorWasm.fetch(`${backend_url}/poems?id=${searchId.value}`)
         .then(response => {
             if (!response.ok) throw new Error('Poem not found');
             return response.json();
@@ -58,7 +62,7 @@ function searchPoem() {
 
 function fetchAllPoems() {
     isLoading.value = true;
-    fetch('http://localhost:6191/poems')
+    interceptorWasm.fetch(`${backend_url}/poems`)
         .then(response => response.json())
         .then(data => {
             poems.value = data;
@@ -302,9 +306,9 @@ body {
 
 .poem-card:hover .card-border {
     height: 6px;
-    background: linear-gradient(90deg, 
-        #ff8a00, 
-        var(--accent-color), 
+    background: linear-gradient(90deg,
+        #ff8a00,
+        var(--accent-color),
         #e52e71);
 }
 

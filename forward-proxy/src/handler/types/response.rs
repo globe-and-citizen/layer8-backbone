@@ -16,19 +16,32 @@ impl ResponseBodyTrait for ErrorResponse {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct InitEncryptedTunnelResponse { // this struct should match ReverseProxy's Response
-    pub rp_response_body: String,
+pub struct InitTunnelResponseFromRP { // this struct should match ReverseProxy's Response
+    pub public_key: Vec<u8>,
+    pub t_b_hash: Vec<u8>,
+    #[serde(rename = "jwt1")] // a little bit of obfuscation
+    pub int_rp_jwt: String,
+    #[serde(rename = "jwt2")]
+    pub fp_rp_jwt: String,
 }
 
-impl ResponseBodyTrait for InitEncryptedTunnelResponse {}
+impl ResponseBodyTrait for InitTunnelResponseFromRP {}
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct ProxyResponse {
-    pub be_response_body: String,
-    pub rp_response_body: String,
+pub struct InitTunnelResponseToINT { // this struct should match Interceptor's expected Response
+    pub ephemeral_public_key: Vec<u8>,
+    pub t_b_hash: Vec<u8>,
+    #[serde(rename = "jwt1")]
+    pub int_rp_jwt: String,
+    #[serde(rename = "jwt2")]
+    pub int_fp_jwt: String,
+    #[serde(rename = "public_key")]
+    pub ntor_static_public_key: Vec<u8>,
+    #[serde(rename = "server_id")]
+    pub ntor_server_id: String
 }
 
-impl ResponseBodyTrait for ProxyResponse {}
+impl ResponseBodyTrait for InitTunnelResponseToINT {}
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct FpHealthcheckSuccess {

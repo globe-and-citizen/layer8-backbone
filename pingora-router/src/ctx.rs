@@ -11,6 +11,8 @@ use crate::utils::get_request_body;
 #[derive(Debug, Clone, Default)]
 pub struct Layer8ContextRequestSummary {
     pub method: Method,
+    pub scheme: String,
+    pub host: String,
     pub path: String,
     pub params: HashMap<String, String>,
 }
@@ -18,6 +20,12 @@ pub struct Layer8ContextRequestSummary {
 impl Layer8ContextRequestSummary {
     pub(crate) fn from(session: &Session) -> Self {
         let method = session.req_header().method.clone();
+        let scheme = session.req_header().uri.scheme()
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| "".to_string());
+        let host = session.req_header().uri.host()
+            .map(|h| h.to_string())
+            .unwrap_or_else(|| "".to_string());
         let path = session.req_header().uri.path().to_string();
         let query = session.req_header().uri.query();
 
@@ -33,6 +41,8 @@ impl Layer8ContextRequestSummary {
 
         Layer8ContextRequestSummary {
             method,
+            scheme,
+            host,
             path,
             params,
         }
@@ -43,16 +53,22 @@ impl Layer8ContextRequestSummary {
 /// needed for processing and handler access
 #[derive(Debug, Clone, Default)]
 pub struct Layer8ContextRequest {
-    summary: Layer8ContextRequestSummary,
-    header: Layer8Header,
+    pub summary: Layer8ContextRequestSummary,
+    pub header: Layer8Header,
     body: Vec<u8>,
+}
+
+impl Layer8ContextRequest {
+    pub fn get_client_base_url(&self) -> String {
+        format!("{}://{}", self.summary.scheme, self.summary.host)
+    }
 }
 
 /// `Layer8ContextResponse` is expected to store data to be returned to the client and
 /// shared across handlers during request processing
 #[derive(Debug, Clone, Default)]
 pub struct Layer8ContextResponse {
-    header: Layer8Header,
+    pub header: Layer8Header,
     body: Vec<u8>,
 }
 
@@ -83,15 +99,18 @@ impl Layer8Context {
     pub async fn update(&mut self, session: &mut Session) -> pingora::Result<bool> {
         self.request.summary = Layer8ContextRequestSummary::from(session);
 
-        match get_request_body(session).await {
-            Ok(body) => self.request.body = body,
-            Err(err) => return Err(err)
-        };
-
         self.set_request_header(session.req_header().clone());
 
         // take anything as needed later
 
+        Ok(true)
+    }
+
+    pub async fn read_request_body(&mut self, session: &mut Session) -> pingora::Result<bool> {
+        match get_request_body(session).await {
+            Ok(body) => self.request.body = body,
+            Err(err) => return Err(err)
+        };
         Ok(true)
     }
 
@@ -139,12 +158,20 @@ impl Layer8ContextTrait for Layer8Context {
         self.request.body = body
     }
 
+    fn extend_request_body(&mut self, body: Vec<u8>) {
+        self.request.body.extend(body)
+    }
+
     fn get_request_body(&self) -> Vec<u8> {
         self.request.body.clone()
     }
 
     fn set_response_body(&mut self, body: Vec<u8>) {
         self.response.body = body
+    }
+
+    fn extend_response_body(&mut self, body: Vec<u8>) {
+        self.response.body.extend(body);
     }
 
     fn get_response_body(&self) -> Vec<u8> {
@@ -178,8 +205,10 @@ pub trait Layer8ContextTrait {
     fn remove_response_header(&mut self, key: &str) -> Option<String>;
     fn get_response_header(&self) -> &Layer8Header;
     fn set_request_body(&mut self, body: Vec<u8>);
+    fn extend_request_body(&mut self, body: Vec<u8>);
     fn get_request_body(&self) -> Vec<u8>;
     fn set_response_body(&mut self, body: Vec<u8>);
+    fn extend_response_body(&mut self, body: Vec<u8>);
     fn get_response_body(&self) -> Vec<u8>;
     fn get(&self, key: &str) -> Option<&String>;
     fn set(&mut self, key: String, value: String);

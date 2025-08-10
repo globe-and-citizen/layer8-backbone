@@ -1,6 +1,6 @@
 // mock-database.js
 require("dotenv").config();
-const BACKEND_URL = "http://localhost:6191";
+const BACKEND_URL = "http://localhost:3000";
 
 module.exports = {
   poems: [
@@ -74,9 +74,8 @@ module.exports = {
       "metadata": {
         "email_verified": false,
         "country": "",
-        "city": "",
-        "phone_number": "",
-        "address": "",
+        "display_name": "",
+        "color": ""
       }
     }
   ]
