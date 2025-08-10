@@ -2,7 +2,7 @@ name: Layer8
 
 services:
   forward-proxy:
-    image: dtpthao/forward-proxy:0.1.1
+    image: dtpthao/forward-proxy:0.3.0
     container_name: forward-proxy
     ports:
       - "6191:6191"
@@ -23,7 +23,7 @@ services:
       - "auth.layer8.com:10.10.10.103"
 
   reverse-proxy:
-    image: dtpthao/reverse-proxy:0.1.1-multiarch
+    image: dtpthao/reverse-proxy:0.3.0
     container_name: reverse-proxy
     env_file:
       - ../reverse-proxy/.env.docker
