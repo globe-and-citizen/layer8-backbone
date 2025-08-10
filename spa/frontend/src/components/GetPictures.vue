@@ -63,16 +63,26 @@ onMounted(() => {
 <template>
     <div class="gallery-vertical">
         <h1>📸 Image Gallery</h1>
-
+        
         <div class="search-container">
-            <input v-model="searchName" type="text" placeholder="Enter Image Name" min="1" />
+            <input 
+                v-model="searchName" 
+                type="text" 
+                placeholder="Enter Image Name"
+                min="1"
+            />
             <button @click="searchImage">Search</button>
             <button @click="fetchAllImages">Show All</button>
         </div>
-
+        
         <div class="image-container">
-            <div class="image-card" v-for="image in images" :key="image.id" @click="openImage(image.id)">
-                <img :src="image.src" :alt="image.title" />
+            <div
+                class="image-card"
+                v-for="image in images"
+                :key="image.id"
+                @click="openImage(image.id)"
+            >
+                <img :src="image.src" :alt="image.title"/>
                 <h2>{{ image.title }}</h2>
             </div>
         </div>
@@ -109,13 +119,10 @@ onMounted(() => {
 
 .image-card {
     /* Add these new styles */
-    width: 300px;
-    /* Fixed width */
-    height: 300px;
-    /* Fixed height - adjust as needed */
+    width: 300px; /* Fixed width */
+    height: 300px; /* Fixed height - adjust as needed */
     margin: 10px;
-    overflow: hidden;
-    /* Hide any overflow from the image */
+    overflow: hidden; /* Hide any overflow from the image */
     cursor: pointer;
     border-radius: 8px;
     box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
@@ -128,10 +135,8 @@ onMounted(() => {
 
 .image-card img {
     width: 100%;
-    height: 80%;
-    /* Adjust this percentage based on how much space you want for the image vs text */
-    object-fit: cover;
-    /* This will maintain aspect ratio while filling the space */
+    height: 80%; /* Adjust this percentage based on how much space you want for the image vs text */
+    object-fit: cover; /* This will maintain aspect ratio while filling the space */
     display: block;
 }
 
