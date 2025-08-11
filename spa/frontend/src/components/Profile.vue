@@ -111,14 +111,19 @@ const loginWithLayer8Popup = async () => {
     const data = await response.json()
     // create opener window
     const popup = window.open(data.authURL, "Login with Layer8", "width=1200,height=900");
-
+    const token = getToken('jwt');
+    if (!token) {
+        console.error('No token found');
+        return;
+    }
     window.addEventListener("message", async (event) => {
         if (event.data.redr) {
             setTimeout(() => {
                 interceptorWasm.fetch(`${backend_url}/authorization-callback`, {
                     method: "POST",
                     headers: {
-                        "Content-Type": "Application/Json"
+                        "Content-Type": "Application/Json",
+                        'Authorization': `${token}`
                     },
                     body: JSON.stringify({
                         code: event.data.code

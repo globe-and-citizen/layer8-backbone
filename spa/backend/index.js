@@ -16,14 +16,12 @@ const SECRET_KEY = "my_very_secret_key";
 app.use(express.json());
 app.use(cors());
 
-let inMemoryUsers = users[0];
-
 // Hard-coded variables for now
 // Please login as client (layer8/12341234) to http://localhost:5001 and
 // replace the layer8secret and layer8Uuid with the values you get from the Layer8 client
 const layer8Secret =
-  "9f234ab798e441086760e8114211f2f7b47f6c4a95de45a8ae3a89270cd482bf";
-const layer8Uuid = "a953a6fe-19d3-4510-9581-57367f8b2f10";
+  "b38d5aa0b1a00844f647a2d15fe12aed";
+const layer8Uuid = "6385c715-d5e4-4084-8c69-963e522a3917";
 const LAYER8_URL = "http://localhost:5001";
 const LAYER8_CALLBACK_URL = "http://localhost:3030/oauth2/callback";
 const LAYER8_RESOURCE_URL = "http://localhost:5001/api/user";
@@ -132,7 +130,12 @@ app.post("/register", async (req, res) => {
     users.push({
       username,
       password: hashedPassword,
-      metadata: null, // New users have no metadata
+      metadata: {
+        email_verified: false,
+        country: "",
+        display_name: "",
+        color: ""
+      }
     });
     res.status(200).send("User registered successfully!");
   } catch (err) {
@@ -204,9 +207,8 @@ app.get("/profile/:username", (req, res) => {
 
     // If profile picture exists, include full URL
     if (user.metadata?.profilePicture) {
-      response.profilePicture = `${req.protocol}://${req.get("host")}${
-        user.metadata.profilePicture
-      }`;
+      response.profilePicture = `${req.protocol}://${req.get("host")}${user.metadata.profilePicture
+        }`;
     }
 
     res.status(200).json(response);
@@ -234,31 +236,37 @@ app.get("/download-profile/:username", (req, res) => {
   res.sendFile(filePath);
 });
 
-app.post("/update-user-profile-metadata", async (req, res) => {
-  const { email_verified, country, city, phone_number, address } = req.body;
-  if (email_verified) {
-    inMemoryUsers.metadata.email_verified = true;
-  }
-  if (country) {
-    inMemoryUsers.metadata.country = "Canada";
-  }
-  if (city) {
-    inMemoryUsers.metadata.city = "Vancouver";
-  }
-  if (phone_number) {
-    inMemoryUsers.metadata.phone_number = "1234567890";
-  }
-  if (address) {
-    inMemoryUsers.metadata.address = "123 Main St, Test Address";
-  }
-  res.status(200).json({ message: "Metadata updated successfully" });
-});
+// app.post("/update-user-profile-metadata", async (req, res) => {
+//   const { email_verified, country, city, phone_number, address } = req.body;
+//   if (email_verified) {
+//     inMemoryUsers.metadata.email_verified = true;
+//   }
+//   if (country) {
+//     inMemoryUsers.metadata.country = "Canada";
+//   }
+//   if (city) {
+//     inMemoryUsers.metadata.city = "Vancouver";
+//   }
+//   if (phone_number) {
+//     inMemoryUsers.metadata.phone_number = "1234567890";
+//   }
+//   if (address) {
+//     inMemoryUsers.metadata.address = "123 Main St, Test Address";
+//   }
+//   res.status(200).json({ message: "Metadata updated successfully" });
+// });
 
 app.get("/api/login/layer8/auth", async (req, res) => {
   res.status(200).json({ authURL: layer8Auth.code.getUri() });
 });
 
 app.post("/authorization-callback", async (req, res) => {
+  const token = req.headers.authorization;
+  const tokenStr = token.replace("Bearer ", "");
+  const payload = JSON.parse(atob(tokenStr.split('.')[1]));
+  const username = payload.username;
+
+  let inMemoryUsers = users.find((u) => u.username === username);
 
   const myHeaders = new Headers();
   myHeaders.append("Content-Type", "application/json");
