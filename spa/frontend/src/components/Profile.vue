@@ -4,7 +4,12 @@ import { getToken } from '@/utils.js';
 import router from '@/router';
 import * as interceptorWasm from "layer8-interceptor-production";
 import { getCurrentInstance } from 'vue';
-const { appContext } = getCurrentInstance();
+
+const instance = getCurrentInstance();
+if (!instance) {
+    throw new Error('getCurrentInstance() returned null. This component must be used within a Vue component context.');
+}
+const { appContext } = instance;
 const backend_url = appContext.config.globalProperties.$backend_url;
 
 const profile = ref({
@@ -27,9 +32,35 @@ const authOptions = ref({
     color: false
 });
 
-const downloadProfilePicture = () => {
-    if (!profile.value.username) return;
-    window.location.href = `${backend_url}/download-profile/${profile.value.username}`;
+const downloadProfilePicture = async () => {
+    if (!profile.value.profilePicture) return;
+    
+    let image = profile.value.profilePicture.split('uploads/')[1];
+    
+    try {
+        const response = await interceptorWasm.fetch(`${backend_url}/uploads/${image}`);
+        if (!response.ok) {
+            throw new Error('Network response was not ok');
+        }
+        
+        const blob = await response.blob();
+        
+        // Create a temporary URL for the blob
+        const url = window.URL.createObjectURL(blob);
+        
+        // Create a temporary anchor element to trigger download
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${profile.value.username}_profile_picture.${image.split('.').pop()}`;
+        document.body.appendChild(a);
+        a.click();
+        
+        // Clean up
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
+    } catch (error) {
+        console.error('Error downloading profile picture:', error);
+    }
 };
 
 const openAuthModal = () => {

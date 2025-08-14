@@ -218,23 +218,23 @@ app.get("/profile/:username", (req, res) => {
 });
 
 // Add this new endpoint for downloading profile pictures
-app.get("/download-profile/:username", (req, res) => {
-  const { username } = req.params;
-  const user = users.find((u) => u.username === username);
+// app.get("/download-profile/:username", (req, res) => {
+//   const { username } = req.params;
+//   const user = users.find((u) => u.username === username);
 
-  if (!user || !user.metadata?.profilePicture) {
-    return res.status(404).json({ error: "Profile picture not found!" });
-  }
+//   if (!user || !user.metadata?.profilePicture) {
+//     return res.status(404).json({ error: "Profile picture not found!" });
+//   }
 
-  const filePath = path.join(__dirname, user.metadata.profilePicture);
+//   const filePath = path.join(__dirname, user.metadata.profilePicture);
 
-  // Set headers to force download
-  res.setHeader(
-    "Content-Disposition",
-    `attachment; filename="${username}_profile${path.extname(filePath)}"`
-  );
-  res.sendFile(filePath);
-});
+//   // Set headers to force download
+//   res.setHeader(
+//     "Content-Disposition",
+//     `attachment; filename="${username}_profile${path.extname(filePath)}"`
+//   );
+//   res.sendFile(filePath);
+// });
 
 // app.post("/update-user-profile-metadata", async (req, res) => {
 //   const { email_verified, country, city, phone_number, address } = req.body;
