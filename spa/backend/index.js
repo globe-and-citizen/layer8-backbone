@@ -10,8 +10,8 @@ const multer = require("multer");
 const ClientOAuth2 = require("client-oauth2");
 
 const app = express();
-const port = 3000;
-const SECRET_KEY = "my_very_secret_key";
+const port = process.env.PORT || 3000;
+const SECRET_KEY = process.env.JWT_SECRET || "my_very_secret_key";
 
 app.use(express.json());
 app.use(cors());
@@ -21,12 +21,17 @@ let inMemoryUsers = users[0];
 // Hard-coded variables for now
 // Please login as client (layer8/12341234) to http://localhost:5001 and
 // replace the layer8secret and layer8Uuid with the values you get from the Layer8 client
-const layer8Secret =
-  "9f234ab798e441086760e8114211f2f7b47f6c4a95de45a8ae3a89270cd482bf";
-const layer8Uuid = "a953a6fe-19d3-4510-9581-57367f8b2f10";
-const LAYER8_URL = "http://localhost:5001";
-const LAYER8_CALLBACK_URL = "http://localhost:3030/oauth2/callback";
-const LAYER8_RESOURCE_URL = "http://localhost:5001/api/user";
+const layer8Secret = process.env.LAYER8_SECRET;// "4a73983ffd5fecfd8f6f2792121a6658";
+const layer8Uuid = process.env.LAYER8_UUID; // "26d6f8b5-9438-4556-872b-d60535d8d3c8";
+const LAYER8_URL = process.env.LAYER8_URL; // "http://52.221.209.158:5001";
+const LAYER8_CALLBACK_URL = process.env.LAYER8_CALLBACK_URL; // "http://localhost:3030/oauth2/callback";
+const LAYER8_RESOURCE_URL = process.env.LAYER8_RESOURCE_URL; // "http://localhost:5001/api/user";
+
+console.log("LAYER8_URL: ", LAYER8_URL);
+console.log("LAYER8_CALLBACK_URL: ", LAYER8_CALLBACK_URL);
+console.log("LAYER8_RESOURCE_URL: ", LAYER8_RESOURCE_URL);
+console.log("LAYER8_UUID: ", layer8Uuid);
+console.log("LAYER8_SECRET: ", layer8Secret);
 
 const layer8Auth = new ClientOAuth2({
   clientId: layer8Uuid,
@@ -328,6 +333,7 @@ app.post("/authorization-callback", async (req, res) => {
   res.status(200).json({ message: "Layer8 auth successful" });
 });
 
+const host = process.env.HOST || "localhost";
 app.listen(port, () => {
-  console.log(`Node.js server is running on http://localhost:${port}`);
+  console.log(`Node.js server is running on http://${host}:${port}`);
 });
