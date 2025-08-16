@@ -38,3 +38,17 @@ where
     })?;
     Ok(s.into_bytes())
 }
+
+pub fn string_to_bool<'de, D>(deserializer: D) -> Result<bool, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let s: String = Deserialize::deserialize(deserializer).map_err(|e| {
+        serde::de::Error::custom(format!("Failed to deserialize string to bool: {}", e))
+    })?;
+    match s.to_lowercase().as_str() {
+        "true" | "1" => Ok(true),
+        "false" | "0" => Ok(false),
+        _ => Err(serde::de::Error::custom("Expected 'true' or 'false'")),
+    }
+}

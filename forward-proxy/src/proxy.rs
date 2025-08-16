@@ -65,9 +65,9 @@ impl ProxyHttp for ForwardProxy {
         let sni = ctx.get(&consts::CtxKeys::UpstreamSNI.to_string()).unwrap();
         debug!("upstream_addr: {}, upstream_sni: {}", addr, sni);
 
-        let mut peer = HttpPeer::new(addr, true, sni.to_string());
+        let mut peer = HttpPeer::new(addr, self.tls_config.enable_tls, sni.to_string());
 
-        {
+        if self.tls_config.enable_tls {
             let cert = X509::from_pem(&self.tls_config.cert)
                 .or_err(TLS_CONF_ERR, "Failed to load FP's certificate")?;
 
@@ -171,11 +171,11 @@ impl ProxyHttp for ForwardProxy {
                         let port = url.port().map(|p| format!(":{}", p)).unwrap_or_default();
                         ctx.set(
                             consts::CtxKeys::UpstreamAddress.to_string(),
-                            format!("{}{}", addr, port)
+                            format!("{}{}", addr, port),
                         );
                         ctx.set(
                             consts::CtxKeys::UpstreamSNI.to_string(),
-                            url.domain().unwrap_or_default().to_string()
+                            url.domain().unwrap_or_default().to_string(),
                         );
                     } else {
                         error_response_bytes = ErrorResponse {
@@ -209,11 +209,11 @@ impl ProxyHttp for ForwardProxy {
 
                                     ctx.set(
                                         consts::CtxKeys::UpstreamAddress.to_string(),
-                                        format!("{}{}", addr, port)
+                                        format!("{}{}", addr, port),
                                     );
                                     ctx.set(
                                         consts::CtxKeys::UpstreamSNI.to_string(),
-                                        url.domain().unwrap_or_default().to_string()
+                                        url.domain().unwrap_or_default().to_string(),
                                     );
                                     vec![]
                                 } else {

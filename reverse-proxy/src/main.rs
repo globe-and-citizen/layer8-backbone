@@ -82,15 +82,23 @@ fn main() {
         ReverseProxy::new(router),
     );
 
-    my_proxy.add_tls_with_settings(
-        &format!(
+    if rp_config.tls.enable_tls {
+        my_proxy.add_tls_with_settings(
+            &format!(
+                "{}:{}",
+                rp_config.server.listen_address,
+                rp_config.server.listen_port
+            ),
+            None,
+            TlsSettings::with_callbacks(Box::new(rp_config.tls)).unwrap(),
+        );
+    } else {
+        my_proxy.add_tcp(&format!(
             "{}:{}",
             rp_config.server.listen_address,
             rp_config.server.listen_port
-        ),
-        None,
-        TlsSettings::with_callbacks(Box::new(rp_config.tls)).unwrap(),
-    );
+        ));
+    }
 
     // Listen on both endpoints
     // my_proxy.add_tcp("0.0.0.0:6193"); // Publicly accessible

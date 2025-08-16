@@ -8,6 +8,8 @@ use serde::Deserialize;
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct TlsConfig {
+    #[serde(deserialize_with = "utils::deserializer::string_to_bool")]
+    pub enable_tls: bool,
     pub path_to_ca_cert: String,
     pub path_to_cert: String,
     pub path_to_key: String,
