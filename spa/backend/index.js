@@ -16,8 +16,6 @@ const SECRET_KEY = process.env.JWT_SECRET || "my_very_secret_key";
 app.use(express.json());
 app.use(cors());
 
-let inMemoryUsers = users[0];
-
 // Hard-coded variables for now
 // Please login as client (layer8/12341234) to http://localhost:5001 and
 // replace the layer8secret and layer8Uuid with the values you get from the Layer8 client
@@ -137,7 +135,12 @@ app.post("/register", async (req, res) => {
     users.push({
       username,
       password: hashedPassword,
-      metadata: null, // New users have no metadata
+      metadata: {
+        email_verified: false,
+        country: "",
+        display_name: "",
+        color: ""
+      }
     });
     res.status(200).send("User registered successfully!");
   } catch (err) {
@@ -209,9 +212,8 @@ app.get("/profile/:username", (req, res) => {
 
     // If profile picture exists, include full URL
     if (user.metadata?.profilePicture) {
-      response.profilePicture = `${req.protocol}://${req.get("host")}${
-        user.metadata.profilePicture
-      }`;
+      response.profilePicture = `${req.protocol}://${req.get("host")}${user.metadata.profilePicture
+        }`;
     }
 
     res.status(200).json(response);
@@ -221,49 +223,55 @@ app.get("/profile/:username", (req, res) => {
 });
 
 // Add this new endpoint for downloading profile pictures
-app.get("/download-profile/:username", (req, res) => {
-  const { username } = req.params;
-  const user = users.find((u) => u.username === username);
+// app.get("/download-profile/:username", (req, res) => {
+//   const { username } = req.params;
+//   const user = users.find((u) => u.username === username);
 
-  if (!user || !user.metadata?.profilePicture) {
-    return res.status(404).json({ error: "Profile picture not found!" });
-  }
+//   if (!user || !user.metadata?.profilePicture) {
+//     return res.status(404).json({ error: "Profile picture not found!" });
+//   }
 
-  const filePath = path.join(__dirname, user.metadata.profilePicture);
+//   const filePath = path.join(__dirname, user.metadata.profilePicture);
 
-  // Set headers to force download
-  res.setHeader(
-    "Content-Disposition",
-    `attachment; filename="${username}_profile${path.extname(filePath)}"`
-  );
-  res.sendFile(filePath);
-});
+//   // Set headers to force download
+//   res.setHeader(
+//     "Content-Disposition",
+//     `attachment; filename="${username}_profile${path.extname(filePath)}"`
+//   );
+//   res.sendFile(filePath);
+// });
 
-app.post("/update-user-profile-metadata", async (req, res) => {
-  const { email_verified, country, city, phone_number, address } = req.body;
-  if (email_verified) {
-    inMemoryUsers.metadata.email_verified = true;
-  }
-  if (country) {
-    inMemoryUsers.metadata.country = "Canada";
-  }
-  if (city) {
-    inMemoryUsers.metadata.city = "Vancouver";
-  }
-  if (phone_number) {
-    inMemoryUsers.metadata.phone_number = "1234567890";
-  }
-  if (address) {
-    inMemoryUsers.metadata.address = "123 Main St, Test Address";
-  }
-  res.status(200).json({ message: "Metadata updated successfully" });
-});
+// app.post("/update-user-profile-metadata", async (req, res) => {
+//   const { email_verified, country, city, phone_number, address } = req.body;
+//   if (email_verified) {
+//     inMemoryUsers.metadata.email_verified = true;
+//   }
+//   if (country) {
+//     inMemoryUsers.metadata.country = "Canada";
+//   }
+//   if (city) {
+//     inMemoryUsers.metadata.city = "Vancouver";
+//   }
+//   if (phone_number) {
+//     inMemoryUsers.metadata.phone_number = "1234567890";
+//   }
+//   if (address) {
+//     inMemoryUsers.metadata.address = "123 Main St, Test Address";
+//   }
+//   res.status(200).json({ message: "Metadata updated successfully" });
+// });
 
 app.get("/api/login/layer8/auth", async (req, res) => {
   res.status(200).json({ authURL: layer8Auth.code.getUri() });
 });
 
 app.post("/authorization-callback", async (req, res) => {
+  const token = req.headers.authorization;
+  const tokenStr = token.replace("Bearer ", "");
+  const payload = JSON.parse(atob(tokenStr.split('.')[1]));
+  const username = payload.username;
+
+  let inMemoryUsers = users.find((u) => u.username === username);
 
   const myHeaders = new Headers();
   myHeaders.append("Content-Type", "application/json");
