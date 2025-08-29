@@ -167,11 +167,14 @@ impl ProxyHttp for ForwardProxy {
             ("/init-tunnel", "POST") => {
                 if let Some(url) = ctx.param("backend_url") {
                     if let Some(url) = utils::validate_url(url) {
-                        let addr = url.host_str().unwrap_or_default();
-                        let port = url.port().map(|p| format!(":{}", p)).unwrap_or_default();
+                        let socket_addr = url.socket_addrs(|| None).unwrap_or_default()
+                            .iter()
+                            .map(|addr| addr.to_string())
+                            .collect::<Vec<String>>()
+                            .join(",");
                         ctx.set(
                             consts::CtxKeys::UpstreamAddress.to_string(),
-                            format!("{}{}", addr, port),
+                            socket_addr
                         );
                         ctx.set(
                             consts::CtxKeys::UpstreamSNI.to_string(),
@@ -202,14 +205,14 @@ impl ProxyHttp for ForwardProxy {
                                 ctx.set(consts::CtxKeys::FpRpJwt.to_string(), session.fp_rp_jwt);
 
                                 if let Some(url) = utils::validate_url(&session.rp_base_url) {
-                                    let addr = url.host_str().unwrap();
-                                    let port = url.port()
-                                        .map(|p| format!(":{}", p))
-                                        .unwrap_or_default();
-
+                                    let socket_addr = url.socket_addrs(|| None).unwrap_or_default()
+                                        .iter()
+                                        .map(|addr| addr.to_string())
+                                        .collect::<Vec<String>>()
+                                        .join(",");
                                     ctx.set(
                                         consts::CtxKeys::UpstreamAddress.to_string(),
-                                        format!("{}{}", addr, port),
+                                        socket_addr
                                     );
                                     ctx.set(
                                         consts::CtxKeys::UpstreamSNI.to_string(),
