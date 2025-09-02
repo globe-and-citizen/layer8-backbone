@@ -20,8 +20,8 @@ app.use(cors());
 // Please login as client (layer8/12341234) to http://localhost:5001 and
 // replace the layer8secret and layer8Uuid with the values you get from the Layer8 client
 const layer8Secret =
-  "b38d5aa0b1a00844f647a2d15fe12aed";
-const layer8Uuid = "6385c715-d5e4-4084-8c69-963e522a3917";
+  "e89f7e659ace3ed91523a638e7f988f2";
+const layer8Uuid = "a22ba57a-0d92-4a78-9232-f159097e03a4";
 const LAYER8_URL = "http://localhost:5001";
 const LAYER8_CALLBACK_URL = "http://localhost:3030/oauth2/callback";
 const LAYER8_RESOURCE_URL = "http://localhost:5001/api/user";
@@ -217,45 +217,6 @@ app.get("/profile/:username", (req, res) => {
   }
 });
 
-// Add this new endpoint for downloading profile pictures
-// app.get("/download-profile/:username", (req, res) => {
-//   const { username } = req.params;
-//   const user = users.find((u) => u.username === username);
-
-//   if (!user || !user.metadata?.profilePicture) {
-//     return res.status(404).json({ error: "Profile picture not found!" });
-//   }
-
-//   const filePath = path.join(__dirname, user.metadata.profilePicture);
-
-//   // Set headers to force download
-//   res.setHeader(
-//     "Content-Disposition",
-//     `attachment; filename="${username}_profile${path.extname(filePath)}"`
-//   );
-//   res.sendFile(filePath);
-// });
-
-// app.post("/update-user-profile-metadata", async (req, res) => {
-//   const { email_verified, country, city, phone_number, address } = req.body;
-//   if (email_verified) {
-//     inMemoryUsers.metadata.email_verified = true;
-//   }
-//   if (country) {
-//     inMemoryUsers.metadata.country = "Canada";
-//   }
-//   if (city) {
-//     inMemoryUsers.metadata.city = "Vancouver";
-//   }
-//   if (phone_number) {
-//     inMemoryUsers.metadata.phone_number = "1234567890";
-//   }
-//   if (address) {
-//     inMemoryUsers.metadata.address = "123 Main St, Test Address";
-//   }
-//   res.status(200).json({ message: "Metadata updated successfully" });
-// });
-
 app.get("/api/login/layer8/auth", async (req, res) => {
   res.status(200).json({ authURL: layer8Auth.code.getUri() });
 });
@@ -325,10 +286,12 @@ app.post("/authorization-callback", async (req, res) => {
     })
     .catch((err) => console.error(err));
 
+    // console.log("metadataResponse: ", metadataResponse);
+
   if (metadataResponse.is_success) {
     inMemoryUsers.metadata.email_verified =
       metadataResponse.data.is_email_verified;
-    inMemoryUsers.metadata.country = metadataResponse.data.country;
+    inMemoryUsers.metadata.bio = metadataResponse.data.bio;
     inMemoryUsers.metadata.display_name = metadataResponse.data.display_name;
     inMemoryUsers.metadata.color = metadataResponse.data.color;
   }
