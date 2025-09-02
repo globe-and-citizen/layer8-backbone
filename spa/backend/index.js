@@ -222,45 +222,6 @@ app.get("/profile/:username", (req, res) => {
   }
 });
 
-// Add this new endpoint for downloading profile pictures
-// app.get("/download-profile/:username", (req, res) => {
-//   const { username } = req.params;
-//   const user = users.find((u) => u.username === username);
-
-//   if (!user || !user.metadata?.profilePicture) {
-//     return res.status(404).json({ error: "Profile picture not found!" });
-//   }
-
-//   const filePath = path.join(__dirname, user.metadata.profilePicture);
-
-//   // Set headers to force download
-//   res.setHeader(
-//     "Content-Disposition",
-//     `attachment; filename="${username}_profile${path.extname(filePath)}"`
-//   );
-//   res.sendFile(filePath);
-// });
-
-// app.post("/update-user-profile-metadata", async (req, res) => {
-//   const { email_verified, country, city, phone_number, address } = req.body;
-//   if (email_verified) {
-//     inMemoryUsers.metadata.email_verified = true;
-//   }
-//   if (country) {
-//     inMemoryUsers.metadata.country = "Canada";
-//   }
-//   if (city) {
-//     inMemoryUsers.metadata.city = "Vancouver";
-//   }
-//   if (phone_number) {
-//     inMemoryUsers.metadata.phone_number = "1234567890";
-//   }
-//   if (address) {
-//     inMemoryUsers.metadata.address = "123 Main St, Test Address";
-//   }
-//   res.status(200).json({ message: "Metadata updated successfully" });
-// });
-
 app.get("/api/login/layer8/auth", async (req, res) => {
   res.status(200).json({ authURL: layer8Auth.code.getUri() });
 });
@@ -330,10 +291,12 @@ app.post("/authorization-callback", async (req, res) => {
     })
     .catch((err) => console.error(err));
 
+    // console.log("metadataResponse: ", metadataResponse);
+
   if (metadataResponse.is_success) {
     inMemoryUsers.metadata.email_verified =
       metadataResponse.data.is_email_verified;
-    inMemoryUsers.metadata.country = metadataResponse.data.country;
+    inMemoryUsers.metadata.bio = metadataResponse.data.bio;
     inMemoryUsers.metadata.display_name = metadataResponse.data.display_name;
     inMemoryUsers.metadata.color = metadataResponse.data.color;
   }

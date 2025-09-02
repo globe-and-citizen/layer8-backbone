@@ -16,7 +16,7 @@ const profile = ref({
     username: "",
     metadata: {
         email_verified: false,
-        country: "",
+        bio: "",
         display_name: "",
         color: "",
 
@@ -27,7 +27,7 @@ const profile = ref({
 const showAuthModal = ref(false);
 const authOptions = ref({
     email_verified: false,
-    country: false,
+    bio: false,
     display_name: false,
     color: false
 });
@@ -119,10 +119,12 @@ const initializeAuth = async () => {
             profile.value.username = username;
             profile.value.profilePicture = data.profilePicture || "";
 
+            console.log("***************Profile metadata***************: ", data.metadata)
+
             if (data.metadata) {
                 profile.value.metadata = {
                     email_verified: data.metadata.email_verified || false,
-                    country: data.metadata.country || "",
+                    bio: data.metadata.bio || "",
                     display_name: data.metadata.display_name || "",
                     color: data.metadata.color || "",
                 };
@@ -184,7 +186,7 @@ const reputationScore = computed(() => {
 
     // Count each filled metadata (email_verified counts if true)
     if (metadata.email_verified) score++;
-    if (metadata.country) score++;
+    if (metadata.bio) score++;
     if (metadata.display_name) score++;
     if (metadata.color) score++;
 
@@ -220,7 +222,7 @@ const fetchProfileData = async () => {
         if (data.metadata) {
             profile.value.metadata = {
                 email_verified: data.metadata.email_verified || false,
-                country: data.metadata.country || "",
+                bio: data.metadata.bio || "",
                 display_name: data.metadata.display_name || "",
                 color: data.metadata.color || "",
             };
@@ -269,9 +271,9 @@ watch(() => profile.value.profilePicture, async (newUrl) => {
                             </span>
                         </div>
 
-                        <div v-if="profile.metadata.country" class="metadata-item">
-                            <strong>Country:</strong>
-                            <span>{{ profile.metadata.country }}</span>
+                        <div v-if="profile.metadata.bio" class="metadata-item">
+                            <strong>Bio:</strong>
+                            <span>{{ profile.metadata.bio }}</span>
                         </div>
 
                         <div v-if="profile.metadata.display_name" class="metadata-item">
@@ -311,8 +313,8 @@ watch(() => profile.value.profilePicture, async (newUrl) => {
                             <li :class="{ 'completed': profile.metadata.email_verified }">
                                 Email Verified
                             </li>
-                            <li :class="{ 'completed': profile.metadata.country }">
-                                Country Provided
+                            <li :class="{ 'completed': profile.metadata.bio }">
+                                Bio Provided
                             </li>
                             <li :class="{ 'completed': profile.metadata.display_name }">
                                 Display Name Provided
@@ -348,8 +350,8 @@ watch(() => profile.value.profilePicture, async (newUrl) => {
                             </div>
 
                             <div class="auth-option">
-                                <input type="checkbox" id="country" v-model="authOptions.country">
-                                <label for="country">Share Country</label>
+                                <input type="checkbox" id="bio" v-model="authOptions.bio">
+                                <label for="bio">Share Bio</label>
                             </div>
 
                             <div class="auth-option">

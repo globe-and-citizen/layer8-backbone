@@ -73,7 +73,7 @@ module.exports = {
       "password": "$2b$10$vPCe/tNw/t2MHK/tGetY1exyvp4AhTC9w6mY5jyHHRAJrClfd1yYW", // 1234
       "metadata": {
         "email_verified": false,
-        "country": "",
+        "bio": "",
         "display_name": "",
         "color": ""
       }
