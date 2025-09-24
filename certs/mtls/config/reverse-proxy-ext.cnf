@@ -1,0 +1,9 @@
+basicConstraints=CA:FALSE
+keyUsage = digitalSignature, keyEncipherment
+extendedKeyUsage = serverAuth
+subjectAltName = @alt_names
+
+[alt_names]
+DNS.1 = localhost
+DNS.2 = demobackend.layer8proxy.net
+DNS.3 = debug.layer8proxy.local

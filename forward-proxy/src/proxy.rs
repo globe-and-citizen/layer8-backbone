@@ -61,20 +61,45 @@ impl ProxyHttp for ForwardProxy {
         //
         // Code below is for step 4(this is a client to RP), presenting the client's TLS certificate.
 
-        let addr = ctx.get(&consts::CtxKeys::UpstreamAddress.to_string()).unwrap();
+        let addrs = ctx.get(&consts::CtxKeys::UpstreamAddress.to_string()).unwrap();
         let sni = ctx.get(&consts::CtxKeys::UpstreamSNI.to_string()).unwrap();
-        debug!("upstream_addr: {}, upstream_sni: {}", addr, sni);
+        debug!("upstream_addr: {}, upstream_sni: {}", addrs, sni);
 
-        let mut peer = HttpPeer::new(addr, self.tls_config.enable_tls, sni.to_string());
+        let address_list: Vec<&str> = addrs.split(',').collect();
+
+        let mut last_err = None;
+        let mut opt_peer = None;
+        for addr in &address_list {
+            match std::panic::catch_unwind(|| {
+                HttpPeer::new(addr, self.tls_config.enable_tls, sni.to_string())
+            }) {
+                Ok(p) => {
+                    opt_peer = Some(p);
+                    break;
+                }
+                Err(err) => {
+                    error!("Panic occurred while creating HttpPeer for {}: {:?}", addr, err);
+                    last_err = Some(err);
+                }
+            }
+        }
+
+        let mut peer = match opt_peer {
+            Some(p) => p,
+            None => {
+                error!("Failed to create HttpPeer for all addresses: {:?}", last_err);
+                return Err(pingora::Error::new(TLS_CONF_ERR));
+            }
+        };
 
         if self.tls_config.enable_tls {
-            let cert = X509::from_pem(&self.tls_config.cert)
+            let cert = X509::from_pem(&self.tls_config.cert.clone().into_bytes())
                 .or_err(TLS_CONF_ERR, "Failed to load FP's certificate")?;
 
-            let ca_cert = X509::from_pem(&self.tls_config.ca_cert)
+            let ca_cert = X509::from_pem(&self.tls_config.ca_cert.clone().into_bytes())
                 .or_err(TLS_CONF_ERR, "Failed to load CA certificate")?;
 
-            let key = boring::pkey::PKey::private_key_from_pem(&self.tls_config.key)
+            let key = boring::pkey::PKey::private_key_from_pem(&self.tls_config.key.clone().into_bytes())
                 .or_err(TLS_CONF_ERR, "Failed to load private key")?;
 
             // The certificate to present in mTLS connections to upstream
