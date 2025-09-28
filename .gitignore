@@ -34,6 +34,7 @@ docker/layer8-volumes/pg-data
 certs/ntor/*.pem
 
 spa/backend/uploads
-/certs/mtls/forward-proxy.csr
-/certs/mtls/reverse-proxy.csr
+/certs/mtls/*.csr
 /certs/mtls/ca.srl
+/certs/mtls/*.key
+/certs/mtls/*.pem

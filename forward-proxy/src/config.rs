@@ -55,6 +55,7 @@ impl LogConfig {
 
 impl TlsConfig {
     pub fn load(&mut self) -> Result<(), String> {
+        // todo validate certs?
         // self.ca_cert = std::fs::read(&self.path_to_ca_cert)
         //     .map_err(|e| format!("Failed to read CA certificate: {}", e))?;
         // self.cert = std::fs::read(&self.path_to_cert)
