@@ -13,6 +13,7 @@ use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
 use reqwest::header::TRANSFER_ENCODING;
 use std::sync::Arc;
 use std::time::Duration;
+use pingora_error::ErrorType;
 use pingora_router::handler::{ResponseBodyTrait};
 use crate::config::TlsConfig;
 use crate::handler::consts::HeaderKeys;
@@ -43,6 +44,38 @@ impl ProxyHttp for ForwardProxy {
         Layer8Context::default()
     }
 
+    fn fail_to_connect(
+        &self,
+        _session: &mut Session,
+        peer: &HttpPeer,
+        ctx: &mut Self::CTX,
+        mut e: Box<Error>,
+    ) -> Box<Error> {
+        let mut retry = false;
+        if e.etype == ErrorType::ConnectTimedout || e.etype == ErrorType::ConnectError
+            || e.etype == ErrorType::ConnectRefused {
+            let mut addrs = ctx.get(&consts::CtxKeys::UpstreamAddress.to_string())
+                .unwrap_or(&"".to_string())
+                .clone();
+
+            // remove failed socket address from the list
+            let idx = addrs.find(",");
+            if let Some(idx) = idx {
+                // set retry=true to recall Self::upstream_peer to try next address
+                retry = true;
+                addrs = addrs[idx + 1..].to_string();
+
+                ctx.set(consts::CtxKeys::UpstreamAddress.to_string(), addrs);
+            }
+            error!(
+                "Failed to connect to upstream addr: {}, err: {}, retry: {}",
+                peer._address.to_string(), e, retry
+            );
+        }
+        e.set_retry(retry);
+        e
+    }
+
     async fn upstream_peer(
         &self,
         _session: &mut Session,
@@ -65,11 +98,12 @@ impl ProxyHttp for ForwardProxy {
         let sni = ctx.get(&consts::CtxKeys::UpstreamSNI.to_string()).unwrap_or(&"".to_string()).clone();
         debug!("upstream_addr: {}, upstream_sni: {}", addrs, sni);
 
-        let address_list: Vec<&str> = addrs.split(',').collect();
-
-        let mut last_err = None;
+        // HttpPeer cannot connect to upstream without a valid socket(IP:PORT) address.
+        // A dns name can resolve to multiple socket addresses.
+        // We will try to connect to each address until one succeeds.
+        let mut address_list: Vec<&str> = addrs.split(',').collect();
         let mut opt_peer = None;
-        for addr in &address_list {
+        for addr in address_list.clone() {
             match std::panic::catch_unwind(|| {
                 HttpPeer::new(addr, self.tls_config.enable_tls, sni.to_string())
             }) {
@@ -79,7 +113,8 @@ impl ProxyHttp for ForwardProxy {
                 }
                 Err(err) => {
                     error!("Panic occurred while creating HttpPeer for {}: {:?}", addr, err);
-                    last_err = Some(err);
+                    address_list.retain(|&x| x != addr);
+                    ctx.set(consts::CtxKeys::UpstreamAddress.to_string(), address_list.join(","));
                 }
             }
         }
@@ -87,8 +122,8 @@ impl ProxyHttp for ForwardProxy {
         let mut peer = match opt_peer {
             Some(p) => p,
             None => {
-                error!("Failed to create HttpPeer for all addresses: {:?}", last_err);
-                return Err(pingora::Error::new(TLS_CONF_ERR));
+                error!("Failed to create HttpPeer for any socket address");
+                return Err(Error::new(ErrorType::ConnectError));
             }
         };
 
@@ -507,16 +542,5 @@ impl ProxyHttp for ForwardProxy {
         }
 
         Ok(None)
-    }
-
-    fn fail_to_connect(
-        &self,
-        _session: &mut Session,
-        _peer: &HttpPeer,
-        _ctx: &mut Self::CTX,
-        e: Box<Error>,
-    ) -> Box<Error> {
-        error!("Failed to connect to upstream: {}", e);
-        e
     }
 }
