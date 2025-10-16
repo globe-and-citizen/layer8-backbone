@@ -127,7 +127,7 @@ impl ProxyHandler {
 
         // Decrypt the request body using nTor shared secret
         let decrypted_data = ntor_server.decrypt(ntor::common::EncryptedMessage {
-            nonce: <[u8; 12]>::try_from(request_body.nonce).unwrap(),
+            nonce: <[u8; 12]>::try_from(request_body.nonce).unwrap_or_default(),
             data: request_body.data,
         }).map_err(|err| {
             return APIHandlerResponse {
@@ -164,7 +164,7 @@ impl ProxyHandler {
         let client = Client::new();
 
         let response = client.request(
-            wrapped_request.method.parse().unwrap(),
+            wrapped_request.method.parse().unwrap_or_default(),
             origin_url.as_str(),
         )
             .headers(header_map.clone())

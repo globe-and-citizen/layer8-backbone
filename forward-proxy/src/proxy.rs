@@ -61,8 +61,8 @@ impl ProxyHttp for ForwardProxy {
         //
         // Code below is for step 4(this is a client to RP), presenting the client's TLS certificate.
 
-        let addrs = ctx.get(&consts::CtxKeys::UpstreamAddress.to_string()).unwrap();
-        let sni = ctx.get(&consts::CtxKeys::UpstreamSNI.to_string()).unwrap();
+        let addrs = ctx.get(&consts::CtxKeys::UpstreamAddress.to_string()).unwrap_or(&"".to_string()).clone();
+        let sni = ctx.get(&consts::CtxKeys::UpstreamSNI.to_string()).unwrap_or(&"".to_string()).clone();
         debug!("upstream_addr: {}, upstream_sni: {}", addrs, sni);
 
         let address_list: Vec<&str> = addrs.split(',').collect();
@@ -160,14 +160,18 @@ impl ProxyHttp for ForwardProxy {
                 let mut header = ResponseHeader::build(handler_response.status, None)?;
                 let response_headers = header.headers.clone();
                 for (key, val) in response_headers.iter() {
-                    header.insert_header(key.clone(), val.clone()).unwrap();
+                    header
+                        .insert_header(key.clone(), val.clone())
+                        .map_err(|e| {
+                            error!("Cannot add request header {}:{:?}, err: {:?}", key.clone(), val.clone(), e)
+                        }).unwrap_or_default();
                 };
 
                 let mut response_bytes = vec![];
                 if let Some(body_bytes) = handler_response.body {
                     header
                         .insert_header("Content-length", &body_bytes.len().to_string())
-                        .unwrap();
+                        .unwrap_or_default();
                     response_bytes = body_bytes;
                 };
 
@@ -199,7 +203,7 @@ impl ProxyHttp for ForwardProxy {
                             .join(",");
                         ctx.set(
                             consts::CtxKeys::UpstreamAddress.to_string(),
-                            socket_addr
+                            socket_addr,
                         );
                         ctx.set(
                             consts::CtxKeys::UpstreamSNI.to_string(),
@@ -237,7 +241,7 @@ impl ProxyHttp for ForwardProxy {
                                         .join(",");
                                     ctx.set(
                                         consts::CtxKeys::UpstreamAddress.to_string(),
-                                        socket_addr
+                                        socket_addr,
                                     );
                                     ctx.set(
                                         consts::CtxKeys::UpstreamSNI.to_string(),
@@ -385,10 +389,8 @@ impl ProxyHttp for ForwardProxy {
                             Ok(session) => {
                                 upstream_request
                                     .insert_header(HeaderKeys::FpRpJwtKey.as_str(), session.fp_rp_jwt)
-                                    .unwrap();
-                                upstream_request
-                                    .remove_header(HeaderKeys::IntFpJwtKey.as_str())
-                                    .unwrap();
+                                    .unwrap_or_default();
+                                upstream_request.remove_header(HeaderKeys::IntFpJwtKey.as_str());
                             }
                             Err(err) => {
                                 error!(
@@ -415,7 +417,7 @@ impl ProxyHttp for ForwardProxy {
             upstream_request.remove_header("content-length");
             upstream_request
                 .insert_header(TRANSFER_ENCODING.as_str(), "chunked")
-                .unwrap();
+                .unwrap_or_default();
         }
 
         Ok(())

@@ -169,7 +169,7 @@ impl ForwardHandler {
         // get public key to initialize encrypted tunnel
         {
             // it's safe to use unwrap here because this param was already checked in `request_filter`
-            let backend_url = ctx.param("backend_url").unwrap().to_string();
+            let backend_url = ctx.param("backend_url").unwrap_or(&"".to_string()).to_string();
 
             let server_certificate = match self.get_public_key(backend_url.to_string(), ctx).await {
                 Ok(cert) => cert,
@@ -194,10 +194,10 @@ impl ForwardHandler {
     }
 
     pub fn handle_init_tunnel_response(&self, ctx: &mut Layer8Context) -> APIHandlerResponse {
-        let ntor_server_id = ctx.get(&consts::CtxKeys::NTorServerId.to_string()).unwrap().clone();
+        let ntor_server_id = ctx.get(&consts::CtxKeys::NTorServerId.to_string()).unwrap_or(&"".to_string()).clone();
         let ntor_static_public_key = hex::decode(
-            ctx.get(&consts::CtxKeys::NTorStaticPublicKey.to_string()).clone().unwrap()
-        ).unwrap();
+            ctx.get(&consts::CtxKeys::NTorStaticPublicKey.to_string()).clone().unwrap_or(&"".to_string())
+        ).unwrap_or_default();
 
         let response_body = ctx.get_response_body();
 
@@ -217,7 +217,7 @@ impl ForwardHandler {
                 };
 
                 let int_fp_session = IntFPSession {
-                    rp_base_url: ctx.param("backend_url").unwrap().to_string(),
+                    rp_base_url: ctx.param("backend_url").unwrap_or(&"".to_string()).to_string(),
                     fp_rp_jwt: res_from_rp.fp_rp_jwt,
                 };
 

@@ -63,7 +63,7 @@ impl TlsAccept for TlsConfig {
 
         ssl.set_custom_verify_callback(
             SslVerifyMode::PEER,
-            Self::verify_callback(ca_cert.public_key().unwrap()),
+            Self::verify_callback(ca_cert.public_key().unwrap_or_default()),
         );
     }
 }
@@ -98,7 +98,7 @@ impl TlsConfig {
         debug!("Debug Client certificate: {:?}", client_cert.subject_name());
 
         // Verify the client certificate against the server's CA
-        if !client_cert.verify(&server_ca_public_key).unwrap() {
+        if !client_cert.verify(&server_ca_public_key).unwrap_or_default() {
             log::error!("Client certificate verification failed");
             return Err(SslVerifyError::Invalid(SslAlert::BAD_CERTIFICATE));
         }
