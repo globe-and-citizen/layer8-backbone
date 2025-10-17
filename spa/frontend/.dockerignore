@@ -1,0 +1,13 @@
+**/target
+**/Cargo.lock
+**/package-lock.json
+**/node_modules
+**/.DS_Store
+**/.idea
+**/.vscode
+**/.gitignore
+**/.git
+.dockerignore
+**/Dockerfile
+**/log.txt
+**/log_*.txt

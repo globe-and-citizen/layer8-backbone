@@ -90,7 +90,7 @@ fn main() {
                 rp_config.server.listen_port
             ),
             None,
-            TlsSettings::with_callbacks(Box::new(rp_config.tls)).unwrap(),
+            TlsSettings::with_callbacks(Box::new(rp_config.tls)).expect("Cannot set TlsSettings callbacks")
         );
     } else {
         my_proxy.add_tcp(&format!(

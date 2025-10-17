@@ -13,6 +13,7 @@ use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
 use reqwest::header::TRANSFER_ENCODING;
 use std::sync::Arc;
 use std::time::Duration;
+use pingora_error::ErrorType;
 use pingora_router::handler::{ResponseBodyTrait};
 use crate::config::TlsConfig;
 use crate::handler::consts::HeaderKeys;
@@ -43,6 +44,38 @@ impl ProxyHttp for ForwardProxy {
         Layer8Context::default()
     }
 
+    fn fail_to_connect(
+        &self,
+        _session: &mut Session,
+        peer: &HttpPeer,
+        ctx: &mut Self::CTX,
+        mut e: Box<Error>,
+    ) -> Box<Error> {
+        let mut retry = false;
+        if e.etype == ErrorType::ConnectTimedout || e.etype == ErrorType::ConnectError
+            || e.etype == ErrorType::ConnectRefused {
+            let mut addrs = ctx.get(&consts::CtxKeys::UpstreamAddress.to_string())
+                .unwrap_or(&"".to_string())
+                .clone();
+
+            // remove failed socket address from the list
+            let idx = addrs.find(",");
+            if let Some(idx) = idx {
+                // set retry=true to recall Self::upstream_peer to try next address
+                retry = true;
+                addrs = addrs[idx + 1..].to_string();
+
+                ctx.set(consts::CtxKeys::UpstreamAddress.to_string(), addrs);
+            }
+            error!(
+                "Failed to connect to upstream addr: {}, err: {}, retry: {}",
+                peer._address.to_string(), e, retry
+            );
+        }
+        e.set_retry(retry);
+        e
+    }
+
     async fn upstream_peer(
         &self,
         _session: &mut Session,
@@ -61,20 +94,47 @@ impl ProxyHttp for ForwardProxy {
         //
         // Code below is for step 4(this is a client to RP), presenting the client's TLS certificate.
 
-        let addr = ctx.get(&consts::CtxKeys::UpstreamAddress.to_string()).unwrap();
-        let sni = ctx.get(&consts::CtxKeys::UpstreamSNI.to_string()).unwrap();
-        debug!("upstream_addr: {}, upstream_sni: {}", addr, sni);
+        let addrs = ctx.get(&consts::CtxKeys::UpstreamAddress.to_string()).unwrap_or(&"".to_string()).clone();
+        let sni = ctx.get(&consts::CtxKeys::UpstreamSNI.to_string()).unwrap_or(&"".to_string()).clone();
+        debug!("upstream_addr: {}, upstream_sni: {}", addrs, sni);
 
-        let mut peer = HttpPeer::new(addr, self.tls_config.enable_tls, sni.to_string());
+        // HttpPeer cannot connect to upstream without a valid socket(IP:PORT) address.
+        // A dns name can resolve to multiple socket addresses.
+        // We will try to connect to each address until one succeeds.
+        let mut address_list: Vec<&str> = addrs.split(',').collect();
+        let mut opt_peer = None;
+        for addr in address_list.clone() {
+            match std::panic::catch_unwind(|| {
+                HttpPeer::new(addr, self.tls_config.enable_tls, sni.to_string())
+            }) {
+                Ok(p) => {
+                    opt_peer = Some(p);
+                    break;
+                }
+                Err(err) => {
+                    error!("Panic occurred while creating HttpPeer for {}: {:?}", addr, err);
+                    address_list.retain(|&x| x != addr);
+                    ctx.set(consts::CtxKeys::UpstreamAddress.to_string(), address_list.join(","));
+                }
+            }
+        }
+
+        let mut peer = match opt_peer {
+            Some(p) => p,
+            None => {
+                error!("Failed to create HttpPeer for any socket address");
+                return Err(Error::new(ErrorType::ConnectError));
+            }
+        };
 
         if self.tls_config.enable_tls {
-            let cert = X509::from_pem(&self.tls_config.cert)
+            let cert = X509::from_pem(&self.tls_config.cert.clone().into_bytes())
                 .or_err(TLS_CONF_ERR, "Failed to load FP's certificate")?;
 
-            let ca_cert = X509::from_pem(&self.tls_config.ca_cert)
+            let ca_cert = X509::from_pem(&self.tls_config.ca_cert.clone().into_bytes())
                 .or_err(TLS_CONF_ERR, "Failed to load CA certificate")?;
 
-            let key = boring::pkey::PKey::private_key_from_pem(&self.tls_config.key)
+            let key = boring::pkey::PKey::private_key_from_pem(&self.tls_config.key.clone().into_bytes())
                 .or_err(TLS_CONF_ERR, "Failed to load private key")?;
 
             // The certificate to present in mTLS connections to upstream
@@ -135,14 +195,18 @@ impl ProxyHttp for ForwardProxy {
                 let mut header = ResponseHeader::build(handler_response.status, None)?;
                 let response_headers = header.headers.clone();
                 for (key, val) in response_headers.iter() {
-                    header.insert_header(key.clone(), val.clone()).unwrap();
+                    header
+                        .insert_header(key.clone(), val.clone())
+                        .map_err(|e| {
+                            error!("Cannot add request header {}:{:?}, err: {:?}", key.clone(), val.clone(), e)
+                        }).unwrap_or_default();
                 };
 
                 let mut response_bytes = vec![];
                 if let Some(body_bytes) = handler_response.body {
                     header
                         .insert_header("Content-length", &body_bytes.len().to_string())
-                        .unwrap();
+                        .unwrap_or_default();
                     response_bytes = body_bytes;
                 };
 
@@ -174,7 +238,7 @@ impl ProxyHttp for ForwardProxy {
                             .join(",");
                         ctx.set(
                             consts::CtxKeys::UpstreamAddress.to_string(),
-                            socket_addr
+                            socket_addr,
                         );
                         ctx.set(
                             consts::CtxKeys::UpstreamSNI.to_string(),
@@ -212,7 +276,7 @@ impl ProxyHttp for ForwardProxy {
                                         .join(",");
                                     ctx.set(
                                         consts::CtxKeys::UpstreamAddress.to_string(),
-                                        socket_addr
+                                        socket_addr,
                                     );
                                     ctx.set(
                                         consts::CtxKeys::UpstreamSNI.to_string(),
@@ -360,10 +424,8 @@ impl ProxyHttp for ForwardProxy {
                             Ok(session) => {
                                 upstream_request
                                     .insert_header(HeaderKeys::FpRpJwtKey.as_str(), session.fp_rp_jwt)
-                                    .unwrap();
-                                upstream_request
-                                    .remove_header(HeaderKeys::IntFpJwtKey.as_str())
-                                    .unwrap();
+                                    .unwrap_or_default();
+                                upstream_request.remove_header(HeaderKeys::IntFpJwtKey.as_str());
                             }
                             Err(err) => {
                                 error!(
@@ -390,7 +452,7 @@ impl ProxyHttp for ForwardProxy {
             upstream_request.remove_header("content-length");
             upstream_request
                 .insert_header(TRANSFER_ENCODING.as_str(), "chunked")
-                .unwrap();
+                .unwrap_or_default();
         }
 
         Ok(())
@@ -480,16 +542,5 @@ impl ProxyHttp for ForwardProxy {
         }
 
         Ok(None)
-    }
-
-    fn fail_to_connect(
-        &self,
-        _session: &mut Session,
-        _peer: &HttpPeer,
-        _ctx: &mut Self::CTX,
-        e: Box<Error>,
-    ) -> Box<Error> {
-        error!("Failed to connect to upstream: {}", e);
-        e
     }
 }

@@ -10,18 +10,14 @@ use serde::Deserialize;
 pub struct TlsConfig {
     #[serde(deserialize_with = "utils::deserializer::string_to_bool")]
     pub enable_tls: bool,
-    pub path_to_ca_cert: String,
-    pub path_to_cert: String,
-    pub path_to_key: String,
+    pub ca_cert: String,
+    pub cert: String,
+    pub key: String,
 }
 
 #[async_trait::async_trait]
 impl TlsAccept for TlsConfig {
     async fn certificate_callback(&self, ssl: &mut TlsRef) {
-        let ca_pem = cert::ca_pem(self.path_to_ca_cert.clone());
-        let server_pem = cert::cert(self.path_to_cert.clone());
-        let server_key = cert::key(self.path_to_key.clone());
-
         // set the hostname for the SSL context
         ssl.set_hostname("localhost")
             .inspect_err(|e| {
@@ -31,7 +27,7 @@ impl TlsAccept for TlsConfig {
 
         // provide the private key
         {
-            let key = PKey::private_key_from_pem(&server_key)
+            let key = PKey::private_key_from_pem(&self.key.clone().into_bytes())
                 .inspect_err(|e| {
                     log::error!("Failed to parse server private key: {}", e);
                 })
@@ -45,7 +41,7 @@ impl TlsAccept for TlsConfig {
 
         // provide the certificate chain file
         {
-            let cert = boring::x509::X509::from_pem(&server_pem)
+            let cert = boring::x509::X509::from_pem(&self.cert.clone().into_bytes())
                 .inspect_err(|e| {
                     log::error!("Failed to parse server certificate: {}", e);
                 })
@@ -59,7 +55,7 @@ impl TlsAccept for TlsConfig {
         }
 
         // the CA certificate is used to verify the client certificate
-        let ca_cert = boring::x509::X509::from_pem(&ca_pem)
+        let ca_cert = boring::x509::X509::from_pem(&self.ca_cert.clone().into_bytes())
             .inspect_err(|e| {
                 log::error!("Failed to parse CA certificate: {}", e);
             })
@@ -67,7 +63,7 @@ impl TlsAccept for TlsConfig {
 
         ssl.set_custom_verify_callback(
             SslVerifyMode::PEER,
-            Self::verify_callback(ca_cert.public_key().unwrap()),
+            Self::verify_callback(ca_cert.public_key().unwrap_or_default()),
         );
     }
 }
@@ -102,7 +98,7 @@ impl TlsConfig {
         debug!("Debug Client certificate: {:?}", client_cert.subject_name());
 
         // Verify the client certificate against the server's CA
-        if !client_cert.verify(&server_ca_public_key).unwrap() {
+        if !client_cert.verify(&server_ca_public_key).unwrap_or_default() {
             log::error!("Client certificate verification failed");
             return Err(SslVerifyError::Invalid(SslAlert::BAD_CERTIFICATE));
         }

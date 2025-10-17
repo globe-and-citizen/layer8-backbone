@@ -113,7 +113,7 @@ impl ReverseHandler {
 
         NTOR_SHARED_SECRETS.with(|memory| {
             let mut guard: MutexGuard<HashMap<String, Vec<u8>>> = memory.lock().unwrap();
-            guard.insert(ntor_session_id, ntor_server.get_shared_secret().unwrap());
+            guard.insert(ntor_session_id, ntor_server.get_shared_secret().unwrap_or_default());
         });
 
         APIHandlerResponse {

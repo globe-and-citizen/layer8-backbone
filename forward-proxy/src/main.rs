@@ -15,7 +15,7 @@ fn load_config() -> FPConfig {
     dotenv::dotenv().ok();
 
     // Deserialize from env vars
-    let mut config: FPConfig = envy::from_env().unwrap();
+    let mut config: FPConfig = envy::from_env().expect("Failed to load config");
 
     config.tls_config.load().expect("Failed to load TLS configuration");
 
@@ -52,7 +52,7 @@ fn main() {
     let mut server = Server::new(Some(Opt {
         conf: std::env::var("SERVER_CONF").ok(),
         ..Default::default()
-    })).unwrap();
+    })).expect("Failed to create server");
     server.bootstrap();
 
     let fp_handler = ForwardHandler::new(config.handler_config);
