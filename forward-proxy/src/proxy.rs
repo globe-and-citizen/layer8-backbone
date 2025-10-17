@@ -1,7 +1,6 @@
 use async_trait::async_trait;
 use boring::x509::X509;
 use bytes::Bytes;
-use log::{debug, error, info};
 use pingora::Error;
 use pingora::OrErr;
 use pingora::http::{RequestHeader, ResponseHeader, StatusCode};
@@ -14,6 +13,7 @@ use reqwest::header::TRANSFER_ENCODING;
 use std::sync::Arc;
 use std::time::Duration;
 use pingora_error::ErrorType;
+use tracing::{debug, error, info};
 use pingora_router::handler::{ResponseBodyTrait};
 use crate::config::TlsConfig;
 use crate::handler::consts::HeaderKeys;
@@ -96,7 +96,7 @@ impl ProxyHttp for ForwardProxy {
 
         let addrs = ctx.get(&consts::CtxKeys::UpstreamAddress.to_string()).unwrap_or(&"".to_string()).clone();
         let sni = ctx.get(&consts::CtxKeys::UpstreamSNI.to_string()).unwrap_or(&"".to_string()).clone();
-        debug!("upstream_addr: {}, upstream_sni: {}", addrs, sni);
+        debug!(upstream_addrs=addrs, upstream_sni=sni);
 
         // HttpPeer cannot connect to upstream without a valid socket(IP:PORT) address.
         // A dns name can resolve to multiple socket addresses.
@@ -112,7 +112,7 @@ impl ProxyHttp for ForwardProxy {
                     break;
                 }
                 Err(err) => {
-                    error!("Panic occurred while creating HttpPeer for {}: {:?}", addr, err);
+                    error!(failed_addr=addr, err_message="Panic occurred while creating HttpPeer", error=?err);
                     address_list.retain(|&x| x != addr);
                     ctx.set(consts::CtxKeys::UpstreamAddress.to_string(), address_list.join(","));
                 }
@@ -122,7 +122,7 @@ impl ProxyHttp for ForwardProxy {
         let mut peer = match opt_peer {
             Some(p) => p,
             None => {
-                error!("Failed to create HttpPeer for any socket address");
+                error!(error_message="Failed to create HttpPeer for any socket address");
                 return Err(Error::new(ErrorType::ConnectError));
             }
         };
@@ -167,9 +167,7 @@ impl ProxyHttp for ForwardProxy {
         // create Context
         ctx.update(session).await?;
         let request_summary = session.request_summary();
-        println!();
         info!("[REQUEST {}] {:?}", request_summary, ctx.request);
-        println!();
 
         match session.req_header().method {
             pingora::http::Method::OPTIONS => {
@@ -212,14 +210,12 @@ impl ProxyHttp for ForwardProxy {
 
                 session.write_response_header_ref(&header).await?;
 
-                println!();
                 info!("[RESPONSE {}] Header: {:?}", request_summary, header.headers);
                 info!(
                     "[RESPONSE {}] Body: {}",
                     request_summary,
                     String::from_utf8_lossy(&*response_bytes)
                 );
-                println!();
 
                 // Write the response body to the session after setting headers
                 session

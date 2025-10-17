@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use log::{error, info};
 use pingora::http::StatusCode;
 use reqwest::Client;
 use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
@@ -8,6 +7,7 @@ use pingora_router::handler::{APIHandlerResponse, DefaultHandlerTrait, RequestBo
 use crate::handler::types::response::{ErrorResponse, FpHealthcheckError, FpHealthcheckSuccess, InitTunnelResponseFromRP, InitTunnelResponseToINT};
 use pingora_router::handler::ResponseBodyTrait;
 use serde::Deserialize;
+use tracing::{debug, error};
 use crate::handler::types::request::InitTunnelRequest;
 use utils;
 use utils::jwt::JWTClaims;
@@ -111,7 +111,7 @@ impl ForwardHandler {
                     }
                 })?;
 
-            info!("AuthenticationServer response: {:?}", cert);
+            debug!("AuthenticationServer response: {:?}", cert);
 
             Ok(NTorServerCertificate {
                 server_id: backend_url, // todo I still prefer taking the server_id value from certificate's subject
@@ -175,7 +175,7 @@ impl ForwardHandler {
                 Ok(cert) => cert,
                 Err(err) => return err
             };
-            info!("Server certificate: {:?}", server_certificate);
+            debug!("Server certificate: {:?}", server_certificate);
 
             ctx.set(
                 consts::CtxKeys::NTorServerId.to_string(),

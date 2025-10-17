@@ -1,6 +1,7 @@
 pub mod jwt;
 pub mod cert;
 pub mod deserializer;
+pub mod log;
 
 use url::Url;
 
@@ -11,7 +12,7 @@ use uuid::Uuid;
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 
 use serde::{Deserialize, Serialize};
-use log::error;
+use tracing::error;
 
 pub fn to_reqwest_header(map: HashMap<String, String>) -> HeaderMap {
     let mut header_map = HeaderMap::new();
