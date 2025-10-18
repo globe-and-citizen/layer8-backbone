@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use pingora::http::{Method, RequestHeader};
+use pingora::http::{Method, RequestHeader, StatusCode};
 use pingora::proxy::Session;
 use crate::utils::get_request_body;
 
@@ -28,6 +28,11 @@ impl Layer8ContextRequestSummary {
             .unwrap_or_else(|| "".to_string());
         let path = session.req_header().uri.path().to_string();
         let query = session.req_header().uri.query();
+
+        // let mut client_ip = "".to_string();
+        // if let Some(client_addr) = session.client_addr() {
+        //     client_ip = client_addr.to_string();
+        // }
 
         let mut params = HashMap::new();
         if let Some(query) = query {
@@ -68,6 +73,7 @@ impl Layer8ContextRequest {
 /// shared across handlers during request processing
 #[derive(Debug, Clone, Default)]
 pub struct Layer8ContextResponse {
+    pub status: StatusCode,
     pub header: Layer8Header,
     body: Vec<u8>,
 }

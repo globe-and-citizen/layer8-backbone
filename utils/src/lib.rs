@@ -134,3 +134,11 @@ pub fn headermap_to_hashmap(headers: &HeaderMap) -> HashMap<String, serde_json::
 pub fn validate_url(url: &str) -> Option<Url> {
     Url::parse(url).ok()
 }
+
+pub fn get_socket_addrs(url: Url) -> String {
+    url.socket_addrs(|| None).unwrap_or_default()
+        .iter()
+        .map(|addr| addr.to_string())
+        .collect::<Vec<String>>()
+        .join(",")
+}

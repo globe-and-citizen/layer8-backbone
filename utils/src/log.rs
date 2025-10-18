@@ -23,6 +23,7 @@ pub fn init_logger(service_name: &str, level: String, _log_path: String) {
         .with_file(true)     // ✅ include file path
         .with_line_number(true) // ✅ include line number
         .flatten_event(true)
+        .with_ansi(true)
         // .with_writer(nb)
         .init();
 
@@ -41,3 +42,5 @@ fn to_level_filter(level: String) -> LevelFilter {
         _ => LevelFilter::INFO
     }
 }
+
+
