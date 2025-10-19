@@ -61,7 +61,7 @@ impl ForwardHandler {
             self.config.auth_get_certificate_url,
             backend_url.replace("http://", "").replace("https://", "")
         );
-        let res = client.get(request_path)
+        let res = client.get(&request_path)
             .header("Authorization", format!("Bearer {}", self.config.auth_access_token))
             .send()
             .await
