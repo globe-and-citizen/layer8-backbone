@@ -1,9 +1,8 @@
-use log::{error, info};
 use pingora::http::StatusCode;
 use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
 use pingora_router::handler::{APIHandlerResponse, DefaultHandlerTrait, ResponseBodyTrait};
 use reqwest::Client;
-use crate::handler::common::consts::INIT_TUNNEL_TO_BACKEND_PATH;
+use tracing::{error, info};
 use crate::handler::common::types::ErrorResponse;
 use crate::handler::init_tunnel::{InitEncryptedTunnelRequest, InitTunnelRequestToBackend};
 
@@ -15,7 +14,7 @@ impl DefaultHandlerTrait for InitTunnelHandler {}
 impl InitTunnelHandler {
     pub(crate) async fn validate_request_body(
         ctx: &mut Layer8Context,
-        backend_url: String,
+        _backend_url: String,
     ) -> Result<InitEncryptedTunnelRequest, APIHandlerResponse>
     {
         return match InitTunnelHandler::parse_request_body::<
@@ -30,7 +29,7 @@ impl InitTunnelHandler {
                     Some(err_response) => Some(err_response.to_bytes())
                 };
 
-                InitTunnelHandler::send_result_to_be(backend_url, false).await;
+                // InitTunnelHandler::send_result_to_be(backend_url, false).await;
 
                 Err(APIHandlerResponse {
                     status: StatusCode::BAD_REQUEST,
@@ -40,15 +39,17 @@ impl InitTunnelHandler {
         };
     }
 
+    /// Deprecated: Sends the result of the init-tunnel operation to the backend service.
+    #[allow(dead_code)]
     pub(crate) async fn send_result_to_be(backend_url: String, result: bool) {
         let body = InitTunnelRequestToBackend {
             success: result,
         };
 
-        let request_url = format!("{backend_url}{INIT_TUNNEL_TO_BACKEND_PATH}");
+        let request_url = format!("{backend_url}/init-tunnel");
 
         let log_meta = format!("[FORWARD {}]", request_url);
-        info!("{log_meta} request to BE body: {:?}", body);
+        info!("Request to BE body: {:?}", body);
 
         let client = Client::new();
         match client.post(request_url)
