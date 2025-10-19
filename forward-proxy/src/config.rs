@@ -34,15 +34,9 @@ pub struct HandlerConfig {
 pub struct TlsConfig {
     #[serde(deserialize_with = "deserializer::string_to_bool")]
     pub enable_tls: bool,
-    pub path_to_ca_cert: String,
-    pub path_to_cert: String,
-    pub path_to_key: String,
-    #[serde(skip_deserializing)]
-    pub ca_cert: Vec<u8>,
-    #[serde(skip_deserializing)]
-    pub cert: Vec<u8>,
-    #[serde(skip_deserializing)]
-    pub key: Vec<u8>,
+    pub ca_cert: String,
+    pub cert: String,
+    pub key: String,
 }
 
 impl LogConfig {
@@ -61,12 +55,9 @@ impl LogConfig {
 
 impl TlsConfig {
     pub fn load(&mut self) -> Result<(), String> {
-        self.ca_cert = std::fs::read(&self.path_to_ca_cert)
-            .map_err(|e| format!("Failed to read CA certificate: {}", e))?;
-        self.cert = std::fs::read(&self.path_to_cert)
-            .map_err(|e| format!("Failed to read certificate: {}", e))?;
-        self.key = std::fs::read(&self.path_to_key)
-            .map_err(|e| format!("Failed to read key: {}", e))?;
+        // todo validate certs?
+        // this method was created to load certificates from files but now certs are directly in config.
+        // so it does nothing for now, but kept for future use to validate certs if needed
         Ok(())
     }
 }

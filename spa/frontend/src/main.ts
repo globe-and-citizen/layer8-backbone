@@ -8,6 +8,10 @@ import { initEncryptedTunnel, ServiceProvider } from "layer8-interceptor-product
 let forward_proxy_url = import.meta.env.VITE_FORWARD_PROXY_URL || 'http://localhost:6191';
 let backend_url = import.meta.env.VITE_BACKEND_URL || 'http://10.10.10.102:6193';
 
+console.log('environment variables:', import.meta.env);
+console.log(`Forward Proxy URL: ${forward_proxy_url}`);
+console.log(`Backend URL: ${backend_url}`);
+
 try {
     let providers = [ServiceProvider.new(backend_url)];
     initEncryptedTunnel(forward_proxy_url, providers);

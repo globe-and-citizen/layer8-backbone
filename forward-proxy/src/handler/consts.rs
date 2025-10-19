@@ -1,5 +1,6 @@
 // can be replaced by constants, will see
 pub enum HeaderKeys {
+    #[allow(dead_code)]
     IntRpJwtKey,
     IntFpJwtKey,
     FpRpJwtKey
@@ -20,7 +21,9 @@ pub enum CtxKeys {
     NTorStaticPublicKey,
     UpstreamAddress,
     UpstreamSNI,
+    #[allow(dead_code)]
     IntRPJwt,
+    #[allow(dead_code)]
     IntFPJwt,
     FpRpJwt,
 }

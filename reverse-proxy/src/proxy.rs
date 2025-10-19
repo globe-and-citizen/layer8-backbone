@@ -27,23 +27,23 @@ impl<T> ReverseProxy<T> {
 
         let response_header = ctx.get_response_header().clone();
         for (key, val) in response_header.iter() {
-            header.insert_header(key.clone(), val.clone()).unwrap();
+            header.insert_header(key.clone(), val.clone()).unwrap_or_default();
         };
 
         // Common headers
-        header.insert_header("Content-Type", "application/json").unwrap();
+        header.insert_header("Content-Type", "application/json").unwrap_or_default();
         header
             .insert_header("Access-Control-Allow-Origin", "*")
-            .unwrap();
+            .unwrap_or_default();
         header
             .insert_header("Access-Control-Allow-Methods", "*")
-            .unwrap();
+            .unwrap_or_default();
         header
             .insert_header("Access-Control-Allow-Headers", "*")
-            .unwrap();
+            .unwrap_or_default();
         header
             .insert_header("Access-Control-Max-Age", "86400")
-            .unwrap();
+            .unwrap_or_default();
 
         println!();
         info!("[RESPONSE {} {}] Header: {:?}", session.req_header().method,
@@ -122,7 +122,7 @@ impl<T: Sync> ProxyHttp for ReverseProxy<T> {
             error!(
                 "{} error: {}",
                 self.request_summary(session, ctx),
-                e.as_ref().unwrap()
+                e.as_ref().unwrap_or_default()
             );
         }
 
