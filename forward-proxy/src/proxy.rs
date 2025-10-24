@@ -1,3 +1,8 @@
+use crate::config::{InfluxDBConfig, TlsConfig};
+use crate::handler::consts::{HeaderKeys, LogTypes};
+use crate::handler::types::response::ErrorResponse;
+use crate::handler::{ForwardHandler, consts};
+use crate::statistics::InfluxDBClient;
 use async_trait::async_trait;
 use boring::x509::X509;
 use bytes::Bytes;
@@ -8,27 +13,31 @@ use pingora::listeners::tls::TLS_CONF_ERR;
 use pingora::prelude::{HttpPeer, ProxyHttp, Session};
 use pingora::upstreams::peer::PeerOptions;
 use pingora::utils::tls::CertKey;
+use pingora_error::ErrorType;
 use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
+use pingora_router::handler::ResponseBodyTrait;
 use reqwest::header::TRANSFER_ENCODING;
 use std::sync::Arc;
+use tokio::sync::Mutex;
 use std::time::Duration;
-use pingora_error::ErrorType;
 use tracing::{debug, error, info};
-use pingora_router::handler::{ResponseBodyTrait};
-use crate::config::TlsConfig;
-use crate::handler::consts::{HeaderKeys, LogTypes};
-use crate::handler::{consts, ForwardHandler};
-use crate::handler::types::response::ErrorResponse;
 
 pub struct ForwardProxy {
     tls_config: TlsConfig,
+    influxdb_client: Arc<Mutex<InfluxDBClient>>,
     handler: ForwardHandler,
 }
 
 impl ForwardProxy {
-    pub fn new(tls_config: TlsConfig, handler: ForwardHandler) -> Self {
+    pub fn new(
+        tls_config: TlsConfig,
+        influxdb_config: InfluxDBConfig,
+        handler: ForwardHandler,
+    ) -> Self {
+        let influxdb_client = InfluxDBClient::new(&influxdb_config);
         ForwardProxy {
             tls_config,
+            influxdb_client: Arc::new(Mutex::new(influxdb_client)),
             handler,
         }
     }
@@ -63,40 +72,47 @@ impl ProxyHttp for ForwardProxy {
         // Code below is for step 4(this is a client to RP), presenting the client's TLS certificate.
 
         let addrs = ctx.get(&consts::CtxKeys::UpstreamAddress.to_string()).unwrap_or(&"".to_string()).clone();
-        let sni = ctx.get(&consts::CtxKeys::UpstreamSNI.to_string()).unwrap_or(&"".to_string()).clone();
+        let sni = ctx
+            .get(&consts::CtxKeys::UpstreamSNI.to_string())
+            .unwrap_or(&"".to_string())
+            .clone();
         info!(
-            log_type=LogTypes::UPSTREAM_CONNECT,
-            addresses=addrs,
-            sni=sni
+            log_type = LogTypes::UPSTREAM_CONNECT,
+            addresses = addrs,
+            sni = sni
         );
 
         // HttpPeer cannot connect to upstream without a valid socket(IP:PORT) address.
         // A dns name can resolve to multiple socket addresses.
         // We will try to connect to each address until one succeeds.
         let mut address_list: Vec<&str> = addrs.split(',').collect();
+        let enable_tls = self.tls_config.enable_tls; // clone for move into closure
+        let upstream_sni = sni.to_string();         // clone for move into closure
         let mut opt_peer = None;
         for addr in address_list.clone() {
             match std::panic::catch_unwind(|| {
-                HttpPeer::new(addr, self.tls_config.enable_tls, sni.to_string())
+                HttpPeer::new(addr, enable_tls, upstream_sni.clone())
             }) {
                 Ok(p) => {
                     info!(
-                        log_type=LogTypes::UPSTREAM_CONNECT,
-                        "Created HttpPeer for addr: {}",
-                        addr
+                        log_type = LogTypes::UPSTREAM_CONNECT,
+                        "Created HttpPeer for addr: {}", addr
                     );
                     opt_peer = Some(p);
                     break;
                 }
                 Err(err) => {
                     error!(
-                        log_type=LogTypes::UPSTREAM_CONNECT,
+                        log_type = LogTypes::UPSTREAM_CONNECT,
                         "Panic occurred while creating HttpPeer for addr: {}, error: {:?}",
                         addr,
                         err
                     );
                     address_list.retain(|&x| x != addr);
-                    ctx.set(consts::CtxKeys::UpstreamAddress.to_string(), address_list.join(","));
+                    ctx.set(
+                        consts::CtxKeys::UpstreamAddress.to_string(),
+                        address_list.join(","),
+                    );
                 }
             }
         }
@@ -105,7 +121,7 @@ impl ProxyHttp for ForwardProxy {
             Some(p) => p,
             None => {
                 error!(
-                    log_type=LogTypes::UPSTREAM_CONNECT,
+                    log_type = LogTypes::UPSTREAM_CONNECT,
                     "Failed to create HttpPeer for any socket address"
                 );
                 return Err(Error::new(ErrorType::ConnectError));
@@ -119,8 +135,9 @@ impl ProxyHttp for ForwardProxy {
             let ca_cert = X509::from_pem(&self.tls_config.ca_cert.clone().into_bytes())
                 .or_err(TLS_CONF_ERR, "Failed to load CA certificate")?;
 
-            let key = boring::pkey::PKey::private_key_from_pem(&self.tls_config.key.clone().into_bytes())
-                .or_err(TLS_CONF_ERR, "Failed to load private key")?;
+            let key =
+                boring::pkey::PKey::private_key_from_pem(&self.tls_config.key.clone().into_bytes())
+                    .or_err(TLS_CONF_ERR, "Failed to load private key")?;
 
             // The certificate to present in mTLS connections to upstream
             // The organization implementing mTLS acts as its own certificate authority.
@@ -151,16 +168,21 @@ impl ProxyHttp for ForwardProxy {
     {
         // create Context
         ctx.update(session).await?;
-        let request_id = session.req_header().headers.get("x-request-id").map(|v| v.to_str().unwrap_or("")).unwrap_or("");
+        let request_id = session
+            .req_header()
+            .headers
+            .get("x-request-id")
+            .map(|v| v.to_str().unwrap_or(""))
+            .unwrap_or("");
         info!(
-            log_type=LogTypes::ACCESS_LOG,
-            client_ip=ctx.request.summary.host,
-            request_summary=session.request_summary(),
+            log_type = LogTypes::ACCESS_LOG,
+            client_ip = ctx.request.summary.host,
+            request_summary = session.request_summary(),
             // status=resp.status,
             // duration_ms=duration_ms,
             // bytes_out=resp.body.len(),
-            user_agent=ctx.request.header.get("User-Agent"),
-            request_id=request_id,
+            user_agent = ctx.request.header.get("User-Agent"),
+            request_id = request_id,
         );
 
         match session.req_header().method {
@@ -181,7 +203,7 @@ impl ProxyHttp for ForwardProxy {
         let mut error_response_bytes: Vec<u8> = vec![];
         match (
             session.req_header().uri.path(),
-            session.req_header().method.as_str()
+            session.req_header().method.as_str(),
         ) {
             ("/healthcheck", "GET") => {
                 let handler_response = self.handler.handle_healthcheck(ctx);
@@ -192,14 +214,15 @@ impl ProxyHttp for ForwardProxy {
                         .insert_header(key.clone(), val.clone())
                         .map_err(|e| {
                             error!(
-                                log_type=LogTypes::HEALTHCHECK,
+                                log_type = LogTypes::HEALTHCHECK,
                                 "Cannot add request header {}:{:?}, err: {:?}",
                                 key.clone(),
                                 val.clone(),
                                 e
                             )
-                        }).unwrap_or_default();
-                };
+                        })
+                        .unwrap_or_default();
+                }
 
                 let mut response_bytes = vec![];
                 if let Some(body_bytes) = handler_response.body {
@@ -212,9 +235,9 @@ impl ProxyHttp for ForwardProxy {
                 session.write_response_header_ref(&header).await?;
 
                 debug!(
-                    log_type=LogTypes::HEALTHCHECK,
-                    request_summary=session.request_summary(),
-                    response_body=utils::bytes_to_string(&response_bytes)
+                    log_type = LogTypes::HEALTHCHECK,
+                    request_summary = session.request_summary(),
+                    response_body = utils::bytes_to_string(&response_bytes)
                 );
 
                 // Write the response body to the session after setting headers
@@ -228,65 +251,62 @@ impl ProxyHttp for ForwardProxy {
                 if let Some(url) = ctx.param("backend_url") {
                     if let Some(url) = utils::validate_url(url) {
                         let socket_addr = utils::get_socket_addrs(&url);
-                        ctx.set(
-                            consts::CtxKeys::UpstreamAddress.to_string(),
-                            socket_addr,
-                        );
+                        ctx.set(consts::CtxKeys::UpstreamAddress.to_string(), socket_addr);
                         ctx.set(
                             consts::CtxKeys::UpstreamSNI.to_string(),
                             url.domain().unwrap_or_default().to_string(),
                         );
                     } else {
                         error_response_bytes = ErrorResponse {
-                            error: "Invalid backend_url".to_string()
-                        }.to_bytes();
+                            error: "Invalid backend_url".to_string(),
+                        }
+                        .to_bytes();
                     }
                 } else {
                     error_response_bytes = ErrorResponse {
-                        error: "backend_url is a required param".to_string()
-                    }.to_bytes();
+                        error: "backend_url is a required param".to_string(),
+                    }
+                    .to_bytes();
                 }
             }
             ("/proxy", "POST") => {
-                error_response_bytes = match ctx.get_request_header().get(HeaderKeys::IntFpJwtKey.as_str()) {
-                    None => {
-                        ErrorResponse {
-                            error: "Missing int_fp_jwt header".to_string()
-                        }.to_bytes()
+                error_response_bytes = match ctx
+                    .get_request_header()
+                    .get(HeaderKeys::IntFpJwtKey.as_str())
+                {
+                    None => ErrorResponse {
+                        error: "Missing int_fp_jwt header".to_string(),
                     }
-                    Some(int_fp_jwt) => {
-                        match self.handler.verify_int_fp_jwt(int_fp_jwt.as_str()) {
-                            Ok(session) => {
-                                debug!("IntFPSession: {:?}", session);
-                                ctx.set(consts::CtxKeys::FpRpJwt.to_string(), session.fp_rp_jwt);
+                    .to_bytes(),
+                    Some(int_fp_jwt) => match self.handler.verify_int_fp_jwt(int_fp_jwt.as_str()) {
+                        Ok(session) => {
+                            debug!("IntFPSession: {:?}", session);
+                            ctx.set(consts::CtxKeys::FpRpJwt.to_string(), session.fp_rp_jwt);
+                            ctx.set(consts::CtxKeys::BackendAuthClientID.to_string(), session.client_id);
 
-                                if let Some(url) = utils::validate_url(&session.rp_base_url) {
-                                    let socket_addr = utils::get_socket_addrs(&url);
-                                    ctx.set(
-                                        consts::CtxKeys::UpstreamAddress.to_string(),
-                                        socket_addr,
-                                    );
-                                    ctx.set(
-                                        consts::CtxKeys::UpstreamSNI.to_string(),
-                                        url.domain().unwrap_or_default().to_string(),
-                                    );
-                                    vec![]
-                                } else {
-                                    ErrorResponse {
-                                        error: "Invalid backend_url".to_string()
-                                    }.to_bytes()
-                                }
-                            }
-                            Err(err) => {
-                                error!(
-                                    log_type=LogTypes::HANDLE_CLIENT_REQUEST,
-                                    "Error verifying int_fp_jwt: {}",
-                                    err
+                            if let Some(url) = utils::validate_url(&session.rp_base_url) {
+                                let socket_addr = utils::get_socket_addrs(&url);
+                                ctx.set(consts::CtxKeys::UpstreamAddress.to_string(), socket_addr);
+                                ctx.set(
+                                    consts::CtxKeys::UpstreamSNI.to_string(),
+                                    url.domain().unwrap_or_default().to_string(),
                                 );
-                                ErrorResponse { error: err }.to_bytes()
+                                vec![]
+                            } else {
+                                ErrorResponse {
+                                    error: "Invalid backend_url".to_string(),
+                                }
+                                .to_bytes()
                             }
                         }
-                    }
+                        Err(err) => {
+                            error!(
+                                log_type = LogTypes::HANDLE_CLIENT_REQUEST,
+                                "Error verifying int_fp_jwt: {}", err
+                            );
+                            ErrorResponse { error: err }.to_bytes()
+                        }
+                    },
                 }
             }
             _ => {
@@ -303,7 +323,9 @@ impl ProxyHttp for ForwardProxy {
             ctx.set_response_body(error_response_bytes.clone());
             let header = ResponseHeader::build(StatusCode::BAD_REQUEST, None)?;
             session.write_response_header_ref(&header).await?;
-            session.write_response_body(Some(Bytes::from(error_response_bytes)), true).await?;
+            session
+                .write_response_body(Some(Bytes::from(error_response_bytes)), true)
+                .await?;
             session.set_keepalive(None);
             return Ok(true);
         }
@@ -329,12 +351,12 @@ impl ProxyHttp for ForwardProxy {
 
         if end_of_stream {
             debug!(
-                request_summary=session.request_summary(),
-                request_body=utils::bytes_to_string(&ctx.get_request_body()),
+                request_summary = session.request_summary(),
+                request_body = utils::bytes_to_string(&ctx.get_request_body()),
             );
             info!(
-                log_type=LogTypes::HANDLE_CLIENT_REQUEST,
-                request_summary=session.request_summary(),
+                log_type = LogTypes::HANDLE_CLIENT_REQUEST,
+                request_summary = session.request_summary(),
                 "Request Body Received: {} bytes.",
                 &ctx.get_request_body().len()
             );
@@ -345,8 +367,8 @@ impl ProxyHttp for ForwardProxy {
                 "/init-tunnel" => self.handler.handle_init_tunnel_request(ctx).await,
                 _ => {
                     info!(
-                        log_type=LogTypes::HANDLE_CLIENT_REQUEST,
-                        request_summary=session.request_summary(),
+                        log_type = LogTypes::HANDLE_CLIENT_REQUEST,
+                        request_summary = session.request_summary(),
                         "Forward proxy passing through request body unchanged."
                     );
                     *body = Some(Bytes::copy_from_slice(ctx.get_request_body().as_slice()));
@@ -356,24 +378,25 @@ impl ProxyHttp for ForwardProxy {
 
             if handler_response.status != StatusCode::OK {
                 error!(
-                    log_type=LogTypes::HANDLE_CLIENT_REQUEST,
-                    request_summary=session.request_summary(),
+                    log_type = LogTypes::HANDLE_CLIENT_REQUEST,
+                    request_summary = session.request_summary(),
                     "Failed to handle init-tunnel request with status: {}, error: {}",
                     handler_response.status,
                     utils::bytes_to_string(&handler_response.body.unwrap_or_default())
                 );
-                return Err(pingora::Error::new(
-                    pingora::ErrorType::HTTPStatus(u16::from(handler_response.status)),
-                ));
+                return Err(pingora::Error::new(pingora::ErrorType::HTTPStatus(
+                    u16::from(handler_response.status),
+                )));
             }
 
             info!(
-                log_type=LogTypes::HANDLE_CLIENT_REQUEST,
-                request_summary=session.request_summary(),
-                "Handle init-tunnel Request response with status: {}", handler_response.status,
+                log_type = LogTypes::HANDLE_CLIENT_REQUEST,
+                request_summary = session.request_summary(),
+                "Handle init-tunnel Request response with status: {}",
+                handler_response.status,
             );
             debug!(
-                request_summary=session.request_summary(),
+                request_summary = session.request_summary(),
                 "Handle init-tunnel response body: {}",
                 utils::bytes_to_string(&handler_response.body.as_ref().unwrap_or(&vec![]))
             );
@@ -396,18 +419,21 @@ impl ProxyHttp for ForwardProxy {
     {
         match session.req_header().uri.path() {
             "/proxy" => {
-                match upstream_request.headers.get(HeaderKeys::IntFpJwtKey.as_str()) {
+                match upstream_request
+                    .headers
+                    .get(HeaderKeys::IntFpJwtKey.as_str())
+                {
                     None => {
                         error!(
-                            log_type=LogTypes::HANDLE_CLIENT_REQUEST,
-                            request_summary=session.request_summary(),
+                            log_type = LogTypes::HANDLE_CLIENT_REQUEST,
+                            request_summary = session.request_summary(),
                             "Missing required header: {}",
                             HeaderKeys::IntFpJwtKey.as_str()
                         );
 
-                        return Err(pingora::Error::new(
-                            pingora::ErrorType::HTTPStatus(u16::from(StatusCode::BAD_REQUEST)),
-                        ));
+                        return Err(pingora::Error::new(pingora::ErrorType::HTTPStatus(
+                            u16::from(StatusCode::BAD_REQUEST),
+                        )));
                     }
                     Some(token) => {
                         let token_str = token.to_str().or_err(
@@ -417,38 +443,39 @@ impl ProxyHttp for ForwardProxy {
 
                         if token_str.is_empty() {
                             error!(
-                                log_type=LogTypes::HANDLE_CLIENT_REQUEST,
-                                request_summary=session.request_summary(),
+                                log_type = LogTypes::HANDLE_CLIENT_REQUEST,
+                                request_summary = session.request_summary(),
                                 "{} token is empty",
                                 HeaderKeys::IntFpJwtKey.as_str()
                             );
 
-                            return Err(pingora::Error::new(
-                                pingora::ErrorType::HTTPStatus(u16::from(StatusCode::BAD_REQUEST)),
-                            ));
+                            return Err(pingora::Error::new(pingora::ErrorType::HTTPStatus(
+                                u16::from(StatusCode::BAD_REQUEST),
+                            )));
                         }
 
                         match self.handler.verify_int_fp_jwt(token_str) {
                             Ok(session) => {
                                 upstream_request
-                                    .insert_header(HeaderKeys::FpRpJwtKey.as_str(), session.fp_rp_jwt)
+                                    .insert_header(
+                                        HeaderKeys::FpRpJwtKey.as_str(),
+                                        session.fp_rp_jwt,
+                                    )
                                     .unwrap_or_default();
                                 upstream_request.remove_header(HeaderKeys::IntFpJwtKey.as_str());
                             }
                             Err(err) => {
                                 error!(
-                                    log_type=LogTypes::HANDLE_CLIENT_REQUEST,
-                                    request_summary=session.request_summary(),
+                                    log_type = LogTypes::HANDLE_CLIENT_REQUEST,
+                                    request_summary = session.request_summary(),
                                     "Error verifying {} token: {}",
                                     HeaderKeys::IntFpJwtKey.as_str(),
                                     err
                                 );
-                                return Err(
-                                    pingora::Error::explain(
-                                        pingora::ErrorType::InvalidHTTPHeader,
-                                        err,
-                                    )
-                                );
+                                return Err(pingora::Error::explain(
+                                    pingora::ErrorType::InvalidHTTPHeader,
+                                    err,
+                                ));
                             }
                         }
                     }
@@ -472,8 +499,7 @@ impl ProxyHttp for ForwardProxy {
         _session: &mut Session,
         upstream_response: &mut ResponseHeader,
         _ctx: &mut Self::CTX,
-    ) -> pingora::Result<()>
-    {
+    ) -> pingora::Result<()> {
         upstream_response.insert_header("Access-Control-Allow-Origin", "*")?;
         upstream_response.insert_header("Access-Control-Allow-Methods", "POST")?;
         upstream_response.insert_header("Access-Control-Allow-Headers", "*")?;
@@ -507,13 +533,13 @@ impl ProxyHttp for ForwardProxy {
         if end_of_stream {
             // This is the last chunk, we can process the data now
             debug!(
-                log_type=LogTypes::HANDLE_UPSTREAM_RESPONSE,
-                request_summary=session.request_summary(),
-                body=utils::bytes_to_string(&ctx.get_response_body()),
+                log_type = LogTypes::HANDLE_UPSTREAM_RESPONSE,
+                request_summary = session.request_summary(),
+                body = utils::bytes_to_string(&ctx.get_response_body()),
             );
             info!(
-                log_type=LogTypes::HANDLE_UPSTREAM_RESPONSE,
-                request_summary=session.request_summary(),
+                log_type = LogTypes::HANDLE_UPSTREAM_RESPONSE,
+                request_summary = session.request_summary(),
                 "Response Body Received: {} bytes.",
                 &ctx.get_response_body().len(),
             );
@@ -522,8 +548,8 @@ impl ProxyHttp for ForwardProxy {
                 "/init-tunnel" => self.handler.handle_init_tunnel_response(ctx),
                 _ => {
                     info!(
-                        log_type=LogTypes::HANDLE_UPSTREAM_RESPONSE,
-                        request_summary=session.request_summary(),
+                        log_type = LogTypes::HANDLE_UPSTREAM_RESPONSE,
+                        request_summary = session.request_summary(),
                         "Forward proxy passing through response body unchanged."
                     );
                     *body = Some(Bytes::copy_from_slice(ctx.get_response_body().as_slice()));
@@ -533,25 +559,24 @@ impl ProxyHttp for ForwardProxy {
 
             if handler_response.status != StatusCode::OK {
                 error!(
-                    log_type=LogTypes::HANDLE_UPSTREAM_RESPONSE,
-                    request_summary=session.request_summary(),
+                    log_type = LogTypes::HANDLE_UPSTREAM_RESPONSE,
+                    request_summary = session.request_summary(),
                     "Failed to handle init-tunnel Response response with status: {}, error: {}",
                     handler_response.status,
                     utils::bytes_to_string(&handler_response.body.unwrap_or_default())
                 );
 
                 ctx.response.status = StatusCode::INTERNAL_SERVER_ERROR;
-                return Err(pingora::Error::new(
-                    pingora::ErrorType::HTTPStatus(
-                        u16::from(StatusCode::INTERNAL_SERVER_ERROR)
-                    ),
-                ));
+                return Err(pingora::Error::new(pingora::ErrorType::HTTPStatus(
+                    u16::from(StatusCode::INTERNAL_SERVER_ERROR),
+                )));
             }
 
             info!(
-                log_type=LogTypes::HANDLE_UPSTREAM_RESPONSE,
-                request_summary=session.request_summary(),
-                "Handle init-tunnel Response response with status: {}", handler_response.status,
+                log_type = LogTypes::HANDLE_UPSTREAM_RESPONSE,
+                request_summary = session.request_summary(),
+                "Handle init-tunnel Response response with status: {}",
+                handler_response.status,
             );
 
             let fp_res_body = handler_response.body.as_ref().unwrap_or(&vec![]).clone();
@@ -583,6 +608,23 @@ impl ProxyHttp for ForwardProxy {
             request_id=session.req_header().headers.get("x-request-id").map(|v| v.to_str().unwrap_or("")).unwrap_or(""),
             error=?e,
         );
+
+        let client_id = ctx.get(&consts::CtxKeys::BackendAuthClientID.to_string())
+            .unwrap_or(&"".to_string())
+            .clone();
+
+        let influxdb_client = self.influxdb_client.lock().await;
+
+        influxdb_client
+            .update_statistics(&client_id, session, ctx, status)
+            .await
+            .map_err(|e| {
+                error!(
+                    log_type = LogTypes::INFLUXDB,
+                    "Failed to update statistics for client {}: {:?}", client_id, e
+                );
+            })
+            .unwrap_or_default();
     }
 
     fn fail_to_connect(
@@ -593,9 +635,12 @@ impl ProxyHttp for ForwardProxy {
         mut e: Box<Error>,
     ) -> Box<Error> {
         let mut retry = false;
-        if e.etype == ErrorType::ConnectTimedout || e.etype == ErrorType::ConnectError
-            || e.etype == ErrorType::ConnectRefused {
-            let mut addrs = ctx.get(&consts::CtxKeys::UpstreamAddress.to_string())
+        if e.etype == ErrorType::ConnectTimedout
+            || e.etype == ErrorType::ConnectError
+            || e.etype == ErrorType::ConnectRefused
+        {
+            let mut addrs = ctx
+                .get(&consts::CtxKeys::UpstreamAddress.to_string())
                 .unwrap_or(&"".to_string())
                 .clone();
 
@@ -609,9 +654,11 @@ impl ProxyHttp for ForwardProxy {
                 ctx.set(consts::CtxKeys::UpstreamAddress.to_string(), addrs);
             }
             error!(
-                log_type=LogTypes::UPSTREAM_CONNECT,
+                log_type = LogTypes::UPSTREAM_CONNECT,
                 "Failed to connect to upstream addr: {}, err: {}, retry: {}",
-                peer._address.to_string(), e, retry
+                peer._address.to_string(),
+                e,
+                retry
             );
         }
         e.set_retry(retry);

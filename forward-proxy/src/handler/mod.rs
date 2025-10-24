@@ -19,7 +19,7 @@ pub mod consts;
 
 pub struct ForwardHandler {
     pub config: HandlerConfig,
-    jwts_storage: Arc<Mutex<HashMap<String, IntFPSession>>>,
+    jwts_storage: Arc<Mutex<HashMap<String, IntFPSession>>>, // int_fp_jwt -> IntFPSession
 }
 
 impl DefaultHandlerTrait for ForwardHandler {}
@@ -32,6 +32,7 @@ struct NTorServerCertificate {
 
 #[derive(Clone, Debug, Default)]
 pub struct IntFPSession {
+    pub client_id: String,
     pub rp_base_url: String,
     pub fp_rp_jwt: String,
 }
@@ -83,7 +84,7 @@ impl ForwardHandler {
                 error: format!("Failed to get public key from layer8, status code: {}", res.status().as_u16()),
             };
             error!(
-                log_type=LogTypes::HANDLE_CLIENT_REQUEST,
+                log_type=LogTypes::AUTHENTICATION_SERVER,
                 "Failed to get ntor certificate for {}: {:?}",
                 request_path,
                 response_body
@@ -99,11 +100,12 @@ impl ForwardHandler {
             #[derive(Deserialize, Debug)]
             struct AuthServerResponse {
                 pub x509_certificate: String,
+                pub client_id: String,
             }
 
-            let cert: AuthServerResponse = res.json().await.map_err(|err| {
+            let auth_res: AuthServerResponse = res.json().await.map_err(|err| {
                 error!(
-                    log_type=LogTypes::HANDLE_CLIENT_REQUEST,
+                    log_type=LogTypes::AUTHENTICATION_SERVER,
                     "Failed to parse authentication server response: {:?}",
                     err
                 );
@@ -113,10 +115,13 @@ impl ForwardHandler {
                 }
             })?;
 
-            let pub_key = utils::cert::extract_x509_pem(cert.x509_certificate.clone())
+            // save `client_id` to ctx for later use
+            ctx.set(consts::CtxKeys::BackendAuthClientID.to_string(), auth_res.client_id.clone());
+
+            let pub_key = utils::cert::extract_x509_pem(auth_res.x509_certificate.clone())
                 .map_err(|e| {
                     error!(
-                        log_type=LogTypes::HANDLE_CLIENT_REQUEST,
+                        log_type=LogTypes::AUTHENTICATION_SERVER,
                         "Failed to parse x509 certificate: {:?}",
                         e
                     );
@@ -126,9 +131,9 @@ impl ForwardHandler {
                     }
                 })?;
 
-            debug!("AuthenticationServer response: {:?}", cert);
+            debug!("AuthenticationServer response: {:?}", auth_res);
             info!(
-                log_type=LogTypes::HANDLE_CLIENT_REQUEST,
+                log_type=LogTypes::AUTHENTICATION_SERVER,
                 "Obtained ntor credentials for backend_url: {}",
                 backend_url
             );
@@ -241,6 +246,7 @@ impl ForwardHandler {
                 };
 
                 let int_fp_session = IntFPSession {
+                    client_id: ctx.get(&consts::CtxKeys::BackendAuthClientID.to_string()).unwrap_or(&"".to_string()).to_string(),
                     rp_base_url: ctx.param("backend_url").unwrap_or(&"".to_string()).to_string(),
                     fp_rp_jwt: res_from_rp.fp_rp_jwt,
                 };

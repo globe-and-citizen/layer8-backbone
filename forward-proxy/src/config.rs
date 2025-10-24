@@ -11,7 +11,9 @@ pub struct FPConfig {
     #[serde(flatten)]
     pub tls_config: TlsConfig,
     #[serde(flatten)] // This flattens the HandlerConfig fields into this struct
-    pub handler_config: HandlerConfig
+    pub handler_config: HandlerConfig,
+    #[serde(flatten)]
+    pub influxdb_config: InfluxDBConfig,
 }
 
 #[derive(Debug, Deserialize)]
@@ -38,4 +40,12 @@ pub struct TlsConfig {
     pub ca_cert: String,
     pub cert: String,
     pub key: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct InfluxDBConfig {
+    pub influxdb_url: String,
+    pub influxdb_org: String,
+    pub influxdb_bucket: String,
+    pub influxdb_auth_token: String,
 }

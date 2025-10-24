@@ -1,6 +1,7 @@
 mod proxy;
 mod handler;
 mod config;
+mod statistics;
 
 use crate::handler::ForwardHandler;
 use proxy::ForwardProxy;
@@ -27,6 +28,7 @@ fn load_config() -> FPConfig {
 
 fn main() {
     let config = load_config();
+    // let influxdb_client = InfluxDBClient::new(&config.influxdb_config);
 
     let mut server = Server::new(Some(Opt {
         conf: std::env::var("SERVER_CONF").ok(),
@@ -38,7 +40,7 @@ fn main() {
 
     let mut proxy = http_proxy_service(
         &server.configuration,
-        ForwardProxy::new(config.tls_config, fp_handler),
+        ForwardProxy::new(config.tls_config, config.influxdb_config, fp_handler),
     );
 
     proxy.add_tcp(&format!("{}:{}", config.listen_address, config.listen_port));
