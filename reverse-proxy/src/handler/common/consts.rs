@@ -13,7 +13,7 @@ impl HeaderKeys {
     }
 }
 
-pub struct LogTypes {}
+pub struct LogTypes;
 
 impl LogTypes {
     pub const ACCESS_LOG: &'static str = "ACCESS_LOG";

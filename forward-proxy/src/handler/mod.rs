@@ -1,16 +1,20 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+
 use pingora::http::StatusCode;
 use reqwest::Client;
-use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
-use pingora_router::handler::{APIHandlerResponse, DefaultHandlerTrait, RequestBodyTrait};
-use crate::handler::types::response::{ErrorResponse, FpHealthcheckError, FpHealthcheckSuccess, InitTunnelResponseFromRP, InitTunnelResponseToINT};
-use pingora_router::handler::ResponseBodyTrait;
+use pingora_router::{
+   ctx::{Layer8Context, Layer8ContextTrait}, 
+   handler::{APIHandlerResponse, DefaultHandlerTrait, RequestBodyTrait, ResponseBodyTrait}
+};
 use serde::Deserialize;
 use tracing::{debug, error, info};
-use crate::handler::types::request::InitTunnelRequest;
-use utils;
-use utils::jwt::JWTClaims;
+
+use crate::handler::types::{
+   response::{ErrorResponse, FpHealthcheckError, FpHealthcheckSuccess, InitTunnelResponseFromRP, InitTunnelResponseToINT},
+   request::InitTunnelRequest
+};
+use utils::{self, jwt::JWTClaims};
 use crate::config::HandlerConfig;
 use crate::handler::consts::LogTypes;
 
@@ -84,9 +88,7 @@ impl ForwardHandler {
             };
             error!(
                 log_type=LogTypes::HANDLE_CLIENT_REQUEST,
-                "Failed to get ntor certificate for {}: {:?}",
-                request_path,
-                response_body
+                "Failed to get ntor certificate for {request_path}: {response_body:?}"
             );
 
             ctx.insert_response_header("Connection", "close"); // Ensure connection closes???

@@ -4,16 +4,6 @@ use tracing_subscriber::fmt;
 pub fn init_logger(service_name: &str, level: String, _log_path: String) {
     let level_filter = to_level_filter(level);
 
-    // let (nb, guard) = match log_path.as_str() {
-    //     "console" => {
-    //         non_blocking(std::io::stdout())
-    //     }
-    //     _ => {
-    //         let file_appender = tracing_appender::rolling::daily(log_path, "forwardproxy.log");
-    //         non_blocking(file_appender)
-    //     }
-    // };
-
     // Structured JSON logger
     fmt::Subscriber::builder()
         .json()
