@@ -1,5 +1,5 @@
-use serde::Deserialize;
 use crate::tls_conf::TlsConfig;
+use serde::Deserialize;
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct RPConfig {
@@ -10,7 +10,7 @@ pub struct RPConfig {
     #[serde(flatten)]
     pub tls: TlsConfig,
     #[serde(flatten)]
-    pub handler: HandlerConfig
+    pub handler: HandlerConfig,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -19,25 +19,25 @@ pub(super) struct LogConfig {
     pub log_level: String,
 }
 
-impl LogConfig {
-    pub fn to_level_filter(&self) -> log::LevelFilter {
-        match self.log_level.to_uppercase().as_str() {
-            "INFO" => log::LevelFilter::Info,
-            "DEBUG" => log::LevelFilter::Debug,
-            "WARNING" => log::LevelFilter::Warn,
-            "ERROR" => log::LevelFilter::Error,
-            "TRACE" => log::LevelFilter::Trace,
-            "OFF" => log::LevelFilter::Off,
-            _ => log::max_level()
-        }
-    }
-}
+// impl LogConfig {
+//     pub fn to_level_filter(&self) -> tracing::LevelFilter {
+//         match self.log_level.to_uppercase().as_str() {
+//             "INFO" => log::LevelFilter::Info,
+//             "DEBUG" => log::LevelFilter::Debug,
+//             "WARNING" => log::LevelFilter::Warn,
+//             "ERROR" => log::LevelFilter::Error,
+//             "TRACE" => log::LevelFilter::Trace,
+//             "OFF" => log::LevelFilter::Off,
+//             _ => log::max_level(),
+//         }
+//     }
+// }
 
 #[derive(Debug, Deserialize, Clone)]
 pub(super) struct ServerConfig {
     pub listen_address: String,
     #[serde(deserialize_with = "utils::deserializer::string_to_number")]
-    pub listen_port: u16
+    pub listen_port: u16,
 }
 
 #[derive(Debug, Deserialize, Clone)]
