@@ -1,9 +1,9 @@
-use std::fmt::Debug;
-use pingora::http::StatusCode;
 use crate::ctx::Layer8Context;
 use futures::future::BoxFuture;
+use pingora::http::StatusCode;
 use serde::de::Deserialize;
 use serde::ser::Serialize;
+use std::fmt::Debug;
 
 /*
  *  Each type in this crate has a specific purpose and may be updated as requirements evolve.
@@ -41,7 +41,9 @@ use serde::ser::Serialize;
 ///     async move { h.handle(ctx).await }.boxed()
 /// });
 /// ```
-pub type APIHandler<T> = Box<dyn for<'a> Fn(&'a T, &'a mut Layer8Context) -> BoxFuture<'a, APIHandlerResponse> + Send + Sync>;
+pub type APIHandler<T> = Box<
+    dyn for<'a> Fn(&'a T, &'a mut Layer8Context) -> BoxFuture<'a, APIHandlerResponse> + Send + Sync,
+>;
 
 /// `APIHandlerResponse` contains information returned by handlers and can be
 /// shared across handlers during request processing.
@@ -68,13 +70,15 @@ pub trait ResponseBodyTrait: Serialize + for<'de> Deserialize<'de> + Debug {
         serde_json::to_vec(self).unwrap()
     }
 
-    fn from_bytes(bytes: Vec<u8>) -> Result<Box<Self>, serde_json::Error> {
-        serde_json::from_slice(&bytes)
+    fn from_bytes(bytes: &[u8]) -> Result<Box<Self>, serde_json::Error> {
+        serde_json::from_slice(bytes)
     }
 
     /// Override this method to handle error serialization if your handler implements
     /// the `DefaultHandler` trait.
-    fn from_json_err(_err: serde_json::Error) -> Option<Self> {None}
+    fn from_json_err(_err: serde_json::Error) -> Option<Self> {
+        None
+    }
 }
 
 /// `RequestBodyTrait` provides a default method to deserialize the request body bytes
@@ -89,8 +93,8 @@ pub trait RequestBodyTrait: Serialize + for<'de> Deserialize<'de> + Debug {
         serde_json::to_vec(self).unwrap()
     }
 
-    fn from_bytes(bytes: Vec<u8>) -> Result<Box<Self>, serde_json::Error> {
-        serde_json::from_slice(&bytes)
+    fn from_bytes(bytes: &[u8]) -> Result<Box<Self>, serde_json::Error> {
+        serde_json::from_slice(bytes)
     }
 }
 
@@ -107,11 +111,12 @@ pub trait RequestBodyTrait: Serialize + for<'de> Deserialize<'de> + Debug {
 /// If deserialization fails, it returns no body, an error response of type `E: impl
 /// ResponseBodyTrait` (constructed from the JSON error), and a 400 Bad Request status.
 pub trait DefaultHandlerTrait {
-    fn parse_request_body<T: RequestBodyTrait, E: ResponseBodyTrait>(data: &Vec<u8>) -> Result<T, Option<E>>
-    {
-        match T::from_bytes(data.clone()) {
+    fn parse_request_body<T: RequestBodyTrait, E: ResponseBodyTrait>(
+        data: &[u8],
+    ) -> Result<T, Option<E>> {
+        match T::from_bytes(data) {
             Ok(body) => Ok(*body),
-            Err(e) => Err(E::from_json_err(e))
+            Err(e) => Err(E::from_json_err(e)),
         }
     }
 }
