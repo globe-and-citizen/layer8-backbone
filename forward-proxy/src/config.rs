@@ -39,19 +39,19 @@ pub struct TlsConfig {
     pub key: String,
 }
 
-impl LogConfig {
-    pub fn to_level_filter(&self) -> log::LevelFilter {
-        match self.log_level.to_uppercase().as_str() {
-            "INFO" => log::LevelFilter::Info,
-            "DEBUG" => log::LevelFilter::Debug,
-            "WARNING" => log::LevelFilter::Warn,
-            "ERROR" => log::LevelFilter::Error,
-            "TRACE" => log::LevelFilter::Trace,
-            "OFF" => log::LevelFilter::Off,
-            _ => log::max_level()
-        }
-    }
-}
+// impl LogConfig {
+//     pub fn to_level_filter(&self) -> log::LevelFilter {
+//         match self.log_level.to_uppercase().as_str() {
+//             "INFO" => log::LevelFilter::Info,
+//             "DEBUG" => log::LevelFilter::Debug,
+//             "WARNING" => log::LevelFilter::Warn,
+//             "ERROR" => log::LevelFilter::Error,
+//             "TRACE" => log::LevelFilter::Trace,
+//             "OFF" => log::LevelFilter::Off,
+//             _ => log::max_level()
+//         }
+//     }
+// }
 
 impl TlsConfig {
     pub fn load(&mut self) -> Result<(), String> {

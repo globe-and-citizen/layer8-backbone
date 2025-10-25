@@ -1,65 +1,78 @@
-mod handler;
-mod proxy;
-mod tls_conf;
+use std::sync::Arc;
 
-use std::fs::OpenOptions;
-use crate::handler::ReverseHandler;
-use env_logger::{self, Env, Target};
 use futures::FutureExt;
 use pingora::server::Server;
 use pingora::server::configuration::Opt;
 use pingora::{listeners::tls::TlsSettings, prelude::http_proxy_service};
 use pingora_router::handler::APIHandler;
 use pingora_router::router::Router;
-use std::sync::Arc;
-use log::{debug, error};
+use tracing::{debug, error};
+
 use crate::config::RPConfig;
+use crate::handler::ReverseHandler;
 use crate::proxy::ReverseProxy;
 
 mod config;
+mod handler;
+mod proxy;
+mod tls_conf;
 
 fn load_config() -> RPConfig {
     // Load environment variables from .env file
     dotenv::dotenv().ok();
 
     // Deserialize from env vars
-    let config: RPConfig = envy::from_env().map_err(|e| {
-        error!("Failed to load configuration: {}", e);
-    }).unwrap();
+    let config: RPConfig = envy::from_env()
+        .map_err(|e| {
+            error!("Failed to load configuration: {}", e);
+        })
+        .unwrap();
 
-    let target = match config.log.log_path.as_str() {
-        "console" => Target::Stdout,
-        path => {
-            let file = OpenOptions::new()
-                .append(true)
-                .create(true)
-                .open(path)
-                .expect("Can't create log file!");
+    // let target = match config.log.log_path.as_str() {
+    // "console" => {Target::Stdout,}
+    // path => {
+    //     // let file = OpenOptions::new()
+    //     //     .append(true)
+    //     //     .create(true)
+    //     //     .open(path)
+    //     //     .expect("Can't create log file!");
 
-            Target::Pipe(Box::new(file))
-        }
-    };
+    //     // Target::Pipe(Box::new(file))
+    // }
+    // };
 
-    env_logger::Builder::from_env(Env::default()
-        .write_style_or("RUST_LOG_STYLE", "always"))
-        .format_file(true)
-        .format_line_number(true)
-        .filter(None, config.log.to_level_filter())
-        .target(target)
-        .init();
+    // env_logger::Builder::from_env(Env::default().write_style_or("RUST_LOG_STYLE", "always"))
+    //     .format_file(true)
+    //     .format_line_number(true)
+    //     .filter(None, config.log.to_level_filter())
+    //     .target(target)
+    //     .init();
 
     debug!("Loaded ReverseProxyConfig: {:?}", config);
     config
 }
 
 fn main() {
+    #[cfg(feature = "hotpath")]
+    let guard = hotpath::GuardBuilder::new("guard_timeout::main")
+        .percentiles(&[50, 95, 99])
+        .build();
+
+    #[cfg(feature = "hotpath")]
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_secs(60));
+        drop(guard);
+        std::process::exit(0);
+    });
+
     // Load environment variables from .env file
     let rp_config = load_config();
 
     let mut my_server = Server::new(Some(Opt {
         conf: std::env::var("SERVER_CONF").ok(),
         ..Default::default()
-    })).unwrap();
+    }))
+    .unwrap();
     my_server.bootstrap();
 
     let handle_init_tunnel: APIHandler<Arc<ReverseHandler>> =
@@ -77,26 +90,22 @@ fn main() {
     router.post("/proxy".to_string(), Box::new([handle_proxy]));
     router.get("/healthcheck".to_string(), Box::new([handle_healthcheck]));
 
-    let mut my_proxy = http_proxy_service(
-        &my_server.configuration,
-        ReverseProxy::new(router),
-    );
+    let mut my_proxy = http_proxy_service(&my_server.configuration, ReverseProxy::new(router));
 
     if rp_config.tls.enable_tls {
         my_proxy.add_tls_with_settings(
             &format!(
                 "{}:{}",
-                rp_config.server.listen_address,
-                rp_config.server.listen_port
+                rp_config.server.listen_address, rp_config.server.listen_port
             ),
             None,
-            TlsSettings::with_callbacks(Box::new(rp_config.tls)).expect("Cannot set TlsSettings callbacks")
+            TlsSettings::with_callbacks(Box::new(rp_config.tls))
+                .expect("Cannot set TlsSettings callbacks"),
         );
     } else {
         my_proxy.add_tcp(&format!(
             "{}:{}",
-            rp_config.server.listen_address,
-            rp_config.server.listen_port
+            rp_config.server.listen_address, rp_config.server.listen_port
         ));
     }
 

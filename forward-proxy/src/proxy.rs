@@ -1,7 +1,10 @@
+use crate::config::TlsConfig;
+use crate::handler::consts::HeaderKeys;
+use crate::handler::types::response::ErrorResponse;
+use crate::handler::{ForwardHandler, consts};
 use async_trait::async_trait;
 use boring::x509::X509;
 use bytes::Bytes;
-use log::{debug, error, info};
 use pingora::Error;
 use pingora::OrErr;
 use pingora::http::{RequestHeader, ResponseHeader, StatusCode};
@@ -9,16 +12,13 @@ use pingora::listeners::tls::TLS_CONF_ERR;
 use pingora::prelude::{HttpPeer, ProxyHttp, Session};
 use pingora::upstreams::peer::PeerOptions;
 use pingora::utils::tls::CertKey;
+use pingora_error::ErrorType;
 use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
+use pingora_router::handler::ResponseBodyTrait;
 use reqwest::header::TRANSFER_ENCODING;
 use std::sync::Arc;
 use std::time::Duration;
-use pingora_error::ErrorType;
-use pingora_router::handler::{ResponseBodyTrait};
-use crate::config::TlsConfig;
-use crate::handler::consts::HeaderKeys;
-use crate::handler::{consts, ForwardHandler};
-use crate::handler::types::response::ErrorResponse;
+use tracing::{debug, error, info};
 
 pub struct ForwardProxy {
     tls_config: TlsConfig,
@@ -52,9 +52,12 @@ impl ProxyHttp for ForwardProxy {
         mut e: Box<Error>,
     ) -> Box<Error> {
         let mut retry = false;
-        if e.etype == ErrorType::ConnectTimedout || e.etype == ErrorType::ConnectError
-            || e.etype == ErrorType::ConnectRefused {
-            let mut addrs = ctx.get(&consts::CtxKeys::UpstreamAddress.to_string())
+        if e.etype == ErrorType::ConnectTimedout
+            || e.etype == ErrorType::ConnectError
+            || e.etype == ErrorType::ConnectRefused
+        {
+            let mut addrs = ctx
+                .get(&consts::CtxKeys::UpstreamAddress.to_string())
                 .unwrap_or(&"".to_string())
                 .clone();
 
@@ -69,13 +72,16 @@ impl ProxyHttp for ForwardProxy {
             }
             error!(
                 "Failed to connect to upstream addr: {}, err: {}, retry: {}",
-                peer._address.to_string(), e, retry
+                peer._address.to_string(),
+                e,
+                retry
             );
         }
         e.set_retry(retry);
         e
     }
 
+    #[cfg_attr(feature = "hotpath", hotpath::measure)]
     async fn upstream_peer(
         &self,
         _session: &mut Session,
@@ -94,8 +100,14 @@ impl ProxyHttp for ForwardProxy {
         //
         // Code below is for step 4(this is a client to RP), presenting the client's TLS certificate.
 
-        let addrs = ctx.get(&consts::CtxKeys::UpstreamAddress.to_string()).unwrap_or(&"".to_string()).clone();
-        let sni = ctx.get(&consts::CtxKeys::UpstreamSNI.to_string()).unwrap_or(&"".to_string()).clone();
+        let addrs = ctx
+            .get(&consts::CtxKeys::UpstreamAddress.to_string())
+            .unwrap_or(&"".to_string())
+            .clone();
+        let sni = ctx
+            .get(&consts::CtxKeys::UpstreamSNI.to_string())
+            .unwrap_or(&"".to_string())
+            .clone();
         debug!("upstream_addr: {}, upstream_sni: {}", addrs, sni);
 
         // HttpPeer cannot connect to upstream without a valid socket(IP:PORT) address.
@@ -112,9 +124,15 @@ impl ProxyHttp for ForwardProxy {
                     break;
                 }
                 Err(err) => {
-                    error!("Panic occurred while creating HttpPeer for {}: {:?}", addr, err);
+                    error!(
+                        "Panic occurred while creating HttpPeer for {}: {:?}",
+                        addr, err
+                    );
                     address_list.retain(|&x| x != addr);
-                    ctx.set(consts::CtxKeys::UpstreamAddress.to_string(), address_list.join(","));
+                    ctx.set(
+                        consts::CtxKeys::UpstreamAddress.to_string(),
+                        address_list.join(","),
+                    );
                 }
             }
         }
@@ -134,8 +152,9 @@ impl ProxyHttp for ForwardProxy {
             let ca_cert = X509::from_pem(&self.tls_config.ca_cert.clone().into_bytes())
                 .or_err(TLS_CONF_ERR, "Failed to load CA certificate")?;
 
-            let key = boring::pkey::PKey::private_key_from_pem(&self.tls_config.key.clone().into_bytes())
-                .or_err(TLS_CONF_ERR, "Failed to load private key")?;
+            let key =
+                boring::pkey::PKey::private_key_from_pem(&self.tls_config.key.clone().into_bytes())
+                    .or_err(TLS_CONF_ERR, "Failed to load private key")?;
 
             // The certificate to present in mTLS connections to upstream
             // The organization implementing mTLS acts as its own certificate authority.
@@ -156,6 +175,7 @@ impl ProxyHttp for ForwardProxy {
         Ok(Box::new(peer))
     }
 
+    #[cfg_attr(feature = "hotpath", hotpath::measure)]
     async fn request_filter(
         &self,
         session: &mut Session,
@@ -188,7 +208,7 @@ impl ProxyHttp for ForwardProxy {
         let mut error_response_bytes: Vec<u8> = vec![];
         match (
             session.req_header().uri.path(),
-            session.req_header().method.as_str()
+            session.req_header().method.as_str(),
         ) {
             ("/healthcheck", "GET") => {
                 let handler_response = self.handler.handle_healthcheck(ctx);
@@ -198,9 +218,15 @@ impl ProxyHttp for ForwardProxy {
                     header
                         .insert_header(key.clone(), val.clone())
                         .map_err(|e| {
-                            error!("Cannot add request header {}:{:?}, err: {:?}", key.clone(), val.clone(), e)
-                        }).unwrap_or_default();
-                };
+                            error!(
+                                "Cannot add request header {}:{:?}, err: {:?}",
+                                key.clone(),
+                                val.clone(),
+                                e
+                            )
+                        })
+                        .unwrap_or_default();
+                }
 
                 let mut response_bytes = vec![];
                 if let Some(body_bytes) = handler_response.body {
@@ -213,7 +239,10 @@ impl ProxyHttp for ForwardProxy {
                 session.write_response_header_ref(&header).await?;
 
                 println!();
-                info!("[RESPONSE {}] Header: {:?}", request_summary, header.headers);
+                info!(
+                    "[RESPONSE {}] Header: {:?}",
+                    request_summary, header.headers
+                );
                 info!(
                     "[RESPONSE {}] Body: {}",
                     request_summary,
@@ -231,70 +260,71 @@ impl ProxyHttp for ForwardProxy {
             ("/init-tunnel", "POST") => {
                 if let Some(url) = ctx.param("backend_url") {
                     if let Some(url) = utils::validate_url(url) {
-                        let socket_addr = url.socket_addrs(|| None).unwrap_or_default()
+                        let socket_addr = url
+                            .socket_addrs(|| None)
+                            .unwrap_or_default()
                             .iter()
                             .map(|addr| addr.to_string())
                             .collect::<Vec<String>>()
                             .join(",");
-                        ctx.set(
-                            consts::CtxKeys::UpstreamAddress.to_string(),
-                            socket_addr,
-                        );
+                        ctx.set(consts::CtxKeys::UpstreamAddress.to_string(), socket_addr);
                         ctx.set(
                             consts::CtxKeys::UpstreamSNI.to_string(),
                             url.domain().unwrap_or_default().to_string(),
                         );
                     } else {
                         error_response_bytes = ErrorResponse {
-                            error: "Invalid backend_url".to_string()
-                        }.to_bytes();
+                            error: "Invalid backend_url".to_string(),
+                        }
+                        .to_bytes();
                     }
                 } else {
                     error_response_bytes = ErrorResponse {
-                        error: "backend_url is a required param".to_string()
-                    }.to_bytes();
+                        error: "backend_url is a required param".to_string(),
+                    }
+                    .to_bytes();
                 }
             }
             ("/proxy", "POST") => {
-                error_response_bytes = match ctx.get_request_header().get(HeaderKeys::IntFpJwtKey.as_str()) {
-                    None => {
-                        ErrorResponse {
-                            error: "Missing int_fp_jwt header".to_string()
-                        }.to_bytes()
+                error_response_bytes = match ctx
+                    .get_request_header()
+                    .get(HeaderKeys::IntFpJwtKey.as_str())
+                {
+                    None => ErrorResponse {
+                        error: "Missing int_fp_jwt header".to_string(),
                     }
-                    Some(int_fp_jwt) => {
-                        match self.handler.verify_int_fp_jwt(int_fp_jwt.as_str()) {
-                            Ok(session) => {
-                                debug!("IntFPSession: {:?}", session);
-                                ctx.set(consts::CtxKeys::FpRpJwt.to_string(), session.fp_rp_jwt);
+                    .to_bytes(),
+                    Some(int_fp_jwt) => match self.handler.verify_int_fp_jwt(int_fp_jwt.as_str()) {
+                        Ok(session) => {
+                            debug!("IntFPSession: {:?}", session);
+                            ctx.set(consts::CtxKeys::FpRpJwt.to_string(), session.fp_rp_jwt);
 
-                                if let Some(url) = utils::validate_url(&session.rp_base_url) {
-                                    let socket_addr = url.socket_addrs(|| None).unwrap_or_default()
-                                        .iter()
-                                        .map(|addr| addr.to_string())
-                                        .collect::<Vec<String>>()
-                                        .join(",");
-                                    ctx.set(
-                                        consts::CtxKeys::UpstreamAddress.to_string(),
-                                        socket_addr,
-                                    );
-                                    ctx.set(
-                                        consts::CtxKeys::UpstreamSNI.to_string(),
-                                        url.domain().unwrap_or_default().to_string(),
-                                    );
-                                    vec![]
-                                } else {
-                                    ErrorResponse {
-                                        error: "Invalid backend_url".to_string()
-                                    }.to_bytes()
+                            if let Some(url) = utils::validate_url(&session.rp_base_url) {
+                                let socket_addr = url
+                                    .socket_addrs(|| None)
+                                    .unwrap_or_default()
+                                    .iter()
+                                    .map(|addr| addr.to_string())
+                                    .collect::<Vec<String>>()
+                                    .join(",");
+                                ctx.set(consts::CtxKeys::UpstreamAddress.to_string(), socket_addr);
+                                ctx.set(
+                                    consts::CtxKeys::UpstreamSNI.to_string(),
+                                    url.domain().unwrap_or_default().to_string(),
+                                );
+                                vec![]
+                            } else {
+                                ErrorResponse {
+                                    error: "Invalid backend_url".to_string(),
                                 }
-                            }
-                            Err(err) => {
-                                error!("Error verifying int_fp_jwt: {}", err);
-                                ErrorResponse { error: err }.to_bytes()
+                                .to_bytes()
                             }
                         }
-                    }
+                        Err(err) => {
+                            error!("Error verifying int_fp_jwt: {}", err);
+                            ErrorResponse { error: err }.to_bytes()
+                        }
+                    },
                 }
             }
             _ => {
@@ -306,10 +336,15 @@ impl ProxyHttp for ForwardProxy {
         }
 
         if error_response_bytes.len() > 0 {
-            error!("[RESPONSE] Error: {}", utils::bytes_to_string(&error_response_bytes));
+            error!(
+                "[RESPONSE] Error: {}",
+                utils::bytes_to_string(&error_response_bytes)
+            );
             let header = ResponseHeader::build(StatusCode::BAD_REQUEST, None)?;
             session.write_response_header_ref(&header).await?;
-            session.write_response_body(Some(Bytes::from(error_response_bytes)), true).await?;
+            session
+                .write_response_body(Some(Bytes::from(error_response_bytes)), true)
+                .await?;
             session.set_keepalive(None);
             return Ok(true);
         }
@@ -317,6 +352,7 @@ impl ProxyHttp for ForwardProxy {
         Ok(false)
     }
 
+    #[cfg_attr(feature = "hotpath", hotpath::measure)]
     async fn request_body_filter(
         &self,
         session: &mut Session,
@@ -362,9 +398,9 @@ impl ProxyHttp for ForwardProxy {
                     handler_response.status,
                     utils::bytes_to_string(&handler_response.body.unwrap_or_default())
                 );
-                return Err(pingora::Error::new(
-                    pingora::ErrorType::HTTPStatus(u16::from(handler_response.status)),
-                ));
+                return Err(pingora::Error::new(pingora::ErrorType::HTTPStatus(
+                    u16::from(handler_response.status),
+                )));
             }
 
             info!(
@@ -381,6 +417,7 @@ impl ProxyHttp for ForwardProxy {
         Ok(())
     }
 
+    #[cfg_attr(feature = "hotpath", hotpath::measure)]
     async fn upstream_request_filter(
         &self,
         session: &mut Session,
@@ -392,16 +429,19 @@ impl ProxyHttp for ForwardProxy {
     {
         match session.req_header().uri.path() {
             "/proxy" => {
-                match upstream_request.headers.get(HeaderKeys::IntFpJwtKey.as_str()) {
+                match upstream_request
+                    .headers
+                    .get(HeaderKeys::IntFpJwtKey.as_str())
+                {
                     None => {
                         error!(
                             "[REQUEST {}] Missing required header: {}",
                             session.request_summary(),
                             HeaderKeys::IntFpJwtKey.as_str()
                         );
-                        return Err(pingora::Error::new(
-                            pingora::ErrorType::HTTPStatus(u16::from(StatusCode::BAD_REQUEST)),
-                        ));
+                        return Err(pingora::Error::new(pingora::ErrorType::HTTPStatus(
+                            u16::from(StatusCode::BAD_REQUEST),
+                        )));
                     }
                     Some(token) => {
                         let token_str = token.to_str().or_err(
@@ -415,15 +455,18 @@ impl ProxyHttp for ForwardProxy {
                                 session.request_summary(),
                                 HeaderKeys::IntFpJwtKey.as_str()
                             );
-                            return Err(pingora::Error::new(
-                                pingora::ErrorType::HTTPStatus(u16::from(StatusCode::BAD_REQUEST)),
-                            ));
+                            return Err(pingora::Error::new(pingora::ErrorType::HTTPStatus(
+                                u16::from(StatusCode::BAD_REQUEST),
+                            )));
                         }
 
                         match self.handler.verify_int_fp_jwt(token_str) {
                             Ok(session) => {
                                 upstream_request
-                                    .insert_header(HeaderKeys::FpRpJwtKey.as_str(), session.fp_rp_jwt)
+                                    .insert_header(
+                                        HeaderKeys::FpRpJwtKey.as_str(),
+                                        session.fp_rp_jwt,
+                                    )
                                     .unwrap_or_default();
                                 upstream_request.remove_header(HeaderKeys::IntFpJwtKey.as_str());
                             }
@@ -434,12 +477,10 @@ impl ProxyHttp for ForwardProxy {
                                     HeaderKeys::IntFpJwtKey.as_str(),
                                     err
                                 );
-                                return Err(
-                                    pingora::Error::explain(
-                                        pingora::ErrorType::InvalidHTTPHeader,
-                                        err,
-                                    )
-                                );
+                                return Err(pingora::Error::explain(
+                                    pingora::ErrorType::InvalidHTTPHeader,
+                                    err,
+                                ));
                             }
                         }
                     }
@@ -458,13 +499,13 @@ impl ProxyHttp for ForwardProxy {
         Ok(())
     }
 
+    #[cfg_attr(feature = "hotpath", hotpath::measure)]
     async fn response_filter(
         &self,
         _session: &mut Session,
         upstream_response: &mut ResponseHeader,
         _ctx: &mut Self::CTX,
-    ) -> pingora::Result<()>
-    {
+    ) -> pingora::Result<()> {
         upstream_response.insert_header("Access-Control-Allow-Origin", "*")?;
         upstream_response.insert_header("Access-Control-Allow-Methods", "POST")?;
         upstream_response.insert_header("Access-Control-Allow-Headers", "*")?;
@@ -479,6 +520,7 @@ impl ProxyHttp for ForwardProxy {
         Ok(())
     }
 
+    #[cfg_attr(feature = "hotpath", hotpath::measure)]
     fn response_body_filter(
         &self,
         session: &mut Session,
@@ -523,11 +565,9 @@ impl ProxyHttp for ForwardProxy {
                     handler_response.status,
                     utils::bytes_to_string(&handler_response.body.unwrap_or_default())
                 );
-                return Err(pingora::Error::new(
-                    pingora::ErrorType::HTTPStatus(
-                        u16::from(StatusCode::INTERNAL_SERVER_ERROR)
-                    ),
-                ));
+                return Err(pingora::Error::new(pingora::ErrorType::HTTPStatus(
+                    u16::from(StatusCode::INTERNAL_SERVER_ERROR),
+                )));
             }
 
             info!(

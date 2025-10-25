@@ -4,24 +4,30 @@ version = "0.3.5"
 edition = "2024"
 
 [dependencies]
+pingora-router = { path = "../pingora-router", version = "0.1.0" }
 async-trait = "0.1"
 bytes = "1.10.1"
-clap = { version = "3.2.25", features = ["derive"] }
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.140"
-log = "0.4.27"
 chrono = "0.4.40"
-reqwest = { version="0.11", default-features=false, features=["json", "rustls-tls"] }
-tokio = { version = "1.44.2", features = ["rt-multi-thread", "macros"] }
+reqwest = { version = "0.11", default-features = false, features = [
+    "json",
+    "rustls-tls",
+] }
 pingora = { version = "0.5.0", features = ["lb", "boringssl"] }
-jsonwebtoken = "9.3.1"
 dotenv = "0.15.0"
-futures = "0.3.31"
-pingora-router = { path = "../pingora-router", version = "0.1.0" }
-once_cell = "1.21.3"
 pingora-error = "0.5.0"
 boring = "4.17.0"
-env_logger = "0.11.8"
 utils = { path = "../utils", version = "0.1.0" }
 hex = "0.4.3"
 envy = "0.4.2"
+hotpath = { git = "https://github.com/pawurb/hotpath.git", branch = "develop", optional = true }
+tracing = "0.1"
+tokio = { version = "1.48.0", features = ["full"] }
+
+[features]
+hotpath = ["dep:hotpath", "hotpath/hotpath"]
+hotpath-alloc-bytes-total = ["hotpath/hotpath-alloc-bytes-total"]
+hotpath-alloc-count-total = ["hotpath/hotpath-alloc-count-total"]
+hotpath-alloc-self = ["hotpath/hotpath-alloc-self"]
+hotpath-off = ["hotpath/hotpath-off"]
