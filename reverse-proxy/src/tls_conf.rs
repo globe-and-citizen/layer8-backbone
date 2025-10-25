@@ -138,20 +138,3 @@ impl TlsConfig {
         Ok(())
     }
 }
-
-mod cert {
-    #[allow(dead_code)]
-    pub fn ca_pem(ca_path: String) -> Vec<u8> {
-        std::fs::read(ca_path).expect("Failed to read CA PEM file")
-    }
-
-    #[allow(dead_code)]
-    pub fn cert(cert_path: String) -> Vec<u8> {
-        std::fs::read(cert_path).expect("Failed to read cert PEM file")
-    }
-
-    #[allow(dead_code)]
-    pub fn key(key_path: String) -> Vec<u8> {
-        std::fs::read(key_path).expect("Failed to read key PEM file")
-    }
-}

@@ -29,11 +29,6 @@ impl Layer8ContextRequestSummary {
         let path = session.req_header().uri.path().to_string();
         let query = session.req_header().uri.query();
 
-        // let mut client_ip = "".to_string();
-        // if let Some(client_addr) = session.client_addr() {
-        //     client_ip = client_addr.to_string();
-        // }
-
         let mut params = HashMap::new();
         if let Some(query) = query {
             for pair in query.split('&') {
