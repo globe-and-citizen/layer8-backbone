@@ -1,6 +1,7 @@
 pub mod jwt;
 pub mod cert;
 pub mod deserializer;
+pub mod log;
 
 use url::Url;
 
@@ -11,7 +12,7 @@ use uuid::Uuid;
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 
 use serde::{Deserialize, Serialize};
-use log::error;
+use tracing::error;
 
 pub fn to_reqwest_header(map: HashMap<String, String>) -> HeaderMap {
     let mut header_map = HeaderMap::new();
@@ -132,4 +133,12 @@ pub fn headermap_to_hashmap(headers: &HeaderMap) -> HashMap<String, serde_json::
 /// Returns `None` if the URL is invalid.
 pub fn validate_url(url: &str) -> Option<Url> {
     Url::parse(url).ok()
+}
+
+pub fn get_socket_addrs(url: &Url) -> String {
+    url.socket_addrs(|| None).unwrap_or_default()
+        .iter()
+        .map(|addr| addr.to_string())
+        .collect::<Vec<String>>()
+        .join(",")
 }

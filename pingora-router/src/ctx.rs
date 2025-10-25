@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use pingora::http::{Method, RequestHeader};
+use pingora::http::{Method, RequestHeader, StatusCode};
 use pingora::proxy::Session;
 use crate::utils::get_request_body;
 
@@ -68,6 +68,7 @@ impl Layer8ContextRequest {
 /// shared across handlers during request processing
 #[derive(Debug, Clone, Default)]
 pub struct Layer8ContextResponse {
+    pub status: StatusCode,
     pub header: Layer8Header,
     body: Vec<u8>,
 }

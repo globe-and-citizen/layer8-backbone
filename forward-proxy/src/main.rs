@@ -2,52 +2,31 @@ mod proxy;
 mod handler;
 mod config;
 
-use std::fs::OpenOptions;
 use crate::handler::ForwardHandler;
-use env_logger::{Env, Target};
-use log::{debug, info};
 use proxy::ForwardProxy;
 use pingora::prelude::*;
 use crate::config::FPConfig;
+use tracing::{info, debug};
 
 fn load_config() -> FPConfig {
     // Load environment variables from .env file
     dotenv::dotenv().ok();
 
     // Deserialize from env vars
-    let mut config: FPConfig = envy::from_env().expect("Failed to load config");
+    let config: FPConfig = envy::from_env().expect("Failed to load config");
 
-    config.tls_config.load().expect("Failed to load TLS configuration");
+    utils::log::init_logger(
+        "ForwardProxy",
+        config.log_config.log_level.clone(),
+        config.log_config.log_path.clone(),
+    );
 
-    let target = match config.log_config.log_path.as_str() {
-        "console" => Target::Stdout,
-        path => {
-            let file = OpenOptions::new()
-                .append(true)
-                .create(true)
-                .open(path)
-                .expect("Can't create log file!");
-
-            Target::Pipe(Box::new(file))
-        }
-    };
-
-    env_logger::Builder::from_env(Env::default()
-        .write_style_or("RUST_LOG_STYLE", "always"))
-        .format_file(true)
-        .format_line_number(true)
-        .filter(None, config.log_config.to_level_filter())
-        .target(target)
-        .init();
-
-    debug!("Loaded ForwardProxyConfig: {:?}", config);
+    debug!(name: "FPConfig", value = ?config);
     config
 }
 
 fn main() {
     let config = load_config();
-
-    info!("Starting server...");
 
     let mut server = Server::new(Some(Opt {
         conf: std::env::var("SERVER_CONF").ok(),
@@ -59,12 +38,14 @@ fn main() {
 
     let mut proxy = http_proxy_service(
         &server.configuration,
-        ForwardProxy::new(config.tls_config, fp_handler)
+        ForwardProxy::new(config.tls_config, fp_handler),
     );
 
     proxy.add_tcp(&format!("{}:{}", config.listen_address, config.listen_port));
 
     server.add_service(proxy);
+
+    info!("Starting server at {}:{}", config.listen_address, config.listen_port);
 
     server.run_forever();
 }

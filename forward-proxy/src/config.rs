@@ -16,6 +16,7 @@ pub struct FPConfig {
 
 #[derive(Debug, Deserialize)]
 pub struct LogConfig {
+    #[allow(dead_code)]
     pub log_path: String,
     pub log_level: String,
 }
@@ -37,27 +38,4 @@ pub struct TlsConfig {
     pub ca_cert: String,
     pub cert: String,
     pub key: String,
-}
-
-impl LogConfig {
-    pub fn to_level_filter(&self) -> log::LevelFilter {
-        match self.log_level.to_uppercase().as_str() {
-            "INFO" => log::LevelFilter::Info,
-            "DEBUG" => log::LevelFilter::Debug,
-            "WARNING" => log::LevelFilter::Warn,
-            "ERROR" => log::LevelFilter::Error,
-            "TRACE" => log::LevelFilter::Trace,
-            "OFF" => log::LevelFilter::Off,
-            _ => log::max_level()
-        }
-    }
-}
-
-impl TlsConfig {
-    pub fn load(&mut self) -> Result<(), String> {
-        // todo validate certs?
-        // this method was created to load certificates from files but now certs are directly in config.
-        // so it does nothing for now, but kept for future use to validate certs if needed
-        Ok(())
-    }
 }

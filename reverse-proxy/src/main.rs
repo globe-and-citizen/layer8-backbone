@@ -2,9 +2,7 @@ mod handler;
 mod proxy;
 mod tls_conf;
 
-use std::fs::OpenOptions;
 use crate::handler::ReverseHandler;
-use env_logger::{self, Env, Target};
 use futures::FutureExt;
 use pingora::server::Server;
 use pingora::server::configuration::Opt;
@@ -12,7 +10,7 @@ use pingora::{listeners::tls::TlsSettings, prelude::http_proxy_service};
 use pingora_router::handler::APIHandler;
 use pingora_router::router::Router;
 use std::sync::Arc;
-use log::{debug, error};
+use tracing::{debug, error};
 use crate::config::RPConfig;
 use crate::proxy::ReverseProxy;
 
@@ -27,28 +25,13 @@ fn load_config() -> RPConfig {
         error!("Failed to load configuration: {}", e);
     }).unwrap();
 
-    let target = match config.log.log_path.as_str() {
-        "console" => Target::Stdout,
-        path => {
-            let file = OpenOptions::new()
-                .append(true)
-                .create(true)
-                .open(path)
-                .expect("Can't create log file!");
+    utils::log::init_logger(
+        "ReverseProxy",
+        config.log.log_path.clone(),
+        config.log.log_level.clone(),
+    );
 
-            Target::Pipe(Box::new(file))
-        }
-    };
-
-    env_logger::Builder::from_env(Env::default()
-        .write_style_or("RUST_LOG_STYLE", "always"))
-        .format_file(true)
-        .format_line_number(true)
-        .filter(None, config.log.to_level_filter())
-        .target(target)
-        .init();
-
-    debug!("Loaded ReverseProxyConfig: {:?}", config);
+    debug!(name: "RPConfig", value = ?config);
     config
 }
 
