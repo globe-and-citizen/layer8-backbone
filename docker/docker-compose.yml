@@ -53,7 +53,7 @@ services:
     depends_on:
       auth-postgres:
         condition: service_healthy
-      auth-influxdb2:
+      influxdb2:
         condition: service_healthy
       auth-telegraf:
         condition: service_healthy
@@ -64,14 +64,22 @@ services:
       layer8-network:
         ipv4_address: 10.10.10.103
 
-  auth-influxdb2:
-    container_name: auth-influxdb2
+  influxdb2:
+    container_name: influxdb2
     image: influxdb:2
     restart: always
     ports:
       - 8086:8086
     volumes:
-      - ./layer8-volumes/influxdb2-data:/var/lib/influxdb2
+      - ./influxdb2-data:/var/lib/influxdb2
+    environment:
+      - DOCKER_INFLUXDB_INIT_MODE=setup
+      - DOCKER_INFLUXDB_INIT_USERNAME=admin
+      - DOCKER_INFLUXDB_INIT_PASSWORD=12341234
+      - DOCKER_INFLUXDB_INIT_ORG=globeandcitizen
+      - DOCKER_INFLUXDB_INIT_BUCKET=layer8-bucket
+      - DOCKER_INFLUXDB_INIT_ADMIN_TOKEN=layer8-admin-token
+      - DOCKER_INFLUXDB_INIT_RETENTION=30d
     healthcheck:
       test: [ "CMD", "curl", "-f", "http://localhost:8086/health" ]
       interval: 5s
@@ -135,7 +143,7 @@ services:
     depends_on:
       auth-postgres:
         condition: service_healthy
-      auth-influxdb2:
+      influxdb2:
         condition: service_healthy
       auth-telegraf:
         condition: service_healthy

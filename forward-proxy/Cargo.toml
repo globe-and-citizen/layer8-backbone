@@ -24,3 +24,5 @@ utils = { path = "../utils", version = "0.1.0" }
 hex = "0.4.3"
 envy = "0.4.2"
 tracing = "0.1.41"
+influxdb2 = "0.5.2"
+

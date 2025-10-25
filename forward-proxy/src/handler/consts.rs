@@ -26,6 +26,7 @@ pub enum CtxKeys {
     #[allow(dead_code)]
     IntFPJwt,
     FpRpJwt,
+    BackendAuthClientID,
 }
 
 impl CtxKeys {
@@ -38,6 +39,7 @@ impl CtxKeys {
             CtxKeys::IntRPJwt => "int_rp_jwt".to_string(),
             CtxKeys::IntFPJwt => "int_fp_jwt".to_string(),
             CtxKeys::FpRpJwt => "fp_rp_jwt".to_string(),
+            CtxKeys::BackendAuthClientID => "backend_auth_client_id".to_string(),
         }
     }
 }
@@ -51,4 +53,7 @@ impl LogTypes {
     pub const HANDLE_CLIENT_REQUEST: &'static str = "HANDLE_CLIENT_REQUEST";
     pub const HANDLE_UPSTREAM_RESPONSE: &'static str = "HANDLE_UPSTREAM_RESPONSE";
     pub const HEALTHCHECK: &'static str = "HEALTHCHECK";
+    pub const INFLUXDB: &'static str = "INFLUXDB";
+    pub const AUTHENTICATION_SERVER: &'static str = "AUTHENTICATION_SERVER";
 }
+
