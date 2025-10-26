@@ -16,9 +16,13 @@ pub struct FPConfig {
 
 #[derive(Debug, Deserialize)]
 pub struct LogConfig {
-    #[allow(dead_code)]
-    pub log_path: String,
     pub log_level: String,
+    /// default to "json" if not "plain"
+    pub log_format: String,
+    /// "console" or folder path
+    pub log_path: String,
+    /// required if log_path is not "console"
+    pub log_filename: String,
 }
 
 #[derive(Debug, Deserialize)]
