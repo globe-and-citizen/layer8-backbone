@@ -1,11 +1,12 @@
+mod influxdb_client;
+
 use crate::config::InfluxDBConfig;
-use futures::stream;
-use influxdb2::Client;
-use influxdb2::models::DataPoint;
-use pingora::http::StatusCode;
-use pingora::proxy::Session;
-use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
-use std::error::Error;
+use crate::handler::consts::LogTypes;
+use crate::statistics::influxdb_client::InfluxDBClient;
+use futures::TryFutureExt;
+use once_cell::sync::Lazy;
+use tokio::sync::Mutex;
+use tracing::error;
 
 struct InfluxDBMeasurements;
 
@@ -16,117 +17,39 @@ impl InfluxDBMeasurements {
     const TOTAL_REQUEST: &'static str = "total_request";
 }
 
-pub struct InfluxDBClient {
-    client: Client,
-    bucket: String,
-}
+static INFLUXDB_CLIENT: Lazy<Mutex<Option<InfluxDBClient>>> = Lazy::new(|| Mutex::new(None));
 
-impl InfluxDBClient {
-    pub fn new(config: &InfluxDBConfig) -> Self {
-        let influxdb_client = Client::new(
-            &config.influxdb_url,
-            &config.influxdb_org,
-            &config.influxdb_auth_token,
-        );
-        InfluxDBClient {
-            client: influxdb_client,
-            bucket: config.influxdb_bucket.clone(),
-        }
+pub struct Statistics;
+
+impl Statistics {
+    pub async fn init_influxdb_client(config: &InfluxDBConfig) {
+        let mut influxdb_client = INFLUXDB_CLIENT.lock().await;
+        *influxdb_client = Some(InfluxDBClient::new(&config));
     }
 
-    pub async fn update_statistics(
-        &self,
-        client_id: &str,
-        session: &Session,
-        ctx: &Layer8Context,
+    pub async fn update(
+        client_id: String,
+        request_path: String,
+        total_byte_transferred: i64,
         response_status: u16,
-    ) -> Result<(), Box<dyn Error + Sync + Send>> {
-        self.increase_total_request(client_id).await?;
-
-        if response_status == StatusCode::OK {
-            return match session.req_header().uri.path() {
-                "/proxy" => {
-                    self.add_total_byte_transferred(
-                        client_id,
-                        (ctx.get_request_body().len() + ctx.get_response_body().len()) as i64,
-                    )
-                    .await?;
-
-                    self.increase_total_success(client_id).await
-                }
-                "/init-tunnel" => self.increase_total_tunnel_initiated(client_id).await,
-                _ => Ok(()),
-            };
+    ) {
+        let client = INFLUXDB_CLIENT.lock().await;
+        if let Some(ref influxdb_client) = *client {
+            influxdb_client
+                .update_statistics(
+                    client_id,
+                    request_path,
+                    total_byte_transferred,
+                    response_status,
+                )
+                .map_err(|e| {
+                    error!(
+                        log_type = LogTypes::INFLUXDB,
+                        "Failed to update statistics: {:?}", e
+                    );
+                })
+                .await
+                .ok();
         }
-
-        Ok(())
-    }
-
-    async fn increase_counter(
-        &self,
-        measurement: &str,
-        client_id: &str,
-        value: i64,
-    ) -> Result<(), Box<dyn Error + Sync + Send>> {
-        // Create a data point
-        let point = DataPoint::builder(measurement)
-            .tag("client_id", client_id)
-            .field("counter", value)
-            .build()
-            .map_err(|e| {
-                Box::<dyn Error + Sync + Send>::from(format!(
-                    "Failed to increase counter for {}: {:?}",
-                    measurement, e
-                ))
-            })?;
-
-        // Write to bucket
-        self.client
-            .write(self.bucket.as_str(), stream::iter(vec![point]))
-            .await
-            .map_err(|e| {
-                Box::<dyn Error + Sync + Send>::from(format!(
-                    "Failed to write counter for {}: {:?}",
-                    measurement, e
-                ))
-            })?;
-        Ok(())
-    }
-
-    async fn add_total_byte_transferred(
-        &self,
-        client_id: &str,
-        bytes_size: i64,
-    ) -> Result<(), Box<dyn Error + Sync + Send>> {
-        self.increase_counter(
-            InfluxDBMeasurements::TOTAL_BYTE_TRANSFERRED,
-            client_id,
-            bytes_size,
-        )
-        .await
-    }
-
-    async fn increase_total_tunnel_initiated(
-        &self,
-        client_id: &str,
-    ) -> Result<(), Box<dyn Error + Sync + Send>> {
-        self.increase_counter(InfluxDBMeasurements::TOTAL_TUNNEL_INITIATED, client_id, 1)
-            .await
-    }
-
-    async fn increase_total_request(
-        &self,
-        client_id: &str,
-    ) -> Result<(), Box<dyn Error + Sync + Send>> {
-        self.increase_counter(InfluxDBMeasurements::TOTAL_REQUEST, client_id, 1)
-            .await
-    }
-
-    async fn increase_total_success(
-        &self,
-        client_id: &str,
-    ) -> Result<(), Box<dyn Error + Sync + Send>> {
-        self.increase_counter(InfluxDBMeasurements::TOTAL_SUCCESS, client_id, 1)
-            .await
     }
 }

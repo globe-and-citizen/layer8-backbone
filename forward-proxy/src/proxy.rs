@@ -1,8 +1,8 @@
-use crate::config::{InfluxDBConfig, TlsConfig};
+use crate::config::TlsConfig;
 use crate::handler::consts::{HeaderKeys, LogTypes};
 use crate::handler::types::response::ErrorResponse;
 use crate::handler::{ForwardHandler, consts};
-use crate::statistics::InfluxDBClient;
+use crate::statistics::Statistics;
 use async_trait::async_trait;
 use boring::x509::X509;
 use bytes::Bytes;
@@ -18,26 +18,18 @@ use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
 use pingora_router::handler::ResponseBodyTrait;
 use reqwest::header::TRANSFER_ENCODING;
 use std::sync::Arc;
-use tokio::sync::Mutex;
 use std::time::Duration;
 use tracing::{debug, error, info};
 
 pub struct ForwardProxy {
     tls_config: TlsConfig,
-    influxdb_client: Arc<Mutex<InfluxDBClient>>,
     handler: ForwardHandler,
 }
 
 impl ForwardProxy {
-    pub fn new(
-        tls_config: TlsConfig,
-        influxdb_config: InfluxDBConfig,
-        handler: ForwardHandler,
-    ) -> Self {
-        let influxdb_client = InfluxDBClient::new(&influxdb_config);
+    pub fn new(tls_config: TlsConfig, handler: ForwardHandler) -> Self {
         ForwardProxy {
             tls_config,
-            influxdb_client: Arc::new(Mutex::new(influxdb_client)),
             handler,
         }
     }
@@ -71,7 +63,10 @@ impl ProxyHttp for ForwardProxy {
         //
         // Code below is for step 4(this is a client to RP), presenting the client's TLS certificate.
 
-        let addrs = ctx.get(&consts::CtxKeys::UpstreamAddress.to_string()).unwrap_or(&"".to_string()).clone();
+        let addrs = ctx
+            .get(&consts::CtxKeys::UpstreamAddress.to_string())
+            .unwrap_or(&"".to_string())
+            .clone();
         let sni = ctx
             .get(&consts::CtxKeys::UpstreamSNI.to_string())
             .unwrap_or(&"".to_string())
@@ -87,12 +82,11 @@ impl ProxyHttp for ForwardProxy {
         // We will try to connect to each address until one succeeds.
         let mut address_list: Vec<&str> = addrs.split(',').collect();
         let enable_tls = self.tls_config.enable_tls; // clone for move into closure
-        let upstream_sni = sni.to_string();         // clone for move into closure
+        let upstream_sni = sni.to_string(); // clone for move into closure
         let mut opt_peer = None;
         for addr in address_list.clone() {
-            match std::panic::catch_unwind(|| {
-                HttpPeer::new(addr, enable_tls, upstream_sni.clone())
-            }) {
+            match std::panic::catch_unwind(|| HttpPeer::new(addr, enable_tls, upstream_sni.clone()))
+            {
                 Ok(p) => {
                     info!(
                         log_type = LogTypes::UPSTREAM_CONNECT,
@@ -282,7 +276,10 @@ impl ProxyHttp for ForwardProxy {
                         Ok(session) => {
                             debug!("IntFPSession: {:?}", session);
                             ctx.set(consts::CtxKeys::FpRpJwt.to_string(), session.fp_rp_jwt);
-                            ctx.set(consts::CtxKeys::BackendAuthClientID.to_string(), session.client_id);
+                            ctx.set(
+                                consts::CtxKeys::BackendAuthClientID.to_string(),
+                                session.client_id,
+                            );
 
                             if let Some(url) = utils::validate_url(&session.rp_base_url) {
                                 let socket_addr = utils::get_socket_addrs(&url);
@@ -609,22 +606,17 @@ impl ProxyHttp for ForwardProxy {
             error=?e,
         );
 
-        let client_id = ctx.get(&consts::CtxKeys::BackendAuthClientID.to_string())
+        let client_id = ctx
+            .get(&consts::CtxKeys::BackendAuthClientID.to_string())
             .unwrap_or(&"".to_string())
             .clone();
+        let request_path = session.req_header().uri.path().to_string();
+        let total_byte_transferred =
+            (ctx.get_request_body().len() + ctx.get_response_body().len()) as i64;
 
-        let influxdb_client = self.influxdb_client.lock().await;
-
-        influxdb_client
-            .update_statistics(&client_id, session, ctx, status)
-            .await
-            .map_err(|e| {
-                error!(
-                    log_type = LogTypes::INFLUXDB,
-                    "Failed to update statistics for client {}: {:?}", client_id, e
-                );
-            })
-            .unwrap_or_default();
+        tokio::spawn(async move {
+            Statistics::update(client_id, request_path, total_byte_transferred, status).await;
+        });
     }
 
     fn fail_to_connect(
