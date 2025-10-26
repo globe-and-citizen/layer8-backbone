@@ -1,17 +1,22 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use log::{error, info};
+
 use pingora::http::StatusCode;
 use reqwest::Client;
-use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
-use pingora_router::handler::{APIHandlerResponse, DefaultHandlerTrait, RequestBodyTrait};
-use crate::handler::types::response::{ErrorResponse, FpHealthcheckError, FpHealthcheckSuccess, InitTunnelResponseFromRP, InitTunnelResponseToINT};
-use pingora_router::handler::ResponseBodyTrait;
+use pingora_router::{
+   ctx::{Layer8Context, Layer8ContextTrait}, 
+   handler::{APIHandlerResponse, DefaultHandlerTrait, RequestBodyTrait, ResponseBodyTrait}
+};
 use serde::Deserialize;
-use crate::handler::types::request::InitTunnelRequest;
-use utils;
-use utils::jwt::JWTClaims;
+use tracing::{debug, error, info};
+
+use crate::handler::types::{
+   response::{ErrorResponse, FpHealthcheckError, FpHealthcheckSuccess, InitTunnelResponseFromRP, InitTunnelResponseToINT},
+   request::InitTunnelRequest
+};
+use utils::{self, jwt::JWTClaims};
 use crate::config::HandlerConfig;
+use crate::handler::consts::LogTypes;
 
 pub mod types;
 pub mod consts;
@@ -51,20 +56,20 @@ impl ForwardHandler {
     {
         let client = Client::new();
 
-        let res = client.get(
-            //todo
-            // the input backend_url is originally from interceptor request,
-            // the interceptor only accepts URLs with http(s) scheme.
-            // But the authentication server expects a URL without scheme
-            format!(
-                "{}{}",
-                self.config.auth_get_certificate_url,
-                backend_url.replace("http://", "").replace("https://", "")
-            )
-        )
+        //todo
+        // the input backend_url is originally from interceptor request,
+        // the interceptor only accepts URLs with http(s) scheme.
+        // But the authentication server expects a URL without scheme
+        let request_path = format!(
+            "{}{}",
+            self.config.auth_get_certificate_url,
+            backend_url.replace("http://", "").replace("https://", "")
+        );
+        let res = client.get(&request_path)
             .header("Authorization", format!("Bearer {}", self.config.auth_access_token))
             .send()
             .await
+            // unable to connect
             .map_err(|e| {
                 let response_body = ErrorResponse {
                     error: format!("Failed to connect to layer8: {}", e)
@@ -76,11 +81,15 @@ impl ForwardHandler {
                 }
             })?;
 
+        // connected but request failed
         if !res.status().is_success() {
             let response_body = ErrorResponse {
                 error: format!("Failed to get public key from layer8, status code: {}", res.status().as_u16()),
             };
-            error!("Sending error response: {:?}", response_body);
+            error!(
+                log_type=LogTypes::HANDLE_CLIENT_REQUEST,
+                "Failed to get ntor certificate for {request_path}: {response_body:?}"
+            );
 
             ctx.insert_response_header("Connection", "close"); // Ensure connection closes???
 
@@ -95,7 +104,11 @@ impl ForwardHandler {
             }
 
             let cert: AuthServerResponse = res.json().await.map_err(|err| {
-                error!("Failed to parse authentication server response: {:?}", err);
+                error!(
+                    log_type=LogTypes::HANDLE_CLIENT_REQUEST,
+                    "Failed to parse authentication server response: {:?}",
+                    err
+                );
                 APIHandlerResponse {
                     status: StatusCode::INTERNAL_SERVER_ERROR,
                     body: None,
@@ -104,14 +117,23 @@ impl ForwardHandler {
 
             let pub_key = utils::cert::extract_x509_pem(cert.x509_certificate.clone())
                 .map_err(|e| {
-                    error!("Failed to parse x509 certificate: {:?}", e);
+                    error!(
+                        log_type=LogTypes::HANDLE_CLIENT_REQUEST,
+                        "Failed to parse x509 certificate: {:?}",
+                        e
+                    );
                     APIHandlerResponse {
                         status: StatusCode::INTERNAL_SERVER_ERROR,
                         body: None,
                     }
                 })?;
 
-            info!("AuthenticationServer response: {:?}", cert);
+            debug!("AuthenticationServer response: {:?}", cert);
+            info!(
+                log_type=LogTypes::HANDLE_CLIENT_REQUEST,
+                "Obtained ntor credentials for backend_url: {}",
+                backend_url
+            );
 
             Ok(NTorServerCertificate {
                 server_id: backend_url, // todo I still prefer taking the server_id value from certificate's subject
@@ -175,7 +197,7 @@ impl ForwardHandler {
                 Ok(cert) => cert,
                 Err(err) => return err
             };
-            info!("Server certificate: {:?}", server_certificate);
+            debug!("Server certificate: {:?}", server_certificate);
 
             ctx.set(
                 consts::CtxKeys::NTorServerId.to_string(),
@@ -203,7 +225,11 @@ impl ForwardHandler {
 
         return match utils::bytes_to_json::<InitTunnelResponseFromRP>(response_body) {
             Err(e) => {
-                error!("Error parsing RP response: {:?}", e);
+                error!(
+                    log_type=LogTypes::HANDLE_UPSTREAM_RESPONSE,
+                    "Error parsing RP response: {:?}",
+                    e
+                );
                 APIHandlerResponse {
                     status: StatusCode::INTERNAL_SERVER_ERROR,
                     body: None,

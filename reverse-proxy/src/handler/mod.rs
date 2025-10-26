@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 use std::sync::{Mutex, MutexGuard};
-use log::debug;
 use ntor::common::{InitSessionMessage, NTorParty};
 use ntor::server::NTorServer;
 use pingora::http::StatusCode;
+use tracing::{debug, info};
 use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
 use pingora_router::handler::{APIHandlerResponse, ResponseBodyTrait};
 use init_tunnel::handler::InitTunnelHandler;
@@ -12,9 +12,10 @@ use init_tunnel::InitEncryptedTunnelResponse;
 use utils::{new_uuid};
 use utils::jwt::JWTClaims;
 use crate::config::{HandlerConfig, RPConfig};
+use crate::handler::common::consts::LogTypes;
 use crate::handler::healthcheck::{RpHealthcheckError, RpHealthcheckSuccess};
 
-mod common;
+pub(crate) mod common;
 mod init_tunnel;
 mod proxy;
 mod healthcheck;
@@ -68,7 +69,11 @@ impl ReverseHandler {
             Ok(res) => res,
             Err(res) => return res
         };
-        debug!("[REQUEST /init-tunnel] Parsed body: {:?}", request_body);
+        debug!(
+            client_ip=ctx.request.summary.host,
+            "Parsed body: {:?}",
+            request_body
+        );
 
         // todo I think there are prettier ways to use nTor since we are free to modify the nTor crate, but I'm lazy
         let mut ntor_server = NTorServer::new_with_secret(
@@ -109,8 +114,13 @@ impl ReverseHandler {
             fp_rp_jwt,
         };
 
-        InitTunnelHandler::send_result_to_be(self.config.backend_url.clone(), true).await;
-
+        // InitTunnelHandler::send_result_to_be(self.config.backend_url.clone(), true).await;
+        info!(
+            log_type=LogTypes::HANDLE_INIT_TUNNEL_REQUEST,
+            client_ip=ctx.request.summary.host,
+            "Save new nTor session: {}",
+            ntor_session_id
+        );
         NTOR_SHARED_SECRETS.with(|memory| {
             let mut guard: MutexGuard<HashMap<String, Vec<u8>>> = memory.lock().unwrap();
             guard.insert(ntor_session_id, ntor_server.get_shared_secret().unwrap_or_default());
@@ -149,7 +159,16 @@ impl ReverseHandler {
             Ok(req) => req,
             Err(res) => return res,
         };
-        debug!("[REQUEST /proxy] Decrypted request: {:?}", wrapped_request);
+
+        info!(
+            log_type=LogTypes::HANDLE_INIT_TUNNEL_REQUEST,
+            client_ip=ctx.request.summary.host,
+            "Decrypted request body and forward to backend",
+        );
+        debug!(
+            client_ip=ctx.request.summary.host,
+            "Decrypted request: {:?}", wrapped_request
+        );
 
         // reconstruct user request
         let wrapped_response = match ProxyHandler::rebuild_user_request(
@@ -160,7 +179,11 @@ impl ReverseHandler {
             Err(res) => return res,
         };
 
-        debug!("[RESPONSE /proxy] Wrapped Backend response: {:?}", wrapped_response);
+        debug!(
+            client_ip=ctx.request.summary.host,
+            "Wrapped Backend response: {:?}",
+            wrapped_response
+        );
 
         return match ProxyHandler::encrypt_response_body(
             wrapped_response,

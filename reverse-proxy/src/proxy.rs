@@ -1,11 +1,12 @@
 use pingora::prelude::{HttpPeer, ProxyHttp};
 use pingora::proxy::Session;
 use pingora::http::{ResponseHeader, StatusCode};
-use log::{error, info};
 use async_trait::async_trait;
 use bytes::Bytes;
+use tracing::{debug, info};
 use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
 use pingora_router::router::Router;
+use crate::handler::common::consts::LogTypes;
 
 pub struct ReverseProxy<T> {
     router: Router<T>
@@ -45,9 +46,11 @@ impl<T> ReverseProxy<T> {
             .insert_header("Access-Control-Max-Age", "86400")
             .unwrap_or_default();
 
-        println!();
-        info!("[RESPONSE {} {}] Header: {:?}", session.req_header().method,
-            session.req_header().uri.to_string(), header.headers);
+        info!(
+            log_type=LogTypes::HANDLE_BACKEND_RESPONSE,
+            "Response Headers: {:?}",
+            header.headers
+        );
         session.write_response_header_ref(&header).await
     }
 }
@@ -79,10 +82,19 @@ impl<T: Sync> ProxyHttp for ReverseProxy<T> {
         ctx.update(session).await?;
         ctx.read_request_body(session).await?;
         let request_summary = session.request_summary();
-        println!();
-        info!("[REQUEST {}] {:?}", request_summary, ctx.request);
-        info!("[REQUEST {}] Decoded body: {}", request_summary, String::from_utf8_lossy(&*ctx.get_request_body()));
-        println!();
+        let request_id = session.req_header().headers.get("x-request-id").map(|v| v.to_str().unwrap_or("")).unwrap_or("");
+        info!(
+            log_type=LogTypes::ACCESS_LOG,
+            client_ip=ctx.request.summary.host,
+            request_summary=session.request_summary(),
+            user_agent=ctx.request.header.get("User-Agent"),
+            request_id=request_id,
+        );
+        debug!(
+            request_summary=request_summary,
+            "Decoded request body: {}",
+            String::from_utf8_lossy(&*ctx.get_request_body())
+        );
 
         let handler_response = self.router.call_handler(ctx).await;
         if handler_response.status == StatusCode::NOT_FOUND && handler_response.body.is_none() {
@@ -99,8 +111,11 @@ impl<T: Sync> ProxyHttp for ReverseProxy<T> {
         };
         ReverseProxy::<T>::set_headers(session, ctx, handler_response.status).await?;
 
-        info!("[RESPONSE {}] Body: {}", request_summary, String::from_utf8_lossy(&*response_bytes));
-        println!();
+        debug!(
+            request_summary=request_summary,
+            "Response Body: {}",
+            String::from_utf8_lossy(&*response_bytes)
+        );
 
         // Write the response body to the session after setting headers
         session.write_response_body(Some(Bytes::from(response_bytes)), true).await?;
@@ -114,21 +129,21 @@ impl<T: Sync> ProxyHttp for ReverseProxy<T> {
         e: Option<&pingora::Error>,
         ctx: &mut Self::CTX,
     ) {
-        let response_code = session
-            .response_written()
-            .map_or(0, |resp| resp.status.as_u16());
-
-        if !e.is_none() {
-            error!(
-                "{} error: {}",
-                self.request_summary(session, ctx),
-                e.as_ref().unwrap_or_default()
-            );
+        let mut status = ctx.response.status.as_u16();
+        if let Some(_err) = e {
+            status = session.response_written().unwrap().status.as_u16();
         }
 
         info!(
-            "{} response code: {response_code}",
-            self.request_summary(session, ctx)
+            log_type=LogTypes::ACCESS_LOG_RESULT,
+            client_ip=ctx.request.summary.host,
+            request_summary=session.request_summary(),
+            status=status,
+            // duration_ms=session.duration_ms(),
+            response_body_size=ctx.get_response_body().len(),
+            user_agent=ctx.request.header.get("User-Agent"),
+            request_id=session.req_header().headers.get("x-request-id").map(|v| v.to_str().unwrap_or("")).unwrap_or(""),
+            error=?e,
         );
     }
 }
