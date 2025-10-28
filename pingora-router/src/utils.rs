@@ -1,4 +1,3 @@
-use log::error;
 use pingora::prelude::Session;
 
 pub(crate) async fn get_request_body(session: &mut Session) -> pingora::Result<Vec<u8>> {
@@ -12,7 +11,6 @@ pub(crate) async fn get_request_body(session: &mut Session) -> pingora::Result<V
                 }
             }
             Err(err) => {
-                error!("ERROR: {err}");
                 return Err(err);
             }
         }

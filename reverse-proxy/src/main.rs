@@ -25,12 +25,6 @@ fn load_config() -> RPConfig {
         error!("Failed to load configuration: {}", e);
     }).unwrap();
 
-    utils::log::init_logger(
-        "ReverseProxy",
-        config.log.log_path.clone(),
-        config.log.log_level.clone(),
-    );
-
     debug!(name: "RPConfig", value = ?config);
     config
 }
@@ -38,6 +32,13 @@ fn load_config() -> RPConfig {
 fn main() {
     // Load environment variables from .env file
     let rp_config = load_config();
+
+    let _logger_guard = utils::log::init_logger(
+        rp_config.log.log_level.clone(),
+        rp_config.log.log_format.clone(),
+        rp_config.log.log_path.clone(),
+        rp_config.log.log_filename.clone(),
+    );
 
     let mut my_server = Server::new(Some(Opt {
         conf: std::env::var("SERVER_CONF").ok(),

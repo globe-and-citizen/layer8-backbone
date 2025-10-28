@@ -18,12 +18,6 @@ fn load_config() -> FPConfig {
     // Deserialize from env vars
     let config: FPConfig = envy::from_env().expect("Failed to load config");
 
-    utils::log::init_logger(
-        "ForwardProxy",
-        config.log_config.log_level.clone(),
-        config.log_config.log_path.clone(),
-    );
-
     debug!(name: "FPConfig", value = ?config);
     config
 }
@@ -36,6 +30,13 @@ fn main() {
     let rt = Runtime::new().unwrap();
     rt.block_on(Statistics::init_influxdb_client(&config.influxdb_config));
 
+
+    let _logger_guard = utils::log::init_logger(
+        config.log_config.log_level.clone(),
+        config.log_config.log_format.clone(),
+        config.log_config.log_path.clone(),
+        config.log_config.log_filename.clone(),
+    );
 
     let mut server = Server::new(Some(Opt {
         conf: std::env::var("SERVER_CONF").ok(),
