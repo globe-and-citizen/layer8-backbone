@@ -1,12 +1,15 @@
 mod proxy;
 mod handler;
 mod config;
+mod statistics;
 
 use crate::handler::ForwardHandler;
 use proxy::ForwardProxy;
 use pingora::prelude::*;
+use tokio::runtime::Runtime;
 use crate::config::FPConfig;
 use tracing::{info, debug};
+use crate::statistics::Statistics;
 
 fn load_config() -> FPConfig {
     // Load environment variables from .env file
@@ -21,6 +24,12 @@ fn load_config() -> FPConfig {
 
 fn main() {
     let config = load_config();
+    // let influxdb_client = InfluxDBClient::new(&config.influxdb_config);
+
+    // Initialize the async runtime
+    let rt = Runtime::new().unwrap();
+    rt.block_on(Statistics::init_influxdb_client(&config.influxdb_config));
+
 
     let _logger_guard = utils::log::init_logger(
         config.log_config.log_level.clone(),

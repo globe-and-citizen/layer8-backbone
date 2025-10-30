@@ -1,16 +1,8 @@
-// can be replaced by constants, will see
-pub enum HeaderKeys {
-    FpRpJwtKey,
-    IntRpJwtKey,
-}
+pub struct HeaderKeys;
 
 impl HeaderKeys {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            HeaderKeys::FpRpJwtKey => "fp_rp_jwt",
-            HeaderKeys::IntRpJwtKey => "int_rp_jwt"
-        }
-    }
+    pub const FP_RP_JWT: &'static str = "fp_rp_jwt";
+    pub const INT_RP_JWT_KEY: &'static str = "int_rp_jwt";
 }
 
 pub struct LogTypes;

@@ -20,7 +20,6 @@ RUN apt-get update && apt-get install -y \
 WORKDIR /usr/src/app
 
 # Copy source code
-COPY ./certs ./certs
 COPY ./pingora-router ./pingora-router
 COPY ./utils ./utils
 COPY ./forward-proxy ./forward-proxy
@@ -44,7 +43,6 @@ RUN useradd -m layer8
 
 # Copy only the built binary from the builder stage
 COPY --from=builder /usr/src/app/forward-proxy/target/release/forward-proxy /usr/local/bin/forward-proxy
-COPY --from=builder /usr/src/app/certs /usr/local/certs
 
 # Switch to non-root user
 USER layer8
