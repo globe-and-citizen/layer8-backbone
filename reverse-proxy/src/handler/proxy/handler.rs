@@ -21,15 +21,15 @@ impl ProxyHandler {
 
     fn validate_jwt_token(
         ctx: &mut Layer8Context,
-        header_key: HeaderKeys,
+        header_key: &str,
         jwt_secret: &Vec<u8>
     ) -> Result<JWTClaims, APIHandlerResponse> {
-        match ctx.get_request_header().get(header_key.as_str()) {
+        match ctx.get_request_header().get(header_key) {
             None => {
                 return Err(APIHandlerResponse {
                     status: StatusCode::BAD_REQUEST,
                     body: Some(ErrorResponse {
-                        error: format!("Missing {} header", header_key.as_str()),
+                        error: format!("Missing {} header", header_key.to_string()),
                     }.to_bytes()),
                 });
             },
@@ -38,7 +38,7 @@ impl ProxyHandler {
                     return Err(APIHandlerResponse {
                         status: StatusCode::BAD_REQUEST,
                         body: Some(ErrorResponse {
-                            error: format!("Empty {} header", header_key.as_str()),
+                            error: format!("Empty {} header", header_key.to_string()),
                         }.to_bytes()),
                     });
                 }
@@ -50,7 +50,7 @@ impl ProxyHandler {
                         error!(
                             log_type=LogTypes::HANDLE_PROXY_REQUEST,
                             "Error verifying {} token: {:?}",
-                            header_key.as_str(),
+                            header_key,
                             err
                         );
                         Err(APIHandlerResponse {
@@ -72,14 +72,14 @@ impl ProxyHandler {
     ) -> Result<String, APIHandlerResponse>
     {
         // verify fp_rp_jwt header
-        match ProxyHandler::validate_jwt_token(ctx, HeaderKeys::FpRpJwtKey, jwt_secret) {
+        match ProxyHandler::validate_jwt_token(ctx, HeaderKeys::FP_RP_JWT, jwt_secret) {
             Ok(_claims) => {
                 // todo!() nothing to validate at the moment
             }
             Err(err) => return Err(err)
         }
 
-        return match ProxyHandler::validate_jwt_token(ctx, HeaderKeys::IntRpJwtKey, jwt_secret) {
+        return match ProxyHandler::validate_jwt_token(ctx, HeaderKeys::INT_RP_JWT_KEY, jwt_secret) {
             Ok(claims) => {
                 // extract ntor_session_id from claims
                 match claims.ntor_session_id {

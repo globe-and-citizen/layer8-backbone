@@ -1,7 +1,7 @@
 use crate::config::TlsConfig;
-use crate::handler::consts::{HeaderKeys, LogTypes};
+use crate::handler::consts::{HeaderKeys, LogTypes, CtxKeys};
 use crate::handler::types::response::ErrorResponse;
-use crate::handler::{ForwardHandler, consts};
+use crate::handler::ForwardHandler;
 use crate::statistics::Statistics;
 use async_trait::async_trait;
 use boring::x509::X509;
@@ -64,11 +64,11 @@ impl ProxyHttp for ForwardProxy {
         // Code below is for step 4(this is a client to RP), presenting the client's TLS certificate.
 
         let addrs = ctx
-            .get(&consts::CtxKeys::UpstreamAddress.to_string())
+            .get(&CtxKeys::UPSTREAM_ADDRESS.to_string())
             .unwrap_or(&"".to_string())
             .clone();
         let sni = ctx
-            .get(&consts::CtxKeys::UpstreamSNI.to_string())
+            .get(&CtxKeys::UPSTREAM_SNI.to_string())
             .unwrap_or(&"".to_string())
             .clone();
         info!(
@@ -104,7 +104,7 @@ impl ProxyHttp for ForwardProxy {
                     );
                     address_list.retain(|&x| x != addr);
                     ctx.set(
-                        consts::CtxKeys::UpstreamAddress.to_string(),
+                        CtxKeys::UPSTREAM_ADDRESS.to_string(),
                         address_list.join(","),
                     );
                 }
@@ -245,9 +245,9 @@ impl ProxyHttp for ForwardProxy {
                 if let Some(url) = ctx.param("backend_url") {
                     if let Some(url) = utils::validate_url(url) {
                         let socket_addr = utils::get_socket_addrs(&url);
-                        ctx.set(consts::CtxKeys::UpstreamAddress.to_string(), socket_addr);
+                        ctx.set(CtxKeys::UPSTREAM_ADDRESS.to_string(), socket_addr);
                         ctx.set(
-                            consts::CtxKeys::UpstreamSNI.to_string(),
+                            CtxKeys::UPSTREAM_SNI.to_string(),
                             url.domain().unwrap_or_default().to_string(),
                         );
                     } else {
@@ -266,7 +266,7 @@ impl ProxyHttp for ForwardProxy {
             ("/proxy", "POST") => {
                 error_response_bytes = match ctx
                     .get_request_header()
-                    .get(HeaderKeys::IntFpJwtKey.as_str())
+                    .get(HeaderKeys::INT_FP_JWT)
                 {
                     None => ErrorResponse {
                         error: "Missing int_fp_jwt header".to_string(),
@@ -275,17 +275,17 @@ impl ProxyHttp for ForwardProxy {
                     Some(int_fp_jwt) => match self.handler.verify_int_fp_jwt(int_fp_jwt.as_str()) {
                         Ok(session) => {
                             debug!("IntFPSession: {:?}", session);
-                            ctx.set(consts::CtxKeys::FpRpJwt.to_string(), session.fp_rp_jwt);
+                            ctx.set(CtxKeys::FP_RP_JWT.to_string(), session.fp_rp_jwt);
                             ctx.set(
-                                consts::CtxKeys::BackendAuthClientID.to_string(),
+                                CtxKeys::BACKEND_AUTH_CLIENT_ID.to_string(),
                                 session.client_id,
                             );
 
                             if let Some(url) = utils::validate_url(&session.rp_base_url) {
                                 let socket_addr = utils::get_socket_addrs(&url);
-                                ctx.set(consts::CtxKeys::UpstreamAddress.to_string(), socket_addr);
+                                ctx.set(CtxKeys::UPSTREAM_ADDRESS.to_string(), socket_addr);
                                 ctx.set(
-                                    consts::CtxKeys::UpstreamSNI.to_string(),
+                                    CtxKeys::UPSTREAM_SNI.to_string(),
                                     url.domain().unwrap_or_default().to_string(),
                                 );
                                 vec![]
@@ -418,14 +418,14 @@ impl ProxyHttp for ForwardProxy {
             "/proxy" => {
                 match upstream_request
                     .headers
-                    .get(HeaderKeys::IntFpJwtKey.as_str())
+                    .get(HeaderKeys::INT_FP_JWT)
                 {
                     None => {
                         error!(
                             log_type = LogTypes::HANDLE_CLIENT_REQUEST,
                             request_summary = session.request_summary(),
                             "Missing required header: {}",
-                            HeaderKeys::IntFpJwtKey.as_str()
+                            HeaderKeys::INT_FP_JWT
                         );
 
                         return Err(pingora::Error::new(pingora::ErrorType::HTTPStatus(
@@ -443,7 +443,7 @@ impl ProxyHttp for ForwardProxy {
                                 log_type = LogTypes::HANDLE_CLIENT_REQUEST,
                                 request_summary = session.request_summary(),
                                 "{} token is empty",
-                                HeaderKeys::IntFpJwtKey.as_str()
+                                HeaderKeys::INT_FP_JWT
                             );
 
                             return Err(pingora::Error::new(pingora::ErrorType::HTTPStatus(
@@ -455,18 +455,18 @@ impl ProxyHttp for ForwardProxy {
                             Ok(session) => {
                                 upstream_request
                                     .insert_header(
-                                        HeaderKeys::FpRpJwtKey.as_str(),
+                                        HeaderKeys::FP_RP_JWT,
                                         session.fp_rp_jwt,
                                     )
                                     .unwrap_or_default();
-                                upstream_request.remove_header(HeaderKeys::IntFpJwtKey.as_str());
+                                upstream_request.remove_header(HeaderKeys::INT_FP_JWT);
                             }
                             Err(err) => {
                                 error!(
                                     log_type = LogTypes::HANDLE_CLIENT_REQUEST,
                                     request_summary = session.request_summary(),
                                     "Error verifying {} token: {}",
-                                    HeaderKeys::IntFpJwtKey.as_str(),
+                                    HeaderKeys::INT_FP_JWT,
                                     err
                                 );
                                 return Err(pingora::Error::explain(
@@ -607,7 +607,7 @@ impl ProxyHttp for ForwardProxy {
         );
 
         let client_id = ctx
-            .get(&consts::CtxKeys::BackendAuthClientID.to_string())
+            .get(&CtxKeys::BACKEND_AUTH_CLIENT_ID.to_string())
             .unwrap_or(&"".to_string())
             .clone();
         let request_path = session.req_header().uri.path().to_string();
@@ -632,7 +632,7 @@ impl ProxyHttp for ForwardProxy {
             || e.etype == ErrorType::ConnectRefused
         {
             let mut addrs = ctx
-                .get(&consts::CtxKeys::UpstreamAddress.to_string())
+                .get(&CtxKeys::UPSTREAM_ADDRESS.to_string())
                 .unwrap_or(&"".to_string())
                 .clone();
 
@@ -643,7 +643,7 @@ impl ProxyHttp for ForwardProxy {
                 retry = true;
                 addrs = addrs[idx + 1..].to_string();
 
-                ctx.set(consts::CtxKeys::UpstreamAddress.to_string(), addrs);
+                ctx.set(CtxKeys::UPSTREAM_ADDRESS.to_string(), addrs);
             }
             error!(
                 log_type = LogTypes::UPSTREAM_CONNECT,

@@ -118,7 +118,7 @@ impl ForwardHandler {
             })?;
 
             // save `client_id` to ctx for later use
-            ctx.set(consts::CtxKeys::BackendAuthClientID.to_string(), auth_res.client_id.clone());
+            ctx.set(consts::CtxKeys::BACKEND_AUTH_CLIENT_ID.to_string(), auth_res.client_id.clone());
 
             let pub_key = utils::cert::extract_x509_pem(auth_res.x509_certificate.clone())
                 .map_err(|e| {
@@ -205,11 +205,11 @@ impl ForwardHandler {
             debug!("Server certificate: {:?}", server_certificate);
 
             ctx.set(
-                consts::CtxKeys::NTorServerId.to_string(),
+                consts::CtxKeys::NTOR_SERVER_ID.to_string(),
                 server_certificate.server_id,
             );
             ctx.set(
-                consts::CtxKeys::NTorStaticPublicKey.to_string(),
+                consts::CtxKeys::NTOR_STATIC_PUBLIC_KEY.to_string(),
                 hex::encode(server_certificate.public_key),
             );
         }
@@ -221,9 +221,9 @@ impl ForwardHandler {
     }
 
     pub fn handle_init_tunnel_response(&self, ctx: &mut Layer8Context) -> APIHandlerResponse {
-        let ntor_server_id = ctx.get(&consts::CtxKeys::NTorServerId.to_string()).unwrap_or(&"".to_string()).clone();
+        let ntor_server_id = ctx.get(&consts::CtxKeys::NTOR_SERVER_ID.to_string()).unwrap_or(&"".to_string()).clone();
         let ntor_static_public_key = hex::decode(
-            ctx.get(&consts::CtxKeys::NTorStaticPublicKey.to_string()).clone().unwrap_or(&"".to_string())
+            ctx.get(&consts::CtxKeys::NTOR_STATIC_PUBLIC_KEY.to_string()).clone().unwrap_or(&"".to_string())
         ).unwrap_or_default();
 
         let response_body = ctx.get_response_body();
@@ -248,7 +248,7 @@ impl ForwardHandler {
                 };
 
                 let int_fp_session = IntFPSession {
-                    client_id: ctx.get(&consts::CtxKeys::BackendAuthClientID.to_string()).unwrap_or(&"".to_string()).to_string(),
+                    client_id: ctx.get(&consts::CtxKeys::BACKEND_AUTH_CLIENT_ID.to_string()).unwrap_or(&"".to_string()).to_string(),
                     rp_base_url: ctx.param("backend_url").unwrap_or(&"".to_string()).to_string(),
                     fp_rp_jwt: res_from_rp.fp_rp_jwt,
                 };
