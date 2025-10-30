@@ -1,4 +1,5 @@
 use crate::config::InfluxDBConfig;
+use crate::handler::consts::RequestPaths;
 use crate::statistics::InfluxDBMeasurements;
 use futures::stream;
 use influxdb2::Client;
@@ -35,13 +36,13 @@ impl InfluxDBClient {
 
         if response_status == StatusCode::OK {
             return match request_path.as_str() {
-                "/proxy" => {
+                RequestPaths::PROXY => {
                     self.add_total_byte_transferred(&client_id, total_byte_transferred)
                         .await?;
 
                     self.increase_total_success(&client_id).await
                 }
-                "/init-tunnel" => self.increase_total_tunnel_initiated(&client_id).await,
+                RequestPaths::INIT_TUNNEL => self.increase_total_tunnel_initiated(&client_id).await,
                 _ => Ok(()),
             };
         }

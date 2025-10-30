@@ -35,3 +35,11 @@ impl LogTypes {
     pub const AUTHENTICATION_SERVER: &'static str = "AUTHENTICATION_SERVER";
 }
 
+pub struct RequestPaths;
+
+impl RequestPaths {
+    pub const PROXY: &'static str = "/proxy";
+    pub const INIT_TUNNEL: &'static str = "/init-tunnel";
+    pub const HEALTHCHECK: &'static str = "/healthcheck";
+}
+
