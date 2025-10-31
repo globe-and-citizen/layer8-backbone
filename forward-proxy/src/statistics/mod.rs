@@ -29,6 +29,7 @@ impl Statistics {
 
     pub async fn update(
         client_id: String,
+        correlation_id: String,
         request_path: String,
         total_byte_transferred: i64,
         response_status: u16,
@@ -44,6 +45,7 @@ impl Statistics {
                 )
                 .map_err(|e| {
                     error!(
+                        correlation_id = correlation_id,
                         log_type = LogTypes::INFLUXDB,
                         "Failed to update statistics: {:?}", e
                     );

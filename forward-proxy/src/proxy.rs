@@ -19,7 +19,7 @@ use pingora_router::handler::ResponseBodyTrait;
 use reqwest::header::TRANSFER_ENCODING;
 use std::sync::Arc;
 use std::time::Duration;
-use tracing::{debug, error, info};
+use tracing::{Level, debug, error, info, span};
 
 pub struct ForwardProxy {
     tls_config: TlsConfig,
@@ -62,6 +62,11 @@ impl ProxyHttp for ForwardProxy {
         // 7. Client and server exchange information over encrypted TLS connection
         //
         // Code below is for step 4(this is a client to RP), presenting the client's TLS certificate.
+
+        // Attach the correlation ID to the tracing span
+        let correlation_id = ctx.get_correlation_id();
+        let span = span!(Level::TRACE, "track", %correlation_id);
+        let _enter = span.enter();
 
         let addrs = ctx
             .get(&CtxKeys::UPSTREAM_ADDRESS.to_string())
@@ -162,19 +167,18 @@ impl ProxyHttp for ForwardProxy {
     {
         // create Context
         ctx.update(session).await?;
-        let request_id = session
-            .req_header()
-            .headers
-            .get("x-request-id")
-            .map(|v| v.to_str().unwrap_or(""))
-            .unwrap_or("");
+        let correlation_id = ctx.set_correlation_id();
+
+        // Attach the correlation ID to the tracing span
+        let span = span!(Level::TRACE, "track", %correlation_id);
+        let _enter = span.enter();
+
         info!(
             log_type = LogTypes::ACCESS_LOG,
             request_summary = session.request_summary(),
             origin = ctx.request.header.get("origin"),
             referer = ctx.request.header.get("referer"),
             user_agent = ctx.request.header.get("User-Agent"),
-            request_id = request_id,
         );
 
         match session.req_header().method {
@@ -342,6 +346,11 @@ impl ProxyHttp for ForwardProxy {
         }
 
         if end_of_stream {
+            // Attach the correlation ID to the tracing span
+            let correlation_id = ctx.get_correlation_id();
+            let span = span!(Level::TRACE, "track", %correlation_id);
+            let _enter = span.enter();
+
             debug!(
                 request_summary = session.request_summary(),
                 request_body = utils::bytes_to_string(&ctx.get_request_body()),
@@ -404,11 +413,16 @@ impl ProxyHttp for ForwardProxy {
         &self,
         session: &mut Session,
         upstream_request: &mut RequestHeader,
-        _ctx: &mut Self::CTX,
+        ctx: &mut Self::CTX,
     ) -> pingora::Result<()>
     where
         Self::CTX: Send + Sync,
     {
+        // Attach the correlation ID to the tracing span
+        let correlation_id = ctx.get_correlation_id();
+        let span = span!(Level::TRACE, "track", %correlation_id);
+        let _enter = span.enter();
+
         match session.req_header().uri.path() {
             RequestPaths::PROXY => match upstream_request.headers.get(HeaderKeys::INT_FP_JWT) {
                 None => {
@@ -475,6 +489,10 @@ impl ProxyHttp for ForwardProxy {
                 .unwrap_or_default();
         }
 
+        upstream_request
+            .insert_header("x-correlation-id", correlation_id)
+            .unwrap_or_default();
+
         Ok(())
     }
 
@@ -515,6 +533,11 @@ impl ProxyHttp for ForwardProxy {
         }
 
         if end_of_stream {
+            // Attach the correlation ID to the tracing span
+            let correlation_id = ctx.get_correlation_id();
+            let span = span!(Level::TRACE, "track", %correlation_id);
+            let _enter = span.enter();
+
             // This is the last chunk, we can process the data now
             debug!(
                 log_type = LogTypes::HANDLE_UPSTREAM_RESPONSE,
@@ -577,22 +600,15 @@ impl ProxyHttp for ForwardProxy {
     where
         Self::CTX: Send + Sync,
     {
+        // Attach the correlation ID to the tracing span
+        let correlation_id = ctx.get_correlation_id();
+        let span = span!(Level::TRACE, "track", %correlation_id);
+        let _enter = span.enter();
+
         let mut status = ctx.response.status.as_u16();
         if let Some(_err) = e {
             status = session.response_written().unwrap().status.as_u16();
         }
-        info!(
-            log_type=LogTypes::ACCESS_LOG_RESULT,
-            request_summary=session.request_summary(),
-            origin = ctx.request.header.get("origin"),
-            referer = ctx.request.header.get("referer"),
-            status=status,
-            // duration_ms=session.duration_ms(),
-            response_body_size=ctx.get_response_body().len(),
-            user_agent=ctx.request.header.get("User-Agent"),
-            request_id=session.req_header().headers.get("x-request-id").map(|v| v.to_str().unwrap_or("")).unwrap_or(""),
-            error=?e,
-        );
 
         if session.req_header().method.as_str() == "POST"
             && (session.req_header().uri.path() == RequestPaths::PROXY
@@ -605,11 +621,31 @@ impl ProxyHttp for ForwardProxy {
             let request_path = session.req_header().uri.path().to_string();
             let total_byte_transferred =
                 (ctx.get_request_body().len() + ctx.get_response_body().len()) as i64;
+            let correlation_id = correlation_id.clone();
 
             tokio::spawn(async move {
-                Statistics::update(client_id, request_path, total_byte_transferred, status).await;
+                Statistics::update(
+                    client_id,
+                    correlation_id,
+                    request_path,
+                    total_byte_transferred,
+                    status,
+                )
+                .await;
             });
         }
+
+        info!(
+            log_type=LogTypes::ACCESS_LOG_RESULT,
+            request_summary=session.request_summary(),
+            origin = ctx.request.header.get("origin"),
+            referer = ctx.request.header.get("referer"),
+            status=status,
+            latency_ms=ctx.get_latency_ms(), // todo: is it necessary?
+            response_body_size=ctx.get_response_body().len(),
+            user_agent=ctx.request.header.get("User-Agent"),
+            error=?e,
+        );
     }
 
     fn fail_to_connect(
@@ -619,6 +655,11 @@ impl ProxyHttp for ForwardProxy {
         ctx: &mut Self::CTX,
         mut e: Box<Error>,
     ) -> Box<Error> {
+        // Attach the correlation ID to the tracing span
+        let correlation_id = ctx.get_correlation_id();
+        let span = span!(Level::TRACE, "track", %correlation_id);
+        let _enter = span.enter();
+
         let mut retry = false;
         if e.etype == ErrorType::ConnectTimedout
             || e.etype == ErrorType::ConnectError

@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
 use pingora::http::StatusCode;
 use reqwest::Client;
@@ -8,7 +9,7 @@ use pingora_router::{
    handler::{APIHandlerResponse, DefaultHandlerTrait, RequestBodyTrait, ResponseBodyTrait}
 };
 use serde::Deserialize;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, Level, span};
 
 use crate::handler::types::{
    response::{ErrorResponse, FpHealthcheckError, FpHealthcheckSuccess, InitTunnelResponseFromRP, InitTunnelResponseToINT},
@@ -55,6 +56,11 @@ impl ForwardHandler {
         ctx: &mut Layer8Context,
     ) -> Result<NTorServerCertificate, APIHandlerResponse>
     {
+        // Attach the correlation ID to the tracing span
+        let correlation_id = ctx.get_correlation_id();
+        let span = span!(Level::TRACE, "track", %correlation_id);
+        let _enter = span.enter();
+
         let client = Client::new();
 
         //todo
@@ -231,6 +237,7 @@ impl ForwardHandler {
         return match utils::bytes_to_json::<InitTunnelResponseFromRP>(response_body) {
             Err(e) => {
                 error!(
+                    correlation_id=%ctx.get_correlation_id(),
                     log_type=LogTypes::HANDLE_UPSTREAM_RESPONSE,
                     "Error parsing RP response: {:?}",
                     e
