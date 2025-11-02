@@ -19,7 +19,7 @@ use pingora_router::handler::ResponseBodyTrait;
 use reqwest::header::TRANSFER_ENCODING;
 use std::sync::Arc;
 use std::time::Duration;
-use tracing::{Level, debug, error, info, span};
+use tracing::{debug, error, info};
 
 pub struct ForwardProxy {
     tls_config: TlsConfig,
@@ -63,10 +63,7 @@ impl ProxyHttp for ForwardProxy {
         //
         // Code below is for step 4(this is a client to RP), presenting the client's TLS certificate.
 
-        // Attach the correlation ID to the tracing span
         let correlation_id = ctx.get_correlation_id();
-        let span = span!(Level::TRACE, "track", %correlation_id);
-        let _enter = span.enter();
 
         let addrs = ctx
             .get(&CtxKeys::UPSTREAM_ADDRESS.to_string())
@@ -77,6 +74,7 @@ impl ProxyHttp for ForwardProxy {
             .unwrap_or(&"".to_string())
             .clone();
         info!(
+            %correlation_id,
             log_type = LogTypes::UPSTREAM_CONNECT,
             addresses = addrs,
             sni = sni
@@ -94,6 +92,7 @@ impl ProxyHttp for ForwardProxy {
             {
                 Ok(p) => {
                     info!(
+                        %correlation_id,
                         log_type = LogTypes::UPSTREAM_CONNECT,
                         "Created HttpPeer for addr: {}", addr
                     );
@@ -102,6 +101,7 @@ impl ProxyHttp for ForwardProxy {
                 }
                 Err(err) => {
                     error!(
+                        %correlation_id,
                         log_type = LogTypes::UPSTREAM_CONNECT,
                         "Panic occurred while creating HttpPeer for addr: {}, error: {:?}",
                         addr,
@@ -120,6 +120,7 @@ impl ProxyHttp for ForwardProxy {
             Some(p) => p,
             None => {
                 error!(
+                    %correlation_id,
                     log_type = LogTypes::UPSTREAM_CONNECT,
                     "Failed to create HttpPeer for any socket address"
                 );
@@ -169,11 +170,8 @@ impl ProxyHttp for ForwardProxy {
         ctx.update(session).await?;
         let correlation_id = ctx.set_correlation_id();
 
-        // Attach the correlation ID to the tracing span
-        let span = span!(Level::TRACE, "track", %correlation_id);
-        let _enter = span.enter();
-
         info!(
+            %correlation_id,
             log_type = LogTypes::ACCESS_LOG,
             request_summary = session.request_summary(),
             origin = ctx.request.header.get("origin"),
@@ -210,6 +208,7 @@ impl ProxyHttp for ForwardProxy {
                         .insert_header(key.clone(), val.clone())
                         .map_err(|e| {
                             error!(
+                                %correlation_id,
                                 log_type = LogTypes::HEALTHCHECK,
                                 "Cannot add request header {}:{:?}, err: {:?}",
                                 key.clone(),
@@ -231,6 +230,7 @@ impl ProxyHttp for ForwardProxy {
                 session.write_response_header_ref(&header).await?;
 
                 debug!(
+                    %correlation_id,
                     log_type = LogTypes::HEALTHCHECK,
                     request_summary = session.request_summary(),
                     response_body = utils::bytes_to_string(&response_bytes)
@@ -273,7 +273,7 @@ impl ProxyHttp for ForwardProxy {
                     .to_bytes(),
                     Some(int_fp_jwt) => match self.handler.verify_int_fp_jwt(int_fp_jwt.as_str()) {
                         Ok(session) => {
-                            debug!("IntFPSession: {:?}", session);
+                            debug!(%correlation_id, "IntFPSession: {:?}", session);
                             ctx.set(CtxKeys::FP_RP_JWT.to_string(), session.fp_rp_jwt);
                             ctx.set(
                                 CtxKeys::BACKEND_AUTH_CLIENT_ID.to_string(),
@@ -297,6 +297,7 @@ impl ProxyHttp for ForwardProxy {
                         }
                         Err(err) => {
                             error!(
+                                %correlation_id,
                                 log_type = LogTypes::HANDLE_CLIENT_REQUEST,
                                 "Error verifying int_fp_jwt: {}", err
                             );
@@ -346,16 +347,15 @@ impl ProxyHttp for ForwardProxy {
         }
 
         if end_of_stream {
-            // Attach the correlation ID to the tracing span
             let correlation_id = ctx.get_correlation_id();
-            let span = span!(Level::TRACE, "track", %correlation_id);
-            let _enter = span.enter();
 
             debug!(
+                %correlation_id,
                 request_summary = session.request_summary(),
                 request_body = utils::bytes_to_string(&ctx.get_request_body()),
             );
             info!(
+                %correlation_id,
                 log_type = LogTypes::HANDLE_CLIENT_REQUEST,
                 request_summary = session.request_summary(),
                 "Request Body Received: {} bytes.",
@@ -368,6 +368,7 @@ impl ProxyHttp for ForwardProxy {
                 RequestPaths::INIT_TUNNEL => self.handler.handle_init_tunnel_request(ctx).await,
                 _ => {
                     info!(
+                        %correlation_id,
                         log_type = LogTypes::HANDLE_CLIENT_REQUEST,
                         request_summary = session.request_summary(),
                         "Forward proxy passing through request body unchanged."
@@ -379,6 +380,7 @@ impl ProxyHttp for ForwardProxy {
 
             if handler_response.status != StatusCode::OK {
                 error!(
+                    %correlation_id,
                     log_type = LogTypes::HANDLE_CLIENT_REQUEST,
                     request_summary = session.request_summary(),
                     "Failed to handle init-tunnel request with status: {}, error: {}",
@@ -391,12 +393,14 @@ impl ProxyHttp for ForwardProxy {
             }
 
             info!(
+                %correlation_id,
                 log_type = LogTypes::HANDLE_CLIENT_REQUEST,
                 request_summary = session.request_summary(),
                 "Handle init-tunnel Request response with status: {}",
                 handler_response.status,
             );
             debug!(
+                %correlation_id,
                 request_summary = session.request_summary(),
                 "Handle init-tunnel response body: {}",
                 utils::bytes_to_string(&handler_response.body.as_ref().unwrap_or(&vec![]))
@@ -418,15 +422,13 @@ impl ProxyHttp for ForwardProxy {
     where
         Self::CTX: Send + Sync,
     {
-        // Attach the correlation ID to the tracing span
         let correlation_id = ctx.get_correlation_id();
-        let span = span!(Level::TRACE, "track", %correlation_id);
-        let _enter = span.enter();
 
         match session.req_header().uri.path() {
             RequestPaths::PROXY => match upstream_request.headers.get(HeaderKeys::INT_FP_JWT) {
                 None => {
                     error!(
+                        %correlation_id,
                         log_type = LogTypes::HANDLE_CLIENT_REQUEST,
                         request_summary = session.request_summary(),
                         "Missing required header: {}",
@@ -445,6 +447,7 @@ impl ProxyHttp for ForwardProxy {
 
                     if token_str.is_empty() {
                         error!(
+                            %correlation_id,
                             log_type = LogTypes::HANDLE_CLIENT_REQUEST,
                             request_summary = session.request_summary(),
                             "{} token is empty",
@@ -465,6 +468,7 @@ impl ProxyHttp for ForwardProxy {
                         }
                         Err(err) => {
                             error!(
+                                %correlation_id,
                                 log_type = LogTypes::HANDLE_CLIENT_REQUEST,
                                 request_summary = session.request_summary(),
                                 "Error verifying {} token: {}",
@@ -533,18 +537,17 @@ impl ProxyHttp for ForwardProxy {
         }
 
         if end_of_stream {
-            // Attach the correlation ID to the tracing span
             let correlation_id = ctx.get_correlation_id();
-            let span = span!(Level::TRACE, "track", %correlation_id);
-            let _enter = span.enter();
 
             // This is the last chunk, we can process the data now
             debug!(
+                %correlation_id,
                 log_type = LogTypes::HANDLE_UPSTREAM_RESPONSE,
                 request_summary = session.request_summary(),
                 body = utils::bytes_to_string(&ctx.get_response_body()),
             );
             info!(
+                %correlation_id,
                 log_type = LogTypes::HANDLE_UPSTREAM_RESPONSE,
                 request_summary = session.request_summary(),
                 "Response Body Received: {} bytes.",
@@ -555,6 +558,7 @@ impl ProxyHttp for ForwardProxy {
                 RequestPaths::INIT_TUNNEL => self.handler.handle_init_tunnel_response(ctx),
                 _ => {
                     info!(
+                        %correlation_id,
                         log_type = LogTypes::HANDLE_UPSTREAM_RESPONSE,
                         request_summary = session.request_summary(),
                         "Forward proxy passing through response body unchanged."
@@ -566,6 +570,7 @@ impl ProxyHttp for ForwardProxy {
 
             if handler_response.status != StatusCode::OK {
                 error!(
+                    %correlation_id,
                     log_type = LogTypes::HANDLE_UPSTREAM_RESPONSE,
                     request_summary = session.request_summary(),
                     "Failed to handle init-tunnel Response response with status: {}, error: {}",
@@ -580,6 +585,7 @@ impl ProxyHttp for ForwardProxy {
             }
 
             info!(
+                %correlation_id,
                 log_type = LogTypes::HANDLE_UPSTREAM_RESPONSE,
                 request_summary = session.request_summary(),
                 "Handle init-tunnel Response response with status: {}",
@@ -600,10 +606,7 @@ impl ProxyHttp for ForwardProxy {
     where
         Self::CTX: Send + Sync,
     {
-        // Attach the correlation ID to the tracing span
         let correlation_id = ctx.get_correlation_id();
-        let span = span!(Level::TRACE, "track", %correlation_id);
-        let _enter = span.enter();
 
         let mut status = ctx.response.status.as_u16();
         if let Some(_err) = e {
@@ -636,6 +639,7 @@ impl ProxyHttp for ForwardProxy {
         }
 
         info!(
+            %correlation_id,
             log_type=LogTypes::ACCESS_LOG_RESULT,
             request_summary=session.request_summary(),
             origin = ctx.request.header.get("origin"),
@@ -655,11 +659,6 @@ impl ProxyHttp for ForwardProxy {
         ctx: &mut Self::CTX,
         mut e: Box<Error>,
     ) -> Box<Error> {
-        // Attach the correlation ID to the tracing span
-        let correlation_id = ctx.get_correlation_id();
-        let span = span!(Level::TRACE, "track", %correlation_id);
-        let _enter = span.enter();
-
         let mut retry = false;
         if e.etype == ErrorType::ConnectTimedout
             || e.etype == ErrorType::ConnectError
@@ -679,7 +678,9 @@ impl ProxyHttp for ForwardProxy {
 
                 ctx.set(CtxKeys::UPSTREAM_ADDRESS.to_string(), addrs);
             }
+
             error!(
+                correlation_id = ctx.get_correlation_id(),
                 log_type = LogTypes::UPSTREAM_CONNECT,
                 "Failed to connect to upstream addr: {}, err: {}, retry: {}",
                 peer._address.to_string(),

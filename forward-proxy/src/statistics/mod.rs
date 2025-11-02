@@ -45,7 +45,7 @@ impl Statistics {
                 )
                 .map_err(|e| {
                     error!(
-                        correlation_id = correlation_id,
+                        %correlation_id,
                         log_type = LogTypes::INFLUXDB,
                         "Failed to update statistics: {:?}", e
                     );

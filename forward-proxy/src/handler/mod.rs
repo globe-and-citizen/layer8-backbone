@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use std::time::Instant;
 
 use pingora::http::StatusCode;
 use reqwest::Client;
@@ -9,7 +8,7 @@ use pingora_router::{
    handler::{APIHandlerResponse, DefaultHandlerTrait, RequestBodyTrait, ResponseBodyTrait}
 };
 use serde::Deserialize;
-use tracing::{debug, error, info, Level, span};
+use tracing::{debug, error, info};
 
 use crate::handler::types::{
    response::{ErrorResponse, FpHealthcheckError, FpHealthcheckSuccess, InitTunnelResponseFromRP, InitTunnelResponseToINT},
@@ -56,10 +55,7 @@ impl ForwardHandler {
         ctx: &mut Layer8Context,
     ) -> Result<NTorServerCertificate, APIHandlerResponse>
     {
-        // Attach the correlation ID to the tracing span
         let correlation_id = ctx.get_correlation_id();
-        let span = span!(Level::TRACE, "track", %correlation_id);
-        let _enter = span.enter();
 
         let client = Client::new();
 
@@ -94,6 +90,7 @@ impl ForwardHandler {
                 error: format!("Failed to get public key from layer8, status code: {}", res.status().as_u16()),
             };
             error!(
+                %correlation_id,
                 log_type=LogTypes::AUTHENTICATION_SERVER,
                 "Failed to get ntor certificate for {request_path}: {response_body:?}"
             );
@@ -113,6 +110,7 @@ impl ForwardHandler {
 
             let auth_res: AuthServerResponse = res.json().await.map_err(|err| {
                 error!(
+                    %correlation_id,
                     log_type=LogTypes::AUTHENTICATION_SERVER,
                     "Failed to parse authentication server response: {:?}",
                     err
@@ -129,6 +127,7 @@ impl ForwardHandler {
             let pub_key = utils::cert::extract_x509_pem(auth_res.x509_certificate.clone())
                 .map_err(|e| {
                     error!(
+                        %correlation_id,
                         log_type=LogTypes::AUTHENTICATION_SERVER,
                         "Failed to parse x509 certificate: {:?}",
                         e
@@ -139,8 +138,9 @@ impl ForwardHandler {
                     }
                 })?;
 
-            debug!("AuthenticationServer response: {:?}", auth_res);
+            debug!(%correlation_id, "AuthenticationServer response: {:?}", auth_res);
             info!(
+                %correlation_id,
                 log_type=LogTypes::AUTHENTICATION_SERVER,
                 "Obtained ntor credentials for backend_url: {}",
                 backend_url
@@ -237,7 +237,7 @@ impl ForwardHandler {
         return match utils::bytes_to_json::<InitTunnelResponseFromRP>(response_body) {
             Err(e) => {
                 error!(
-                    correlation_id=%ctx.get_correlation_id(),
+                    correlation_id=ctx.get_correlation_id(),
                     log_type=LogTypes::HANDLE_UPSTREAM_RESPONSE,
                     "Error parsing RP response: {:?}",
                     e

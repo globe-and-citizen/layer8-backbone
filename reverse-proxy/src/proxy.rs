@@ -3,7 +3,7 @@ use pingora::proxy::Session;
 use pingora::http::{ResponseHeader, StatusCode};
 use async_trait::async_trait;
 use bytes::Bytes;
-use tracing::{debug, info, Level, span};
+use tracing::{debug, info};
 use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
 use pingora_router::router::Router;
 use crate::handler::common::consts::LogTypes;
@@ -46,7 +46,9 @@ impl<T> ReverseProxy<T> {
             .insert_header("Access-Control-Max-Age", "86400")
             .unwrap_or_default();
 
+        let correlation_id = ctx.get_correlation_id();
         info!(
+            %correlation_id,
             log_type=LogTypes::HANDLE_BACKEND_RESPONSE,
             "Response Headers: {:?}",
             header.headers
@@ -83,11 +85,8 @@ impl<T: Sync> ProxyHttp for ReverseProxy<T> {
 
         let correlation_id = ctx.set_correlation_id();
 
-        // Attach the correlation ID to the tracing span
-        let span = span!(Level::TRACE, "track", %correlation_id);
-        let _enter = span.enter();
-
         info!(
+            %correlation_id,
             log_type=LogTypes::ACCESS_LOG,
             request_summary = session.request_summary(),
             origin = ctx.request.header.get("origin"),
@@ -97,6 +96,7 @@ impl<T: Sync> ProxyHttp for ReverseProxy<T> {
 
         ctx.read_request_body(session).await?;
         debug!(
+            %correlation_id,
             "Decoded request body: {}",
             String::from_utf8_lossy(&*ctx.get_request_body())
         );
@@ -117,6 +117,7 @@ impl<T: Sync> ProxyHttp for ReverseProxy<T> {
         ReverseProxy::<T>::set_headers(session, ctx, handler_response.status).await?;
 
         debug!(
+            %correlation_id,
             "Response Body: {}",
             String::from_utf8_lossy(&*response_bytes)
         );
@@ -138,12 +139,10 @@ impl<T: Sync> ProxyHttp for ReverseProxy<T> {
             status = session.response_written().unwrap().status.as_u16();
         }
 
-        // Attach the correlation ID to the tracing span
         let correlation_id = ctx.get_correlation_id();
-        let span = span!(Level::TRACE, "track", %correlation_id);
-        let _enter = span.enter();
 
         info!(
+            %correlation_id,
             log_type=LogTypes::ACCESS_LOG_RESULT,
             request_summary=session.request_summary(),
             origin = ctx.request.header.get("origin"),

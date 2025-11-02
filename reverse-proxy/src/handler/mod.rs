@@ -3,7 +3,7 @@ use std::sync::{Mutex, MutexGuard};
 use ntor::common::{InitSessionMessage, NTorParty};
 use ntor::server::NTorServer;
 use pingora::http::StatusCode;
-use tracing::{debug, info, Level, span};
+use tracing::{debug, info};
 use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
 use pingora_router::handler::{APIHandlerResponse, ResponseBodyTrait};
 use init_tunnel::handler::InitTunnelHandler;
@@ -61,10 +61,7 @@ impl ReverseHandler {
     }
 
     pub async fn handle_init_tunnel(&self, ctx: &mut Layer8Context) -> APIHandlerResponse {
-        // Attach the correlation ID to the tracing span
         let correlation_id = ctx.get_correlation_id();
-        let span = span!(Level::TRACE, "track", %correlation_id);
-        let _enter = span.enter();
 
         // validate request body
         let request_body = match InitTunnelHandler::validate_request_body(
@@ -75,7 +72,7 @@ impl ReverseHandler {
             Err(res) => return res
         };
 
-        debug!("Parsed body: {:?}", request_body);
+        debug!(%correlation_id, "Parsed body: {:?}", request_body);
 
         // todo I think there are prettier ways to use nTor since we are free to modify the nTor crate, but I'm lazy
         let mut ntor_server = NTorServer::new_with_secret(
@@ -118,6 +115,7 @@ impl ReverseHandler {
 
         // InitTunnelHandler::send_result_to_be(self.config.backend_url.clone(), true).await;
         info!(
+            %correlation_id,
             log_type=LogTypes::HANDLE_INIT_TUNNEL_REQUEST,
             "Save new nTor session: {}",
             ntor_session_id
@@ -134,10 +132,7 @@ impl ReverseHandler {
     }
 
     pub async fn handle_proxy_request(&self, ctx: &mut Layer8Context) -> APIHandlerResponse {
-        // Attach the correlation ID to the tracing span
         let correlation_id = ctx.get_correlation_id();
-        let span = span!(Level::TRACE, "track", %correlation_id);
-        let _enter = span.enter();
 
         // validate request headers (nTor session ID)
         let session_id = match ProxyHandler::validate_request_headers(ctx, &self.jwt_secret) {
@@ -166,13 +161,15 @@ impl ReverseHandler {
         };
 
         info!(
+            %correlation_id,
             log_type=LogTypes::HANDLE_INIT_TUNNEL_REQUEST,
             "Decrypted request body and forward to backend",
         );
-        debug!("Decrypted request: {:?}", wrapped_request);
+        debug!(%correlation_id, "Decrypted request: {:?}", wrapped_request);
 
         // reconstruct user request
         let wrapped_response = match ProxyHandler::rebuild_user_request(
+            ctx,
             self.config.backend_url.clone(),
             wrapped_request,
         ).await {
@@ -180,7 +177,7 @@ impl ReverseHandler {
             Err(res) => return res,
         };
 
-        debug!("Wrapped Backend response: {:?}", wrapped_response);
+        debug!(%correlation_id, "Wrapped Backend response: {:?}", wrapped_response);
 
         return match ProxyHandler::encrypt_response_body(
             wrapped_response,

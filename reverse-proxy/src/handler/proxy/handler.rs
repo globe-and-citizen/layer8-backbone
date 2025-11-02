@@ -48,6 +48,7 @@ impl ProxyHandler {
                     Ok(data) => Ok(data.claims),
                     Err(err) => {
                         error!(
+                            correlation_id=ctx.get_correlation_id(),
                             log_type=LogTypes::HANDLE_PROXY_REQUEST,
                             "Error verifying {} token: {:?}",
                             header_key,
@@ -100,6 +101,8 @@ impl ProxyHandler {
         ctx: &mut Layer8Context
     ) -> Result<EncryptedMessage, APIHandlerResponse>
     {
+        let correlation_id = ctx.get_correlation_id();
+
         match ProxyHandler::parse_request_body::<
             EncryptedMessage,
             ErrorResponse
@@ -110,6 +113,7 @@ impl ProxyHandler {
                     None => None,
                     Some(err_response) => {
                         error!(
+                            %correlation_id,
                             log_type=LogTypes::HANDLE_PROXY_REQUEST,
                             "Error parsing request body: {}",
                             err_response.error
@@ -159,13 +163,16 @@ impl ProxyHandler {
     }
 
     pub(crate) async fn rebuild_user_request(
+        ctx: &Layer8Context,
         backend_url: String,
         wrapped_request: L8RequestObject
     ) -> Result<L8ResponseObject, APIHandlerResponse>
     {
+        let correlation_id = ctx.get_correlation_id();
         let header_map = utils::hashmap_to_headermap(&wrapped_request.headers)
             .unwrap_or_else(|_| HeaderMap::new());
         debug!(
+            %correlation_id,
             log_type=LogTypes::HANDLE_PROXY_REQUEST,
             backend_url=backend_url.as_str(),
             "Reconstructed request headers: {:?}",
@@ -174,6 +181,7 @@ impl ProxyHandler {
 
         let origin_url = format!("{}{}", backend_url, wrapped_request.uri);
         debug!(
+            %correlation_id,
             log_type=LogTypes::HANDLE_PROXY_REQUEST,
             backend_url=backend_url.as_str(),
             "Origin request URL: {}",
@@ -182,6 +190,7 @@ impl ProxyHandler {
 
         let client = Client::new();
         info!(
+            %correlation_id,
             log_type=LogTypes::HANDLE_PROXY_REQUEST,
             "Send reconstructed request to backend: {}",
             origin_url.as_str()
@@ -210,12 +219,14 @@ impl ProxyHandler {
                 let serialized_body = success_res.bytes().await.unwrap_or_default().to_vec();
 
                 info!(
+                    %correlation_id,
                     log_type=LogTypes::HANDLE_BACKEND_RESPONSE,
                     "Received response from backend: status={}, url={}",
                     status,
                     url.as_str()
                 );
                 debug!(
+                    %correlation_id,
                     "Response from backend headers: {:?}, body: {}",
                     serialized_headers,
                     utils::bytes_to_string(&serialized_body)
@@ -233,6 +244,7 @@ impl ProxyHandler {
             }
             Err(err) => {
                 error!(
+                    %correlation_id,
                     log_type=LogTypes::HANDLE_PROXY_REQUEST,
                     "Error while building request to BE: {:?}",
                     err
