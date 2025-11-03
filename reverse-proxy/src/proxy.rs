@@ -95,11 +95,6 @@ impl<T: Sync> ProxyHttp for ReverseProxy<T> {
         );
 
         ctx.read_request_body(session).await?;
-        debug!(
-            %correlation_id,
-            "Decoded request body: {}",
-            String::from_utf8_lossy(&*ctx.get_request_body())
-        );
 
         let handler_response = self.router.call_handler(ctx).await;
         if handler_response.status == StatusCode::NOT_FOUND && handler_response.body.is_none() {
@@ -115,12 +110,6 @@ impl<T: Sync> ProxyHttp for ReverseProxy<T> {
             response_bytes = body_bytes;
         };
         ReverseProxy::<T>::set_headers(session, ctx, handler_response.status).await?;
-
-        debug!(
-            %correlation_id,
-            "Response Body: {}",
-            String::from_utf8_lossy(&*response_bytes)
-        );
 
         // Write the response body to the session after setting headers
         session.write_response_body(Some(Bytes::from(response_bytes)), true).await?;

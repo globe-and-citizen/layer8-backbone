@@ -72,8 +72,6 @@ impl ReverseHandler {
             Err(res) => return res
         };
 
-        debug!(%correlation_id, "Parsed body: {:?}", request_body);
-
         // todo I think there are prettier ways to use nTor since we are free to modify the nTor crate, but I'm lazy
         let mut ntor_server = NTorServer::new_with_secret(
             self.config.ntor_server_id.clone(),
@@ -165,7 +163,6 @@ impl ReverseHandler {
             log_type=LogTypes::HANDLE_INIT_TUNNEL_REQUEST,
             "Decrypted request body and forward to backend",
         );
-        debug!(%correlation_id, "Decrypted request: {:?}", wrapped_request);
 
         // reconstruct user request
         let wrapped_response = match ProxyHandler::rebuild_user_request(
@@ -176,8 +173,6 @@ impl ReverseHandler {
             Ok(res) => res,
             Err(res) => return res,
         };
-
-        debug!(%correlation_id, "Wrapped Backend response: {:?}", wrapped_response);
 
         return match ProxyHandler::encrypt_response_body(
             wrapped_response,

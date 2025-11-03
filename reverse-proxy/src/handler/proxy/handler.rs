@@ -180,20 +180,13 @@ impl ProxyHandler {
         );
 
         let origin_url = format!("{}{}", backend_url, wrapped_request.uri);
-        debug!(
-            %correlation_id,
-            log_type=LogTypes::HANDLE_PROXY_REQUEST,
-            backend_url=backend_url.as_str(),
-            "Origin request URL: {}",
-            origin_url
-        );
 
         let client = Client::new();
         info!(
             %correlation_id,
             log_type=LogTypes::HANDLE_PROXY_REQUEST,
-            "Send reconstructed request to backend: {}",
-            origin_url.as_str()
+            "Send reconstructed request to origin backend URL: {}",
+            origin_url
         );
         let response = client.request(
             wrapped_request.method.parse().unwrap_or_default(),
@@ -224,12 +217,6 @@ impl ProxyHandler {
                     "Received response from backend: status={}, url={}",
                     status,
                     url.as_str()
-                );
-                debug!(
-                    %correlation_id,
-                    "Response from backend headers: {:?}, body: {}",
-                    serialized_headers,
-                    utils::bytes_to_string(&serialized_body)
                 );
 
                 Ok(L8ResponseObject {

@@ -229,13 +229,6 @@ impl ProxyHttp for ForwardProxy {
 
                 session.write_response_header_ref(&header).await?;
 
-                debug!(
-                    %correlation_id,
-                    log_type = LogTypes::HEALTHCHECK,
-                    request_summary = session.request_summary(),
-                    response_body = utils::bytes_to_string(&response_bytes)
-                );
-
                 // Write the response body to the session after setting headers
                 session
                     .write_response_body(Some(Bytes::from(response_bytes)), true)
@@ -349,11 +342,6 @@ impl ProxyHttp for ForwardProxy {
         if end_of_stream {
             let correlation_id = ctx.get_correlation_id();
 
-            debug!(
-                %correlation_id,
-                request_summary = session.request_summary(),
-                request_body = utils::bytes_to_string(&ctx.get_request_body()),
-            );
             info!(
                 %correlation_id,
                 log_type = LogTypes::HANDLE_CLIENT_REQUEST,
@@ -540,12 +528,6 @@ impl ProxyHttp for ForwardProxy {
             let correlation_id = ctx.get_correlation_id();
 
             // This is the last chunk, we can process the data now
-            debug!(
-                %correlation_id,
-                log_type = LogTypes::HANDLE_UPSTREAM_RESPONSE,
-                request_summary = session.request_summary(),
-                body = utils::bytes_to_string(&ctx.get_response_body()),
-            );
             info!(
                 %correlation_id,
                 log_type = LogTypes::HANDLE_UPSTREAM_RESPONSE,
