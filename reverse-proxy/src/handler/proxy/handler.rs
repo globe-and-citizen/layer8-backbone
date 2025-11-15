@@ -1,14 +1,14 @@
 use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
 use reqwest::header::HeaderMap;
 use pingora_router::handler::{APIHandlerResponse, DefaultHandlerTrait, ResponseBodyTrait};
-use log::{debug, error};
 use ntor::common::NTorParty;
 use ntor::server::NTorServer;
 use reqwest::Client;
 use pingora::http::StatusCode;
+use tracing::{debug, error, info};
 use utils::bytes_to_json;
 use utils::jwt::JWTClaims;
-use crate::handler::common::consts::{HeaderKeys};
+use crate::handler::common::consts::{HeaderKeys, LogTypes};
 use crate::handler::common::types::ErrorResponse;
 use crate::handler::proxy::{EncryptedMessage, L8ResponseObject, L8RequestObject};
 
@@ -21,15 +21,15 @@ impl ProxyHandler {
 
     fn validate_jwt_token(
         ctx: &mut Layer8Context,
-        header_key: HeaderKeys,
+        header_key: &str,
         jwt_secret: &Vec<u8>
     ) -> Result<JWTClaims, APIHandlerResponse> {
-        match ctx.get_request_header().get(header_key.as_str()) {
+        match ctx.get_request_header().get(header_key) {
             None => {
                 return Err(APIHandlerResponse {
                     status: StatusCode::BAD_REQUEST,
                     body: Some(ErrorResponse {
-                        error: format!("Missing {} header", header_key.as_str()),
+                        error: format!("Missing {} header", header_key.to_string()),
                     }.to_bytes()),
                 });
             },
@@ -38,7 +38,7 @@ impl ProxyHandler {
                     return Err(APIHandlerResponse {
                         status: StatusCode::BAD_REQUEST,
                         body: Some(ErrorResponse {
-                            error: format!("Empty {} header", header_key.as_str()),
+                            error: format!("Empty {} header", header_key.to_string()),
                         }.to_bytes()),
                     });
                 }
@@ -47,7 +47,13 @@ impl ProxyHandler {
                 match utils::jwt::verify_jwt_token(token, jwt_secret) {
                     Ok(data) => Ok(data.claims),
                     Err(err) => {
-                        error!("Error verifying {} token: {:?}", header_key.as_str(), err);
+                        error!(
+                            correlation_id=ctx.get_correlation_id(),
+                            log_type=LogTypes::HANDLE_PROXY_REQUEST,
+                            "Error verifying {} token: {:?}",
+                            header_key,
+                            err
+                        );
                         Err(APIHandlerResponse {
                             status: StatusCode::BAD_REQUEST,
                             body: Some(ErrorResponse {
@@ -67,14 +73,14 @@ impl ProxyHandler {
     ) -> Result<String, APIHandlerResponse>
     {
         // verify fp_rp_jwt header
-        match ProxyHandler::validate_jwt_token(ctx, HeaderKeys::FpRpJwtKey, jwt_secret) {
+        match ProxyHandler::validate_jwt_token(ctx, HeaderKeys::FP_RP_JWT, jwt_secret) {
             Ok(_claims) => {
                 // todo!() nothing to validate at the moment
             }
             Err(err) => return Err(err)
         }
 
-        return match ProxyHandler::validate_jwt_token(ctx, HeaderKeys::IntRpJwtKey, jwt_secret) {
+        return match ProxyHandler::validate_jwt_token(ctx, HeaderKeys::INT_RP_JWT_KEY, jwt_secret) {
             Ok(claims) => {
                 // extract ntor_session_id from claims
                 match claims.ntor_session_id {
@@ -95,6 +101,8 @@ impl ProxyHandler {
         ctx: &mut Layer8Context
     ) -> Result<EncryptedMessage, APIHandlerResponse>
     {
+        let correlation_id = ctx.get_correlation_id();
+
         match ProxyHandler::parse_request_body::<
             EncryptedMessage,
             ErrorResponse
@@ -104,7 +112,12 @@ impl ProxyHandler {
                 let body = match err {
                     None => None,
                     Some(err_response) => {
-                        error!("Error parsing request body: {}", err_response.error);
+                        error!(
+                            %correlation_id,
+                            log_type=LogTypes::HANDLE_PROXY_REQUEST,
+                            "Error parsing request body: {}",
+                            err_response.error
+                        );
                         Some(err_response.to_bytes())
                     }
                 };
@@ -150,19 +163,31 @@ impl ProxyHandler {
     }
 
     pub(crate) async fn rebuild_user_request(
+        ctx: &Layer8Context,
         backend_url: String,
         wrapped_request: L8RequestObject
     ) -> Result<L8ResponseObject, APIHandlerResponse>
     {
+        let correlation_id = ctx.get_correlation_id();
         let header_map = utils::hashmap_to_headermap(&wrapped_request.headers)
             .unwrap_or_else(|_| HeaderMap::new());
-        debug!("[FORWARD {}] Reconstructed request headers: {:?}", wrapped_request.uri, header_map);
+        debug!(
+            %correlation_id,
+            log_type=LogTypes::HANDLE_PROXY_REQUEST,
+            backend_url=backend_url.as_str(),
+            "Reconstructed request headers: {:?}",
+            header_map
+        );
 
         let origin_url = format!("{}{}", backend_url, wrapped_request.uri);
-        debug!("[FORWARD {}] Request URL: {}", wrapped_request.uri, origin_url);
 
         let client = Client::new();
-
+        info!(
+            %correlation_id,
+            log_type=LogTypes::HANDLE_PROXY_REQUEST,
+            "Send reconstructed request to origin backend URL: {}",
+            origin_url
+        );
         let response = client.request(
             wrapped_request.method.parse().unwrap_or_default(),
             origin_url.as_str(),
@@ -186,15 +211,12 @@ impl ProxyHandler {
                 let serialized_headers = utils::headermap_to_hashmap(&success_res.headers());
                 let serialized_body = success_res.bytes().await.unwrap_or_default().to_vec();
 
-                debug!(
-                    "[FORWARD {}] Response from backend headers: {:?}",
-                    wrapped_request.uri,
-                    serialized_headers
-                );
-                debug!(
-                    "[FORWARD {}] Response from backend body: {}",
-                    wrapped_request.uri,
-                    utils::bytes_to_string(&serialized_body)
+                info!(
+                    %correlation_id,
+                    log_type=LogTypes::HANDLE_BACKEND_RESPONSE,
+                    "Received response from backend: status={}, url={}",
+                    status,
+                    url.as_str()
                 );
 
                 Ok(L8ResponseObject {
@@ -208,7 +230,12 @@ impl ProxyHandler {
                 })
             }
             Err(err) => {
-                error!("[FORWARD] Error while building request to BE: {:?}", err);
+                error!(
+                    %correlation_id,
+                    log_type=LogTypes::HANDLE_PROXY_REQUEST,
+                    "Error while building request to BE: {:?}",
+                    err
+                );
                 let status = err.status().unwrap_or(reqwest::StatusCode::INTERNAL_SERVER_ERROR);
                 let err_body = ErrorResponse {
                     error: format!("Backend error: {}", status),

@@ -11,13 +11,20 @@ pub struct FPConfig {
     #[serde(flatten)]
     pub tls_config: TlsConfig,
     #[serde(flatten)] // This flattens the HandlerConfig fields into this struct
-    pub handler_config: HandlerConfig
+    pub handler_config: HandlerConfig,
+    #[serde(flatten)]
+    pub influxdb_config: InfluxDBConfig,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct LogConfig {
-    pub log_path: String,
     pub log_level: String,
+    /// default to "json" if not "plain"
+    pub log_format: String,
+    /// "console" or folder path
+    pub log_path: String,
+    /// required if log_path is not "console"
+    pub log_filename: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -39,25 +46,10 @@ pub struct TlsConfig {
     pub key: String,
 }
 
-impl LogConfig {
-    pub fn to_level_filter(&self) -> log::LevelFilter {
-        match self.log_level.to_uppercase().as_str() {
-            "INFO" => log::LevelFilter::Info,
-            "DEBUG" => log::LevelFilter::Debug,
-            "WARNING" => log::LevelFilter::Warn,
-            "ERROR" => log::LevelFilter::Error,
-            "TRACE" => log::LevelFilter::Trace,
-            "OFF" => log::LevelFilter::Off,
-            _ => log::max_level()
-        }
-    }
-}
-
-impl TlsConfig {
-    pub fn load(&mut self) -> Result<(), String> {
-        // todo validate certs?
-        // this method was created to load certificates from files but now certs are directly in config.
-        // so it does nothing for now, but kept for future use to validate certs if needed
-        Ok(())
-    }
+#[derive(Debug, Deserialize)]
+pub struct InfluxDBConfig {
+    pub influxdb_url: String,
+    pub influxdb_org: String,
+    pub influxdb_bucket: String,
+    pub influxdb_auth_token: String,
 }

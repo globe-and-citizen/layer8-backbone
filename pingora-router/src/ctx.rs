@@ -1,7 +1,9 @@
 use std::collections::HashMap;
-use pingora::http::{Method, RequestHeader};
+use std::time::Instant;
+use pingora::http::{Method, RequestHeader, StatusCode};
 use pingora::proxy::Session;
 use crate::utils::get_request_body;
+use uuid;
 
 /*
  *  Each type in this crate serves a specific purpose and may be updated as requirements evolve.
@@ -68,6 +70,7 @@ impl Layer8ContextRequest {
 /// shared across handlers during request processing
 #[derive(Debug, Clone, Default)]
 pub struct Layer8ContextResponse {
+    pub status: StatusCode,
     pub header: Layer8Header,
     body: Vec<u8>,
 }
@@ -82,7 +85,7 @@ pub struct Layer8ContextResponse {
 /// This struct is designed to provide a unified interface for accessing and modifying
 /// request and response data, as well as sharing state across middleware and handlers.
 /// All fields are private and should be accessed or modified only through dedicated `get` and `set` methods.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct Layer8Context {
     /// `request`: contains all relevant request information needed for processing and handler access
     pub request: Layer8ContextRequest,
@@ -93,6 +96,18 @@ pub struct Layer8Context {
     /// during request processing.
     /// Accessed via `get(&self, key: &str)` and `set(&mut self, key: String, value: String)` methods
     memory: HashMap<String, String>,
+    pub latency_start: Instant, // todo: remove if not needed
+}
+
+impl Default for Layer8Context {
+    fn default() -> Self {
+        Self {
+            request: Default::default(),
+            response: Default::default(),
+            memory: Default::default(),
+            latency_start: Instant::now(),
+        }
+    }
 }
 
 impl Layer8Context {
@@ -189,6 +204,30 @@ impl Layer8ContextTrait for Layer8Context {
     fn set_request_summary(&mut self, summary: Layer8ContextRequestSummary) {
         self.request.summary = summary
     }
+
+    fn set_correlation_id(&mut self) -> String {
+        let correlation_id: String;
+        if let Some(cid) = self.get_request_header().get("x-correlation-id") {
+            correlation_id = cid.clone();
+        } else if let Some(cid) = self.get_request_header().get("x-request-id") {
+            correlation_id = cid.clone();
+        } else {
+            correlation_id = uuid::Uuid::new_v4().to_string();
+        }
+
+        self.set("x-correlation-id".to_string(), correlation_id.clone());
+        correlation_id
+    }
+
+    fn get_correlation_id(&self) -> String {
+        self.get("x-correlation-id")
+            .unwrap_or(&"".to_string())
+            .clone()
+    }
+
+    fn get_latency_ms(&self) -> i64 {
+        self.latency_start.elapsed().as_nanos() as i64
+    }
 }
 
 /// This trait appears to be redundant and could potentially be removed,
@@ -213,6 +252,9 @@ pub trait Layer8ContextTrait {
     fn get(&self, key: &str) -> Option<&String>;
     fn set(&mut self, key: String, value: String);
     fn set_request_summary(&mut self, summary: Layer8ContextRequestSummary);
+    fn set_correlation_id(&mut self) -> String;
+    fn get_correlation_id(&self) -> String;
+    fn get_latency_ms(&self) -> i64;
 }
 
 /// `Layer8Header` is a type alias for a map of HTTP header key-value pairs used

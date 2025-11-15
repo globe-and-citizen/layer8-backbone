@@ -15,22 +15,13 @@ pub struct RPConfig {
 
 #[derive(Debug, Deserialize, Clone)]
 pub(super) struct LogConfig {
-    pub log_path: String,
     pub log_level: String,
-}
-
-impl LogConfig {
-    pub fn to_level_filter(&self) -> log::LevelFilter {
-        match self.log_level.to_uppercase().as_str() {
-            "INFO" => log::LevelFilter::Info,
-            "DEBUG" => log::LevelFilter::Debug,
-            "WARNING" => log::LevelFilter::Warn,
-            "ERROR" => log::LevelFilter::Error,
-            "TRACE" => log::LevelFilter::Trace,
-            "OFF" => log::LevelFilter::Off,
-            _ => log::max_level()
-        }
-    }
+    /// default to "json" if not "plain"
+    pub log_format: String,
+    /// "console" or folder path
+    pub log_path: String,
+    /// required if log_path is not "console"
+    pub log_filename: String,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -49,6 +40,5 @@ pub(super) struct HandlerConfig {
     pub jwt_virtual_connection_secret: Vec<u8>,
     #[serde(deserialize_with = "utils::deserializer::string_to_number")]
     pub jwt_exp_in_hours: i64,
-    pub forward_proxy_url: Option<String>,
     pub backend_url: String,
 }
