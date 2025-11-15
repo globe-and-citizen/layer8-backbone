@@ -61,6 +61,8 @@ impl ReverseHandler {
     }
 
     pub async fn handle_init_tunnel(&self, ctx: &mut Layer8Context) -> APIHandlerResponse {
+        let correlation_id = ctx.get_correlation_id();
+
         // validate request body
         let request_body = match InitTunnelHandler::validate_request_body(
             ctx,
@@ -69,11 +71,6 @@ impl ReverseHandler {
             Ok(res) => res,
             Err(res) => return res
         };
-        debug!(
-            client_ip=ctx.request.summary.host,
-            "Parsed body: {:?}",
-            request_body
-        );
 
         // todo I think there are prettier ways to use nTor since we are free to modify the nTor crate, but I'm lazy
         let mut ntor_server = NTorServer::new_with_secret(
@@ -116,8 +113,8 @@ impl ReverseHandler {
 
         // InitTunnelHandler::send_result_to_be(self.config.backend_url.clone(), true).await;
         info!(
+            %correlation_id,
             log_type=LogTypes::HANDLE_INIT_TUNNEL_REQUEST,
-            client_ip=ctx.request.summary.host,
             "Save new nTor session: {}",
             ntor_session_id
         );
@@ -133,6 +130,7 @@ impl ReverseHandler {
     }
 
     pub async fn handle_proxy_request(&self, ctx: &mut Layer8Context) -> APIHandlerResponse {
+        let correlation_id = ctx.get_correlation_id();
 
         // validate request headers (nTor session ID)
         let session_id = match ProxyHandler::validate_request_headers(ctx, &self.jwt_secret) {
@@ -161,29 +159,20 @@ impl ReverseHandler {
         };
 
         info!(
+            %correlation_id,
             log_type=LogTypes::HANDLE_INIT_TUNNEL_REQUEST,
-            client_ip=ctx.request.summary.host,
             "Decrypted request body and forward to backend",
-        );
-        debug!(
-            client_ip=ctx.request.summary.host,
-            "Decrypted request: {:?}", wrapped_request
         );
 
         // reconstruct user request
         let wrapped_response = match ProxyHandler::rebuild_user_request(
+            ctx,
             self.config.backend_url.clone(),
             wrapped_request,
         ).await {
             Ok(res) => res,
             Err(res) => return res,
         };
-
-        debug!(
-            client_ip=ctx.request.summary.host,
-            "Wrapped Backend response: {:?}",
-            wrapped_response
-        );
 
         return match ProxyHandler::encrypt_response_body(
             wrapped_response,

@@ -46,7 +46,9 @@ impl<T> ReverseProxy<T> {
             .insert_header("Access-Control-Max-Age", "86400")
             .unwrap_or_default();
 
+        let correlation_id = ctx.get_correlation_id();
         info!(
+            %correlation_id,
             log_type=LogTypes::HANDLE_BACKEND_RESPONSE,
             "Response Headers: {:?}",
             header.headers
@@ -80,21 +82,19 @@ impl<T: Sync> ProxyHttp for ReverseProxy<T> {
     {
         // create Context
         ctx.update(session).await?;
-        ctx.read_request_body(session).await?;
-        let request_summary = session.request_summary();
-        let request_id = session.req_header().headers.get("x-request-id").map(|v| v.to_str().unwrap_or("")).unwrap_or("");
+
+        let correlation_id = ctx.set_correlation_id();
+
         info!(
+            %correlation_id,
             log_type=LogTypes::ACCESS_LOG,
-            client_ip=ctx.request.summary.host,
-            request_summary=session.request_summary(),
-            user_agent=ctx.request.header.get("User-Agent"),
-            request_id=request_id,
+            request_summary = session.request_summary(),
+            origin = ctx.request.header.get("origin"),
+            referer = ctx.request.header.get("referer"),
+            user_agent = ctx.request.header.get("User-Agent"),
         );
-        debug!(
-            request_summary=request_summary,
-            "Decoded request body: {}",
-            String::from_utf8_lossy(&*ctx.get_request_body())
-        );
+
+        ctx.read_request_body(session).await?;
 
         let handler_response = self.router.call_handler(ctx).await;
         if handler_response.status == StatusCode::NOT_FOUND && handler_response.body.is_none() {
@@ -110,12 +110,6 @@ impl<T: Sync> ProxyHttp for ReverseProxy<T> {
             response_bytes = body_bytes;
         };
         ReverseProxy::<T>::set_headers(session, ctx, handler_response.status).await?;
-
-        debug!(
-            request_summary=request_summary,
-            "Response Body: {}",
-            String::from_utf8_lossy(&*response_bytes)
-        );
 
         // Write the response body to the session after setting headers
         session.write_response_body(Some(Bytes::from(response_bytes)), true).await?;
@@ -134,15 +128,18 @@ impl<T: Sync> ProxyHttp for ReverseProxy<T> {
             status = session.response_written().unwrap().status.as_u16();
         }
 
+        let correlation_id = ctx.get_correlation_id();
+
         info!(
+            %correlation_id,
             log_type=LogTypes::ACCESS_LOG_RESULT,
-            client_ip=ctx.request.summary.host,
             request_summary=session.request_summary(),
+            origin = ctx.request.header.get("origin"),
+            referer = ctx.request.header.get("referer"),
             status=status,
-            // duration_ms=session.duration_ms(),
+            latency_ms=ctx.get_latency_ms(), // todo: is it necessary?
             response_body_size=ctx.get_response_body().len(),
             user_agent=ctx.request.header.get("User-Agent"),
-            request_id=session.req_header().headers.get("x-request-id").map(|v| v.to_str().unwrap_or("")).unwrap_or(""),
             error=?e,
         );
     }

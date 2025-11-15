@@ -1,3 +1,4 @@
+use tracing_appender::non_blocking::WorkerGuard;
 use tracing_appender::rolling;
 use tracing_subscriber::filter::LevelFilter;
 use tracing_subscriber::fmt;
@@ -8,16 +9,8 @@ pub fn init_logger(
     log_format: String,
     log_folder: String,
     log_file: String,
-) -> Option<tracing_appender::non_blocking::WorkerGuard> {
+) -> Option<WorkerGuard> {
     let level_filter = to_level_filter(level);
-
-    // Structured JSON logger
-    let builder = fmt::Subscriber::builder()
-        .with_max_level(level_filter)
-        .with_target(true)
-        .with_file(true) // ✅ include file path
-        .with_line_number(true) // ✅ include line number
-        .with_ansi(true);
 
     // Dynamic writer
     let (writer, guard): (BoxMakeWriter, Option<tracing_appender::non_blocking::WorkerGuard>) =
@@ -30,19 +23,24 @@ pub fn init_logger(
             (BoxMakeWriter::new(non_blocking), Some(guard))
         };
 
-    // Build with chosen writer
-    let builder = builder.with_writer(writer);
+    // Structured JSON logger
+    let builder = fmt::Subscriber::builder()
+        .with_max_level(level_filter)
+        .with_target(true)
+        .with_file(true) // ✅ include file path
+        .with_line_number(true) // ✅ include line number
+        .with_ansi(true)
+        .with_writer(writer);
 
     if log_format.to_lowercase() != "plain" {
         builder
             .json()
             .with_current_span(true)
-            .with_current_span(true)
             .flatten_event(true)
             .init();
     } else {
-        builder.init();
-    }
+        builder.compact().init();
+    };
 
     tracing::info!("Logger initialized");
     guard
