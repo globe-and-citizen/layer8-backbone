@@ -1,18 +1,17 @@
-pub mod cert;
-pub mod deserializer;
-pub mod jwt;
-pub mod log;
-
-use url::Url;
+use std::collections::HashMap;
 
 use base64::Engine;
 use base64::engine::general_purpose;
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
-use std::collections::HashMap;
-use uuid::Uuid;
-
 use serde::{Deserialize, Serialize};
 use tracing::error;
+use url::Url;
+use uuid::Uuid;
+
+pub mod cert;
+pub mod deserializer;
+pub mod jwt;
+pub mod log;
 
 pub fn to_reqwest_header(map: HashMap<String, String>) -> HeaderMap {
     let mut header_map = HeaderMap::new();
@@ -54,7 +53,7 @@ where
     serde_json::from_slice::<T>(&bytes)
 }
 
-pub fn bytes_to_string(bytes: &Vec<u8>) -> String {
+pub fn bytes_to_string(bytes: &[u8]) -> String {
     String::from_utf8_lossy(bytes).to_string()
 }
 

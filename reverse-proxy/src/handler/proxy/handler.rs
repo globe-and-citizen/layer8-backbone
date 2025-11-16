@@ -1,7 +1,4 @@
-use crate::handler::common::consts::{HeaderKeys, LogTypes};
-use crate::handler::common::types::ErrorResponse;
-use crate::handler::proxy::{EncryptedMessage, L8RequestObject, L8ResponseObject};
-use ntor::common::NTorParty;
+use ntor::common::{EncryptedMessage, NTorParty};
 use ntor::server::NTorServer;
 use pingora::http::StatusCode;
 use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
@@ -9,8 +6,11 @@ use pingora_router::handler::{APIHandlerResponse, DefaultHandlerTrait, ResponseB
 use reqwest::Client;
 use reqwest::header::HeaderMap;
 use tracing::{debug, error, info};
-use utils::bytes_to_json;
 use utils::jwt::JWTClaims;
+
+use crate::handler::common::consts::{HeaderKeys, LogTypes};
+use crate::handler::common::types::ErrorResponse;
+use crate::handler::proxy::{L8RequestObject, L8ResponseObject};
 
 /// Struct containing only associated methods (no instance methods or fields)
 pub struct ProxyHandler {}
@@ -21,7 +21,7 @@ impl ProxyHandler {
     fn validate_jwt_token(
         ctx: &mut Layer8Context,
         header_key: &str,
-        jwt_secret: &Vec<u8>,
+        jwt_secret: &[u8],
     ) -> Result<JWTClaims, APIHandlerResponse> {
         match ctx.get_request_header().get(header_key) {
             None => {
@@ -110,28 +110,24 @@ impl ProxyHandler {
     pub(crate) fn validate_request_body(
         ctx: &mut Layer8Context,
     ) -> Result<EncryptedMessage, APIHandlerResponse> {
-        let correlation_id = ctx.get_correlation_id();
-
-        match ProxyHandler::parse_request_body::<EncryptedMessage, ErrorResponse>(
-            &ctx.get_request_body(),
-        ) {
-            Ok(res) => Ok(res),
+        match bincode::decode_from_slice(&ctx.get_request_body(), bincode::config::standard()) {
+            Ok((data, _)) => Ok(data),
             Err(err) => {
-                let body = match err {
-                    None => None,
-                    Some(err_response) => {
-                        error!(
-                            %correlation_id,
-                            log_type=LogTypes::HANDLE_PROXY_REQUEST,
-                            "Error parsing request body: {}",
-                            err_response.error
-                        );
-                        Some(err_response.to_bytes())
-                    }
-                };
+                let correlation_id = ctx.get_correlation_id();
+                error!(
+                    %correlation_id,
+                    log_type=LogTypes::HANDLE_PROXY_REQUEST,
+                    "Error parsing request body: {}",
+                    err.to_string()
+                );
+
                 Err(APIHandlerResponse {
                     status: StatusCode::BAD_REQUEST,
-                    body,
+                    body: Some(
+                        format!("Failed to parse request body: {}", err)
+                            .as_bytes()
+                            .to_vec(),
+                    ),
                 })
             }
         }
@@ -143,33 +139,28 @@ impl ProxyHandler {
         shared_secret: Vec<u8>,
     ) -> Result<L8RequestObject, APIHandlerResponse> {
         let mut ntor_server = NTorServer::new(ntor_server_id);
-        ntor_server.set_shared_secret(shared_secret.clone());
+        ntor_server.set_shared_secret(shared_secret);
 
         // Decrypt the request body using nTor shared secret
-        let decrypted_data = ntor_server
-            .decrypt(ntor::common::EncryptedMessage {
-                nonce: <[u8; 12]>::try_from(request_body.nonce).unwrap_or_default(),
-                data: request_body.data,
-            })
-            .map_err(|err| {
-                return APIHandlerResponse {
-                    status: StatusCode::BAD_REQUEST,
-                    body: Some(format!("Decryption failed: {}", err).as_bytes().to_vec()),
-                };
-            })?;
-        // let decrypted_data = request_body.data;
-
-        // parse decrypted data into WrappedUserRequest
-        let wrapped_request: L8RequestObject = bytes_to_json(decrypted_data).map_err(|err| {
+        let decrypted_data = ntor_server.decrypt(request_body).map_err(|err| {
             return APIHandlerResponse {
                 status: StatusCode::BAD_REQUEST,
-                body: Some(
-                    format!("Failed to parse request body: {}", err)
-                        .as_bytes()
-                        .to_vec(),
-                ),
+                body: Some(format!("Decryption failed: {}", err).as_bytes().to_vec()),
             };
         })?;
+
+        // parse decrypted data into WrappedUserRequest
+        let wrapped_request: L8RequestObject =
+            serde_json::from_slice(&decrypted_data).map_err(|err| {
+                return APIHandlerResponse {
+                    status: StatusCode::BAD_REQUEST,
+                    body: Some(
+                        format!("Failed to parse request body: {}", err)
+                            .as_bytes()
+                            .to_vec(),
+                    ),
+                };
+            })?;
 
         Ok(wrapped_request)
     }
@@ -272,19 +263,14 @@ impl ProxyHandler {
         let mut ntor_server = NTorServer::new(ntor_server_id);
         ntor_server.set_shared_secret(shared_secret);
 
-        let data = response_body.to_bytes();
+        let data = serde_json::to_vec(&response_body).expect("the struct is json serializable");
 
         // Encrypt the response body using nTor shared secret
-        let encrypted_data = ntor_server.encrypt(data).map_err(|err| {
+        ntor_server.encrypt(&data).map_err(|err| {
             return APIHandlerResponse {
                 status: StatusCode::INTERNAL_SERVER_ERROR,
                 body: Some(format!("Encryption failed: {}", err).as_bytes().to_vec()),
             };
-        })?;
-
-        Ok(EncryptedMessage {
-            nonce: encrypted_data.nonce.to_vec(),
-            data: encrypted_data.data,
         })
     }
 }

@@ -1,4 +1,3 @@
-use crate::handler::common::consts::LogTypes;
 use async_trait::async_trait;
 use bytes::Bytes;
 use pingora::http::{ResponseHeader, StatusCode};
@@ -7,6 +6,8 @@ use pingora::proxy::Session;
 use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
 use pingora_router::router::Router;
 use tracing::info;
+
+use crate::handler::common::consts::LogTypes;
 
 pub struct ReverseProxy<T> {
     router: Router<T>,

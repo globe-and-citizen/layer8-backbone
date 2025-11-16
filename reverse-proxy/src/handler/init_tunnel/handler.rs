@@ -1,11 +1,12 @@
-use crate::handler::common::types::ErrorResponse;
-use crate::handler::init_tunnel::InitEncryptedTunnelRequest;
 use pingora::http::StatusCode;
 use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
 use pingora_router::handler::{APIHandlerResponse, DefaultHandlerTrait, ResponseBodyTrait};
 
+use crate::handler::common::types::ErrorResponse;
+use crate::handler::init_tunnel::InitEncryptedTunnelRequest;
+
 /// Struct containing only associated methods (no instance methods or fields)
-pub(crate) struct InitTunnelHandler {}
+pub(crate) struct InitTunnelHandler;
 
 impl DefaultHandlerTrait for InitTunnelHandler {}
 

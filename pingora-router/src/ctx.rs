@@ -1,9 +1,11 @@
-use crate::utils::get_request_body;
-use pingora::http::{Method, RequestHeader, StatusCode};
-use pingora::proxy::Session;
 use std::collections::HashMap;
 use std::time::Instant;
+
+use pingora::http::{Method, RequestHeader, StatusCode};
+use pingora::proxy::Session;
 use uuid;
+
+use crate::utils::get_request_body;
 
 /*
  *  Each type in this crate serves a specific purpose and may be updated as requirements evolve.
@@ -186,8 +188,8 @@ impl Layer8ContextTrait for Layer8Context {
         self.request.body.extend(body)
     }
 
-    fn get_request_body(&self) -> Vec<u8> {
-        self.request.body.clone()
+    fn get_request_body(&self) -> &[u8] {
+        &self.request.body
     }
 
     fn set_response_body(&mut self, body: Vec<u8>) {
@@ -198,8 +200,8 @@ impl Layer8ContextTrait for Layer8Context {
         self.response.body.extend(body);
     }
 
-    fn get_response_body(&self) -> Vec<u8> {
-        self.response.body.clone()
+    fn get_response_body(&self) -> &[u8] {
+        &self.response.body
     }
 
     fn get(&self, key: &str) -> Option<&String> {
@@ -254,10 +256,10 @@ pub trait Layer8ContextTrait {
     fn get_response_header(&self) -> &Layer8Header;
     fn set_request_body(&mut self, body: Vec<u8>);
     fn extend_request_body(&mut self, body: Vec<u8>);
-    fn get_request_body(&self) -> Vec<u8>;
+    fn get_request_body(&self) -> &[u8];
     fn set_response_body(&mut self, body: Vec<u8>);
     fn extend_response_body(&mut self, body: Vec<u8>);
-    fn get_response_body(&self) -> Vec<u8>;
+    fn get_response_body(&self) -> &[u8];
     fn get(&self, key: &str) -> Option<&String>;
     fn set(&mut self, key: String, value: String);
     fn set_request_summary(&mut self, summary: Layer8ContextRequestSummary);

@@ -1,8 +1,6 @@
-use crate::config::TlsConfig;
-use crate::handler::ForwardHandler;
-use crate::handler::consts::{CtxKeys, HeaderKeys, LogTypes, RequestPaths};
-use crate::handler::types::response::ErrorResponse;
-use crate::statistics::Statistics;
+use std::sync::Arc;
+use std::time::Duration;
+
 use async_trait::async_trait;
 use boring::x509::X509;
 use bytes::Bytes;
@@ -17,9 +15,13 @@ use pingora_error::ErrorType;
 use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
 use pingora_router::handler::ResponseBodyTrait;
 use reqwest::header::TRANSFER_ENCODING;
-use std::sync::Arc;
-use std::time::Duration;
 use tracing::{debug, error, info};
+
+use crate::config::TlsConfig;
+use crate::handler::ForwardHandler;
+use crate::handler::consts::{CtxKeys, HeaderKeys, LogTypes, RequestPaths};
+use crate::handler::types::response::ErrorResponse;
+use crate::statistics::Statistics;
 
 pub struct ForwardProxy {
     tls_config: TlsConfig,
@@ -361,7 +363,7 @@ impl ProxyHttp for ForwardProxy {
                         request_summary = session.request_summary(),
                         "Forward proxy passing through request body unchanged."
                     );
-                    *body = Some(Bytes::copy_from_slice(ctx.get_request_body().as_slice()));
+                    *body = Some(Bytes::copy_from_slice(ctx.get_request_body()));
                     return Ok(());
                 }
             };
@@ -441,7 +443,6 @@ impl ProxyHttp for ForwardProxy {
                             "{} token is empty",
                             HeaderKeys::INT_FP_JWT
                         );
-
                         return Err(pingora::Error::new(pingora::ErrorType::HTTPStatus(
                             u16::from(StatusCode::BAD_REQUEST),
                         )));
@@ -545,7 +546,7 @@ impl ProxyHttp for ForwardProxy {
                         request_summary = session.request_summary(),
                         "Forward proxy passing through response body unchanged."
                     );
-                    *body = Some(Bytes::copy_from_slice(ctx.get_response_body().as_slice()));
+                    *body = Some(Bytes::copy_from_slice(ctx.get_response_body()));
                     return Ok(None);
                 }
             };
