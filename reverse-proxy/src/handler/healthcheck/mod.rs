@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
 use pingora_router::handler::ResponseBodyTrait;
+use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct RpHealthcheckSuccess {

@@ -1,5 +1,5 @@
+use jsonwebtoken::{DecodingKey, TokenData, Validation, errors::Error as JwtError};
 use serde::{Deserialize, Serialize};
-use jsonwebtoken::{DecodingKey, Validation, errors::Error as JwtError, TokenData};
 
 /// JWT (JSON Web Token) claims structure.
 ///
@@ -20,7 +20,6 @@ use jsonwebtoken::{DecodingKey, Validation, errors::Error as JwtError, TokenData
 #[derive(Serialize, Deserialize, Debug, Default)]
 pub struct JWTClaims {
     /* Registered claims */
-
     /// The "iss" (issuer) claim identifies the principal that issued the
     /// JWT.  The processing of this claim is generally application specific.
     /// The "iss" value is a case-sensitive string containing a StringOrURI
@@ -90,19 +89,23 @@ pub struct JWTClaims {
     pub jti: Option<String>,
 
     /* Custom claims */
-
     /// This claim is required in JWT token `int_fp_jwt` between Interceptor and ForwardProxy.
     /// Used in ForwardProxy to identify the ReverseProxy server.
-    #[serde(skip_serializing_if = "Option::is_none", rename(serialize = "upstream", deserialize = "upstream"))]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        rename(serialize = "upstream", deserialize = "upstream")
+    )]
     pub rp_host: Option<String>,
 
     /// This claim is required in JWT token `int_rp_jwt` between Interceptor and ReverseProxy.
-    #[serde(skip_serializing_if = "Option::is_none", rename(serialize = "sid", deserialize = "sid"))]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        rename(serialize = "sid", deserialize = "sid")
+    )]
     pub ntor_session_id: Option<String>,
 
     /// The `uuid` claim is used to uniquely identify the token and help prevent race conditions.
     pub uuid: Option<String>,
-
     // Additional custom claims can be added here as needed.
 }
 
@@ -115,7 +118,7 @@ impl JWTClaims {
                 let now = chrono::Utc::now();
                 let expiration = now + chrono::Duration::hours(hours);
                 Some(expiration.timestamp())
-            },
+            }
             None => None,
         };
 
@@ -150,15 +153,17 @@ pub fn create_jwt_token(claims: JWTClaims, jwt_secret: &[u8]) -> String {
         &jsonwebtoken::Header::default(),
         &claims,
         &jsonwebtoken::EncodingKey::from_secret(&jwt_secret),
-    ).unwrap()
+    )
+    .unwrap()
 }
 
-pub fn verify_jwt_token(token: &str, jwt_secret: &Vec<u8>) -> Result<TokenData<JWTClaims>, JwtError> {
+pub fn verify_jwt_token(
+    token: &str,
+    jwt_secret: &Vec<u8>,
+) -> Result<TokenData<JWTClaims>, JwtError> {
     jsonwebtoken::decode::<JWTClaims>(
         token,
         &DecodingKey::from_secret(jwt_secret.as_slice()),
         &Validation::default(),
     )
 }
-
-

@@ -1,38 +1,40 @@
-use pingora::prelude::{HttpPeer, ProxyHttp};
-use pingora::proxy::Session;
-use pingora::http::{ResponseHeader, StatusCode};
+use crate::handler::common::consts::LogTypes;
 use async_trait::async_trait;
 use bytes::Bytes;
-use tracing::{debug, info};
+use pingora::http::{ResponseHeader, StatusCode};
+use pingora::prelude::{HttpPeer, ProxyHttp};
+use pingora::proxy::Session;
 use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
 use pingora_router::router::Router;
-use crate::handler::common::consts::LogTypes;
+use tracing::info;
 
 pub struct ReverseProxy<T> {
-    router: Router<T>
+    router: Router<T>,
 }
 
 impl<T> ReverseProxy<T> {
     pub fn new(router: Router<T>) -> Self {
-        ReverseProxy {
-            router
-        }
+        ReverseProxy { router }
     }
 
     async fn set_headers(
         session: &mut Session,
         ctx: &mut Layer8Context,
-        response_status: StatusCode
+        response_status: StatusCode,
     ) -> pingora::Result<()> {
         let mut header = ResponseHeader::build(response_status, None)?;
 
         let response_header = ctx.get_response_header().clone();
         for (key, val) in response_header.iter() {
-            header.insert_header(key.clone(), val.clone()).unwrap_or_default();
-        };
+            header
+                .insert_header(key.clone(), val.clone())
+                .unwrap_or_default();
+        }
 
         // Common headers
-        header.insert_header("Content-Type", "application/json").unwrap_or_default();
+        header
+            .insert_header("Content-Type", "application/json")
+            .unwrap_or_default();
         header
             .insert_header("Access-Control-Allow-Origin", "*")
             .unwrap_or_default();
@@ -70,13 +72,16 @@ impl<T: Sync> ProxyHttp for ReverseProxy<T> {
         _session: &mut Session,
         _ctx: &mut Self::CTX,
     ) -> pingora::Result<Box<HttpPeer>> {
-        let peer: Box<HttpPeer> =
-            Box::new(HttpPeer::new("", false, "".to_string()));
+        let peer: Box<HttpPeer> = Box::new(HttpPeer::new("", false, "".to_string()));
         Ok(peer)
     }
 
     /// Handle request/response data by creating a new request to BE and respond to FP
-    async fn request_filter(&self, session: &mut Session, ctx: &mut Self::CTX) -> pingora::Result<bool>
+    async fn request_filter(
+        &self,
+        session: &mut Session,
+        ctx: &mut Self::CTX,
+    ) -> pingora::Result<bool>
     where
         Self::CTX: Send + Sync,
     {
@@ -112,7 +117,9 @@ impl<T: Sync> ProxyHttp for ReverseProxy<T> {
         ReverseProxy::<T>::set_headers(session, ctx, handler_response.status).await?;
 
         // Write the response body to the session after setting headers
-        session.write_response_body(Some(Bytes::from(response_bytes)), true).await?;
+        session
+            .write_response_body(Some(Bytes::from(response_bytes)), true)
+            .await?;
 
         Ok(true)
     }

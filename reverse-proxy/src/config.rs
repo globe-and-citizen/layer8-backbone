@@ -1,5 +1,5 @@
-use serde::Deserialize;
 use crate::tls_conf::TlsConfig;
+use serde::Deserialize;
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct RPConfig {
@@ -10,7 +10,7 @@ pub struct RPConfig {
     #[serde(flatten)]
     pub tls: TlsConfig,
     #[serde(flatten)]
-    pub handler: HandlerConfig
+    pub handler: HandlerConfig,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -28,7 +28,7 @@ pub(super) struct LogConfig {
 pub(super) struct ServerConfig {
     pub listen_address: String,
     #[serde(deserialize_with = "utils::deserializer::string_to_number")]
-    pub listen_port: u16
+    pub listen_port: u16,
 }
 
 #[derive(Debug, Deserialize, Clone)]

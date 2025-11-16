@@ -13,15 +13,17 @@ pub fn init_logger(
     let level_filter = to_level_filter(level);
 
     // Dynamic writer
-    let (writer, guard): (BoxMakeWriter, Option<tracing_appender::non_blocking::WorkerGuard>) =
-        if log_folder == "console" {
-            let (non_blocking, guard) = tracing_appender::non_blocking(std::io::stdout());
-            (BoxMakeWriter::new(non_blocking), Some(guard))
-        } else {
-            let file_appender = rolling::daily(log_folder, log_file);
-            let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
-            (BoxMakeWriter::new(non_blocking), Some(guard))
-        };
+    let (writer, guard): (
+        BoxMakeWriter,
+        Option<tracing_appender::non_blocking::WorkerGuard>,
+    ) = if log_folder == "console" {
+        let (non_blocking, guard) = tracing_appender::non_blocking(std::io::stdout());
+        (BoxMakeWriter::new(non_blocking), Some(guard))
+    } else {
+        let file_appender = rolling::daily(log_folder, log_file);
+        let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
+        (BoxMakeWriter::new(non_blocking), Some(guard))
+    };
 
     // Structured JSON logger
     let builder = fmt::Subscriber::builder()

@@ -1,11 +1,12 @@
+use serde::de::Deserialize;
 use std::ops::Add;
 use std::str::FromStr;
-use serde::de::{Deserialize};
 
 pub fn string_to_number<'de, D, T>(deserializer: D) -> Result<T, D::Error>
 where
     D: serde::Deserializer<'de>,
-    T: Add<Output = T> + Copy + FromStr, <T as FromStr>::Err: std::fmt::Display,
+    T: Add<Output = T> + Copy + FromStr,
+    <T as FromStr>::Err: std::fmt::Display,
 {
     let s: String = Deserialize::deserialize(deserializer).map_err(|e| {
         serde::de::Error::custom(format!("Failed to deserialize string to number: {}", e))
@@ -22,7 +23,9 @@ where
     })?;
     let bytes = s.into_bytes();
     if bytes.len() != 32 {
-        return Err(serde::de::Error::custom("Expected 32 bytes for nTor static secret"));
+        return Err(serde::de::Error::custom(
+            "Expected 32 bytes for nTor static secret",
+        ));
     }
     let mut array = [0u8; 32];
     array.copy_from_slice(&bytes);

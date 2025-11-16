@@ -1,15 +1,15 @@
-pub mod jwt;
 pub mod cert;
 pub mod deserializer;
+pub mod jwt;
 pub mod log;
 
 use url::Url;
 
-use std::collections::HashMap;
 use base64::Engine;
 use base64::engine::general_purpose;
-use uuid::Uuid;
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
+use std::collections::HashMap;
+use uuid::Uuid;
 
 use serde::{Deserialize, Serialize};
 use tracing::error;
@@ -72,13 +72,9 @@ pub fn string_to_headermap(s: &str) -> Result<HeaderMap, Box<dyn std::error::Err
 
 // HeaderMap to String
 pub fn headermap_to_string(headers: &HeaderMap) -> String {
-    let pairs: Vec<(String, String)> = headers.iter()
-        .map(
-            |(k, v)| (
-                k.to_string(),
-                v.to_str().unwrap_or("").to_string()
-            )
-        )
+    let pairs: Vec<(String, String)> = headers
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("").to_string()))
         .collect();
     serde_json::to_string(&pairs).unwrap()
 }
@@ -93,9 +89,8 @@ fn headervalue_to_json(val: &HeaderValue) -> serde_json::Value {
 
 // serde_json::Value to http::header::value::HeaderValue
 fn json_to_headervalue(
-    val: &serde_json::Value
-) -> Result<HeaderValue, reqwest::header::InvalidHeaderValue>
-{
+    val: &serde_json::Value,
+) -> Result<HeaderValue, reqwest::header::InvalidHeaderValue> {
     match val {
         serde_json::Value::String(s) => HeaderValue::from_str(s),
         _ => HeaderValue::from_str(&val.to_string()),
@@ -103,9 +98,8 @@ fn json_to_headervalue(
 }
 
 pub fn hashmap_to_headermap(
-    map: &HashMap<String, serde_json::Value>
-) -> Result<HeaderMap, Box<dyn std::error::Error>>
-{
+    map: &HashMap<String, serde_json::Value>,
+) -> Result<HeaderMap, Box<dyn std::error::Error>> {
     let mut headers = HeaderMap::new();
     for (k, v) in map {
         let name = HeaderName::from_bytes(k.as_bytes())?;
@@ -136,7 +130,8 @@ pub fn validate_url(url: &str) -> Option<Url> {
 }
 
 pub fn get_socket_addrs(url: &Url) -> String {
-    url.socket_addrs(|| None).unwrap_or_default()
+    url.socket_addrs(|| None)
+        .unwrap_or_default()
         .iter()
         .map(|addr| addr.to_string())
         .collect::<Vec<String>>()

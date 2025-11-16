@@ -1,24 +1,24 @@
-use std::collections::HashMap;
-use std::sync::{Mutex, MutexGuard};
-use ntor::common::{InitSessionMessage, NTorParty};
-use ntor::server::NTorServer;
-use pingora::http::StatusCode;
-use tracing::{debug, info};
-use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
-use pingora_router::handler::{APIHandlerResponse, ResponseBodyTrait};
-use init_tunnel::handler::InitTunnelHandler;
-use proxy::handler::ProxyHandler;
-use init_tunnel::InitEncryptedTunnelResponse;
-use utils::{new_uuid};
-use utils::jwt::JWTClaims;
 use crate::config::{HandlerConfig, RPConfig};
 use crate::handler::common::consts::LogTypes;
 use crate::handler::healthcheck::{RpHealthcheckError, RpHealthcheckSuccess};
+use init_tunnel::InitEncryptedTunnelResponse;
+use init_tunnel::handler::InitTunnelHandler;
+use ntor::common::{InitSessionMessage, NTorParty};
+use ntor::server::NTorServer;
+use pingora::http::StatusCode;
+use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
+use pingora_router::handler::{APIHandlerResponse, ResponseBodyTrait};
+use proxy::handler::ProxyHandler;
+use std::collections::HashMap;
+use std::sync::{Mutex, MutexGuard};
+use tracing::info;
+use utils::jwt::JWTClaims;
+use utils::new_uuid;
 
 pub(crate) mod common;
+mod healthcheck;
 mod init_tunnel;
 mod proxy;
-mod healthcheck;
 
 thread_local! {
     // <session_id, shared_secret>
@@ -33,7 +33,7 @@ pub struct ReverseHandler {
 
 impl ReverseHandler {
     pub fn new(config: RPConfig) -> Self {
-        let ntor_secret = config.handler.ntor_static_secret.clone();
+        let ntor_secret = config.handler.ntor_static_secret;
         let jwt_secret = config.handler.jwt_virtual_connection_secret.clone();
 
         ReverseHandler {
@@ -51,12 +51,10 @@ impl ReverseHandler {
 
         return match shared_secret {
             Some(secret) => Ok(secret.clone()),
-            None => {
-                Err(APIHandlerResponse {
-                    status: StatusCode::UNAUTHORIZED,
-                    body: Some("Invalid or expired nTor session ID".as_bytes().to_vec()),
-                })
-            }
+            None => Err(APIHandlerResponse {
+                status: StatusCode::UNAUTHORIZED,
+                body: Some("Invalid or expired nTor session ID".as_bytes().to_vec()),
+            }),
         };
     }
 
@@ -64,13 +62,13 @@ impl ReverseHandler {
         let correlation_id = ctx.get_correlation_id();
 
         // validate request body
-        let request_body = match InitTunnelHandler::validate_request_body(
-            ctx,
-            self.config.backend_url.clone(),
-        ).await {
-            Ok(res) => res,
-            Err(res) => return res
-        };
+        let request_body =
+            match InitTunnelHandler::validate_request_body(ctx, self.config.backend_url.clone())
+                .await
+            {
+                Ok(res) => res,
+                Err(res) => return res,
+            };
 
         // todo I think there are prettier ways to use nTor since we are free to modify the nTor crate, but I'm lazy
         let mut ntor_server = NTorServer::new_with_secret(
@@ -120,7 +118,10 @@ impl ReverseHandler {
         );
         NTOR_SHARED_SECRETS.with(|memory| {
             let mut guard: MutexGuard<HashMap<String, Vec<u8>>> = memory.lock().unwrap();
-            guard.insert(ntor_session_id, ntor_server.get_shared_secret().unwrap_or_default());
+            guard.insert(
+                ntor_session_id,
+                ntor_server.get_shared_secret().unwrap_or_default(),
+            );
         });
 
         APIHandlerResponse {
@@ -169,7 +170,9 @@ impl ReverseHandler {
             ctx,
             self.config.backend_url.clone(),
             wrapped_request,
-        ).await {
+        )
+        .await
+        {
             Ok(res) => res,
             Err(res) => return res,
         };
@@ -179,13 +182,11 @@ impl ReverseHandler {
             self.config.ntor_server_id.clone(),
             shared_secret,
         ) {
-            Ok(encrypted_message) => {
-                APIHandlerResponse {
-                    status: StatusCode::OK,
-                    body: Some(encrypted_message.to_bytes()),
-                }
-            }
-            Err(res) => res
+            Ok(encrypted_message) => APIHandlerResponse {
+                status: StatusCode::OK,
+                body: Some(encrypted_message.to_bytes()),
+            },
+            Err(res) => res,
         };
     }
 
@@ -193,8 +194,9 @@ impl ReverseHandler {
         if let Some(error) = ctx.param("error") {
             if error == "true" {
                 let response_bytes = RpHealthcheckError {
-                    rp_healthcheck_error: "this is placeholder for a custom error".to_string()
-                }.to_bytes();
+                    rp_healthcheck_error: "this is placeholder for a custom error".to_string(),
+                }
+                .to_bytes();
 
                 ctx.insert_response_header("x-rp-healthcheck-error", "response-header-error");
                 return APIHandlerResponse {
@@ -206,7 +208,8 @@ impl ReverseHandler {
 
         let response_bytes = RpHealthcheckSuccess {
             rp_healthcheck_success: "this is placeholder for a custom body".to_string(),
-        }.to_bytes();
+        }
+        .to_bytes();
 
         ctx.insert_response_header("x-rp-healthcheck-success", "response-header-success");
 

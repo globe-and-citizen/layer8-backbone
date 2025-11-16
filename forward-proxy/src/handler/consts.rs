@@ -42,4 +42,3 @@ impl RequestPaths {
     pub const INIT_TUNNEL: &'static str = "/init-tunnel";
     pub const HEALTHCHECK: &'static str = "/healthcheck";
 }
-

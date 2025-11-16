@@ -2,24 +2,27 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use pingora::http::StatusCode;
-use reqwest::Client;
 use pingora_router::{
-   ctx::{Layer8Context, Layer8ContextTrait},
-   handler::{APIHandlerResponse, DefaultHandlerTrait, RequestBodyTrait, ResponseBodyTrait}
+    ctx::{Layer8Context, Layer8ContextTrait},
+    handler::{APIHandlerResponse, DefaultHandlerTrait, RequestBodyTrait, ResponseBodyTrait},
 };
+use reqwest::Client;
 use serde::Deserialize;
 use tracing::{debug, error, info};
 
-use crate::handler::types::{
-   response::{ErrorResponse, FpHealthcheckError, FpHealthcheckSuccess, InitTunnelResponseFromRP, InitTunnelResponseToINT},
-   request::InitTunnelRequest
-};
-use utils::{self, jwt::JWTClaims};
 use crate::config::HandlerConfig;
 use crate::handler::consts::LogTypes;
+use crate::handler::types::{
+    request::InitTunnelRequest,
+    response::{
+        ErrorResponse, FpHealthcheckError, FpHealthcheckSuccess, InitTunnelResponseFromRP,
+        InitTunnelResponseToINT,
+    },
+};
+use utils::{self, jwt::JWTClaims};
 
-pub mod types;
 pub mod consts;
+pub mod types;
 
 pub struct ForwardHandler {
     pub config: HandlerConfig,
@@ -53,8 +56,7 @@ impl ForwardHandler {
         &self,
         backend_url: String,
         ctx: &mut Layer8Context,
-    ) -> Result<NTorServerCertificate, APIHandlerResponse>
-    {
+    ) -> Result<NTorServerCertificate, APIHandlerResponse> {
         let correlation_id = ctx.get_correlation_id();
 
         let client = Client::new();
@@ -68,14 +70,18 @@ impl ForwardHandler {
             self.config.auth_get_certificate_url,
             backend_url.replace("http://", "").replace("https://", "")
         );
-        let res = client.get(&request_path)
-            .header("Authorization", format!("Bearer {}", self.config.auth_access_token))
+        let res = client
+            .get(&request_path)
+            .header(
+                "Authorization",
+                format!("Bearer {}", self.config.auth_access_token),
+            )
             .send()
             .await
             // unable to connect
             .map_err(|e| {
                 let response_body = ErrorResponse {
-                    error: format!("Failed to connect to layer8: {}", e)
+                    error: format!("Failed to connect to layer8: {}", e),
                 };
 
                 APIHandlerResponse {
@@ -87,7 +93,10 @@ impl ForwardHandler {
         // connected but request failed
         if !res.status().is_success() {
             let response_body = ErrorResponse {
-                error: format!("Failed to get public key from layer8, status code: {}", res.status().as_u16()),
+                error: format!(
+                    "Failed to get public key from layer8, status code: {}",
+                    res.status().as_u16()
+                ),
             };
             error!(
                 %correlation_id,
@@ -122,7 +131,10 @@ impl ForwardHandler {
             })?;
 
             // save `client_id` to ctx for later use
-            ctx.set(consts::CtxKeys::BACKEND_AUTH_CLIENT_ID.to_string(), auth_res.client_id.clone());
+            ctx.set(
+                consts::CtxKeys::BACKEND_AUTH_CLIENT_ID.to_string(),
+                auth_res.client_id.clone(),
+            );
 
             let pub_key = utils::cert::extract_x509_pem(auth_res.x509_certificate.clone())
                 .map_err(|e| {
@@ -154,10 +166,7 @@ impl ForwardHandler {
     }
 
     /// Verify `int_fp_jwt` and return `fp_rp_jwt`
-    pub fn verify_int_fp_jwt(
-        &self,
-        token: &str,
-    ) -> Result<IntFPSession, String> {
+    pub fn verify_int_fp_jwt(&self, token: &str) -> Result<IntFPSession, String> {
         return match utils::jwt::verify_jwt_token(token, &self.config.jwt_virtual_connection_key) {
             Ok(_claims) => {
                 // todo check claims if needed
@@ -166,47 +175,47 @@ impl ForwardHandler {
                     let jwts = self.jwts_storage.lock().unwrap();
                     jwts.get(token).cloned()
                 } {
-                    None => {
-                        Err("token not found!".to_string())
-                    }
-                    Some(session) => Ok(session)
+                    None => Err("token not found!".to_string()),
+                    Some(session) => Ok(session),
                 }
             }
-            Err(err) => Err(err.to_string())
+            Err(err) => Err(err.to_string()),
         };
     }
 
     /// Validate request body and get ntor certificate for the given backend URL.
     pub async fn handle_init_tunnel_request(&self, ctx: &mut Layer8Context) -> APIHandlerResponse {
         // validate request body
-        let received_body = match ForwardHandler::parse_request_body::<
-            InitTunnelRequest,
-            ErrorResponse
-        >(&ctx.get_request_body())
-        {
-            Ok(res) => res.to_bytes(),
-            Err(Some(e)) => {
-                return APIHandlerResponse {
-                    status: StatusCode::BAD_REQUEST,
-                    body: Some(e.to_bytes()),
-                };
-            }
-            Err(None) => {
-                return APIHandlerResponse {
-                    status: StatusCode::BAD_REQUEST,
-                    body: None,
-                };
-            }
-        };
+        let received_body =
+            match ForwardHandler::parse_request_body::<InitTunnelRequest, ErrorResponse>(
+                &ctx.get_request_body(),
+            ) {
+                Ok(res) => res.to_bytes(),
+                Err(Some(e)) => {
+                    return APIHandlerResponse {
+                        status: StatusCode::BAD_REQUEST,
+                        body: Some(e.to_bytes()),
+                    };
+                }
+                Err(None) => {
+                    return APIHandlerResponse {
+                        status: StatusCode::BAD_REQUEST,
+                        body: None,
+                    };
+                }
+            };
 
         // get public key to initialize encrypted tunnel
         {
             // it's safe to use unwrap here because this param was already checked in `request_filter`
-            let backend_url = ctx.param("backend_url").unwrap_or(&"".to_string()).to_string();
+            let backend_url = ctx
+                .param("backend_url")
+                .unwrap_or(&"".to_string())
+                .to_string();
 
             let server_certificate = match self.get_public_key(backend_url.to_string(), ctx).await {
                 Ok(cert) => cert,
-                Err(err) => return err
+                Err(err) => return err,
             };
             debug!("Server certificate: {:?}", server_certificate);
 
@@ -227,18 +236,23 @@ impl ForwardHandler {
     }
 
     pub fn handle_init_tunnel_response(&self, ctx: &mut Layer8Context) -> APIHandlerResponse {
-        let ntor_server_id = ctx.get(&consts::CtxKeys::NTOR_SERVER_ID.to_string()).unwrap_or(&"".to_string()).clone();
+        let ntor_server_id = ctx
+            .get(&consts::CtxKeys::NTOR_SERVER_ID)
+            .unwrap_or(&"".to_string())
+            .clone();
         let ntor_static_public_key = hex::decode(
-            ctx.get(&consts::CtxKeys::NTOR_STATIC_PUBLIC_KEY.to_string()).clone().unwrap_or(&"".to_string())
-        ).unwrap_or_default();
+            ctx.get(&consts::CtxKeys::NTOR_STATIC_PUBLIC_KEY)
+                .unwrap_or(&"".to_string()),
+        )
+        .unwrap_or_default();
 
         let response_body = ctx.get_response_body();
 
         return match utils::bytes_to_json::<InitTunnelResponseFromRP>(response_body) {
             Err(e) => {
                 error!(
-                    correlation_id=ctx.get_correlation_id(),
-                    log_type=LogTypes::HANDLE_UPSTREAM_RESPONSE,
+                    correlation_id = ctx.get_correlation_id(),
+                    log_type = LogTypes::HANDLE_UPSTREAM_RESPONSE,
                     "Error parsing RP response: {:?}",
                     e
                 );
@@ -255,8 +269,14 @@ impl ForwardHandler {
                 };
 
                 let int_fp_session = IntFPSession {
-                    client_id: ctx.get(&consts::CtxKeys::BACKEND_AUTH_CLIENT_ID.to_string()).unwrap_or(&"".to_string()).to_string(),
-                    rp_base_url: ctx.param("backend_url").unwrap_or(&"".to_string()).to_string(),
+                    client_id: ctx
+                        .get(&consts::CtxKeys::BACKEND_AUTH_CLIENT_ID)
+                        .unwrap_or(&"".to_string())
+                        .to_string(),
+                    rp_base_url: ctx
+                        .param("backend_url")
+                        .unwrap_or(&"".to_string())
+                        .to_string(),
                     fp_rp_jwt: res_from_rp.fp_rp_jwt,
                 };
 
@@ -284,8 +304,9 @@ impl ForwardHandler {
         if let Some(error) = ctx.param("error") {
             if error == "true" {
                 let response_bytes = FpHealthcheckError {
-                    fp_healthcheck_error: "this is placeholder for a custom error".to_string()
-                }.to_bytes();
+                    fp_healthcheck_error: "this is placeholder for a custom error".to_string(),
+                }
+                .to_bytes();
 
                 ctx.insert_response_header("x-fp-healthcheck-error", "response-header-error");
                 return APIHandlerResponse {
@@ -297,7 +318,8 @@ impl ForwardHandler {
 
         let response_bytes = FpHealthcheckSuccess {
             fp_healthcheck_success: "this is placeholder for a custom body".to_string(),
-        }.to_bytes();
+        }
+        .to_bytes();
 
         ctx.insert_response_header("x-fp-healthcheck-success", "response-header-success");
 

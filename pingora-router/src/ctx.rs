@@ -1,8 +1,8 @@
-use std::collections::HashMap;
-use std::time::Instant;
+use crate::utils::get_request_body;
 use pingora::http::{Method, RequestHeader, StatusCode};
 use pingora::proxy::Session;
-use crate::utils::get_request_body;
+use std::collections::HashMap;
+use std::time::Instant;
 use uuid;
 
 /*
@@ -22,10 +22,16 @@ pub struct Layer8ContextRequestSummary {
 impl Layer8ContextRequestSummary {
     pub(crate) fn from(session: &Session) -> Self {
         let method = session.req_header().method.clone();
-        let scheme = session.req_header().uri.scheme()
+        let scheme = session
+            .req_header()
+            .uri
+            .scheme()
             .map(|s| s.to_string())
             .unwrap_or_else(|| "".to_string());
-        let host = session.req_header().uri.host()
+        let host = session
+            .req_header()
+            .uri
+            .host()
             .map(|h| h.to_string())
             .unwrap_or_else(|| "".to_string());
         let path = session.req_header().uri.path().to_string();
@@ -124,11 +130,10 @@ impl Layer8Context {
     pub async fn read_request_body(&mut self, session: &mut Session) -> pingora::Result<bool> {
         match get_request_body(session).await {
             Ok(body) => self.request.body = body,
-            Err(err) => return Err(err)
+            Err(err) => return Err(err),
         };
         Ok(true)
     }
-
 }
 
 impl Layer8ContextTrait for Layer8Context {
@@ -149,8 +154,10 @@ impl Layer8ContextTrait for Layer8Context {
 
     fn set_request_header(&mut self, header: RequestHeader) {
         for (key, val) in header.headers.iter() {
-            self.request.header.insert(key.to_string(), val.to_str().unwrap_or("").to_string());
-        };
+            self.request
+                .header
+                .insert(key.to_string(), val.to_str().unwrap_or("").to_string());
+        }
     }
 
     fn get_request_header(&self) -> &Layer8Header {
@@ -158,7 +165,9 @@ impl Layer8ContextTrait for Layer8Context {
     }
 
     fn insert_response_header(&mut self, key: &str, val: &str) {
-        self.response.header.insert(key.to_lowercase().to_string(), val.to_string());
+        self.response
+            .header
+            .insert(key.to_lowercase().to_string(), val.to_string());
     }
 
     fn remove_response_header(&mut self, key: &str) -> Option<String> {

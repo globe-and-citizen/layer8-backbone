@@ -66,11 +66,11 @@ impl ProxyHttp for ForwardProxy {
         let correlation_id = ctx.get_correlation_id();
 
         let addrs = ctx
-            .get(&CtxKeys::UPSTREAM_ADDRESS.to_string())
+            .get(&CtxKeys::UPSTREAM_ADDRESS)
             .unwrap_or(&"".to_string())
             .clone();
         let sni = ctx
-            .get(&CtxKeys::UPSTREAM_SNI.to_string())
+            .get(&CtxKeys::UPSTREAM_SNI)
             .unwrap_or(&"".to_string())
             .clone();
         info!(
@@ -600,7 +600,7 @@ impl ProxyHttp for ForwardProxy {
                 || session.req_header().uri.path() == RequestPaths::INIT_TUNNEL)
         {
             let client_id = ctx
-                .get(&CtxKeys::BACKEND_AUTH_CLIENT_ID.to_string())
+                .get(&CtxKeys::BACKEND_AUTH_CLIENT_ID)
                 .unwrap_or(&"".to_string())
                 .clone();
             let request_path = session.req_header().uri.path().to_string();
@@ -647,7 +647,7 @@ impl ProxyHttp for ForwardProxy {
             || e.etype == ErrorType::ConnectRefused
         {
             let mut addrs = ctx
-                .get(&CtxKeys::UPSTREAM_ADDRESS.to_string())
+                .get(&CtxKeys::UPSTREAM_ADDRESS)
                 .unwrap_or(&"".to_string())
                 .clone();
 

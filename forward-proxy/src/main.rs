@@ -1,15 +1,15 @@
-mod proxy;
-mod handler;
 mod config;
+mod handler;
+mod proxy;
 mod statistics;
 
-use crate::handler::ForwardHandler;
-use proxy::ForwardProxy;
-use pingora::prelude::*;
-use tokio::runtime::Runtime;
 use crate::config::FPConfig;
-use tracing::{info, debug};
+use crate::handler::ForwardHandler;
 use crate::statistics::Statistics;
+use pingora::prelude::*;
+use proxy::ForwardProxy;
+use tokio::runtime::Runtime;
+use tracing::{debug, info};
 
 fn load_config() -> FPConfig {
     // Load environment variables from .env file
@@ -30,7 +30,6 @@ fn main() {
     let rt = Runtime::new().unwrap();
     rt.block_on(Statistics::init_influxdb_client(&config.influxdb_config));
 
-
     let _logger_guard = utils::log::init_logger(
         config.log_config.log_level.clone(),
         config.log_config.log_format.clone(),
@@ -41,7 +40,8 @@ fn main() {
     let mut server = Server::new(Some(Opt {
         conf: std::env::var("SERVER_CONF").ok(),
         ..Default::default()
-    })).expect("Failed to create server");
+    }))
+    .expect("Failed to create server");
     server.bootstrap();
 
     let fp_handler = ForwardHandler::new(config.handler_config);
@@ -55,7 +55,10 @@ fn main() {
 
     server.add_service(proxy);
 
-    info!("Starting server at {}:{}", config.listen_address, config.listen_port);
+    info!(
+        "Starting server at {}:{}",
+        config.listen_address, config.listen_port
+    );
 
     server.run_forever();
 }

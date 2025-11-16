@@ -1,7 +1,7 @@
-use std::collections::HashMap;
-use pingora::http::{Method, StatusCode};
 use crate::ctx::{Layer8Context, Layer8ContextTrait};
 use crate::handler::{APIHandler, APIHandlerResponse};
+use pingora::http::{Method, StatusCode};
+use std::collections::HashMap;
 
 /// `Router` is a generic struct that manages HTTP route registration and handler dispatching.
 ///
@@ -65,12 +65,24 @@ impl<T> Router<T> {
         }
     }
 
-    fn get_handlers(&self, method: &Method, path: &str) -> Option<&Box<[APIHandler<T>]>> {
+    fn get_handlers(&self, method: &Method, path: &str) -> Option<&[APIHandler<T>]> {
         match *method {
-            Method::POST => self.posts.get(path),
-            Method::GET => self.gets.get(path),
-            Method::PUT => self.puts.get(path),
-            Method::DELETE => self.deletes.get(path),
+            Method::POST => self
+                .posts
+                .get(path)
+                .map(|box_handlers| box_handlers.as_ref()),
+            Method::GET => self
+                .gets
+                .get(path)
+                .map(|box_handlers| box_handlers.as_ref()),
+            Method::PUT => self
+                .puts
+                .get(path)
+                .map(|box_handlers| box_handlers.as_ref()),
+            Method::DELETE => self
+                .deletes
+                .get(path)
+                .map(|box_handlers| box_handlers.as_ref()),
             _ => return None,
         }
     }
@@ -122,5 +134,3 @@ impl<T> Router<T> {
         self.deletes.insert(self.get_base_path(&path), handlers);
     }
 }
-
-
