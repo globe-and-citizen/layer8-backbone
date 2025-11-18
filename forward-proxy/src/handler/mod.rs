@@ -67,7 +67,7 @@ impl ForwardHandler {
         // But the authentication server expects a URL without scheme
         let request_path = format!(
             "{}{}",
-            self.config.auth_get_certificate_url, // FIXME?! seems auth_get_certificate_url already comes with backend_url as a query parameter
+            self.config.auth_get_certificate_url,
             backend_url.replace("http://", "").replace("https://", "")
         );
         let res = client
@@ -92,7 +92,7 @@ impl ForwardHandler {
 
         // connected but request failed
         if !res.status().is_success() {
-            let error_response = ErrorResponse {
+            let response_body = ErrorResponse {
                 error: format!(
                     "Failed to get public key from layer8, status code: {}",
                     res.status().as_u16()
@@ -101,14 +101,14 @@ impl ForwardHandler {
             error!(
                 %correlation_id,
                 log_type=LogTypes::AUTHENTICATION_SERVER,
-                "Failed to get ntor certificate for {request_path}: {error_response:?}"
+                "Failed to get ntor certificate for {request_path}: {response_body:?}"
             );
 
             ctx.insert_response_header("Connection", "close"); // Ensure connection closes???
             return Err(APIHandlerResponse {
                 status: StatusCode::BAD_REQUEST,
                 body: Some(
-                    serde_json::to_vec(&error_response).expect("this struct is json serializable"),
+                    serde_json::to_vec(&response_body).expect("this struct is json serializable"),
                 ),
             });
         }
