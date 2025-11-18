@@ -157,13 +157,10 @@ pub fn create_jwt_token(claims: JWTClaims, jwt_secret: &[u8]) -> String {
     .unwrap()
 }
 
-pub fn verify_jwt_token(
-    token: &str,
-    jwt_secret: &Vec<u8>,
-) -> Result<TokenData<JWTClaims>, JwtError> {
+pub fn verify_jwt_token(token: &str, jwt_secret: &[u8]) -> Result<TokenData<JWTClaims>, JwtError> {
     jsonwebtoken::decode::<JWTClaims>(
         token,
-        &DecodingKey::from_secret(jwt_secret.as_slice()),
+        &DecodingKey::from_secret(jwt_secret),
         &Validation::default(),
     )
 }

@@ -1,20 +1,20 @@
-mod handler;
-mod proxy;
-mod tls_conf;
+use std::sync::Arc;
 
-use crate::config::RPConfig;
-use crate::handler::ReverseHandler;
-use crate::proxy::ReverseProxy;
 use futures::FutureExt;
 use pingora::server::Server;
 use pingora::server::configuration::Opt;
 use pingora::{listeners::tls::TlsSettings, prelude::http_proxy_service};
 use pingora_router::handler::APIHandler;
 use pingora_router::router::Router;
-use std::sync::Arc;
 use tracing::{debug, error};
 
 mod config;
+mod handler;
+mod proxy;
+mod tls_conf;
+use config::RPConfig;
+use handler::ReverseHandler;
+use proxy::ReverseProxy;
 
 fn load_config() -> RPConfig {
     // Load environment variables from .env file

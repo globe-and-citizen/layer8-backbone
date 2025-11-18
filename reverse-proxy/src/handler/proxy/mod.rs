@@ -5,15 +5,6 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct EncryptedMessage {
-    pub nonce: Vec<u8>,
-    pub data: Vec<u8>,
-}
-
-impl RequestBodyTrait for EncryptedMessage {}
-impl ResponseBodyTrait for EncryptedMessage {}
-
-#[derive(Serialize, Deserialize, Debug)]
 pub struct L8RequestObject {
     pub method: String,
     pub uri: String,

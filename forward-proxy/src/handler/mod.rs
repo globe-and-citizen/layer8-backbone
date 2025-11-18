@@ -105,24 +105,45 @@ impl ForwardHandler {
             );
 
             ctx.insert_response_header("Connection", "close"); // Ensure connection closes???
-
-            Err(APIHandlerResponse {
+            return Err(APIHandlerResponse {
                 status: StatusCode::BAD_REQUEST,
-                body: Some(response_body.to_bytes()),
-            })
-        } else {
-            #[derive(Deserialize, Debug)]
-            struct AuthServerResponse {
-                pub x509_certificate: String,
-                pub client_id: String,
-            }
+                body: Some(
+                    serde_json::to_vec(&response_body).expect("this struct is json serializable"),
+                ),
+            });
+        }
+        #[derive(Deserialize, Debug)]
+        struct AuthServerResponse {
+            pub x509_certificate: String,
+            pub client_id: String,
+        }
 
-            let auth_res: AuthServerResponse = res.json().await.map_err(|err| {
+        let auth_res: AuthServerResponse = res.json().await.map_err(|err| {
+            error!(
+                %correlation_id,
+                log_type=LogTypes::AUTHENTICATION_SERVER,
+                "Failed to parse authentication server response: {:?}",
+                err
+            );
+            APIHandlerResponse {
+                status: StatusCode::INTERNAL_SERVER_ERROR,
+                body: None,
+            }
+        })?;
+
+        // save `client_id` to ctx for later use
+        ctx.set(
+            consts::CtxKeys::BACKEND_AUTH_CLIENT_ID.to_string(),
+            auth_res.client_id.clone(),
+        );
+
+        let pub_key =
+            utils::cert::extract_x509_pem(auth_res.x509_certificate.clone()).map_err(|e| {
                 error!(
                     %correlation_id,
                     log_type=LogTypes::AUTHENTICATION_SERVER,
-                    "Failed to parse authentication server response: {:?}",
-                    err
+                    "Failed to parse x509 certificate: {:?}",
+                    e
                 );
                 APIHandlerResponse {
                     status: StatusCode::INTERNAL_SERVER_ERROR,
@@ -130,39 +151,18 @@ impl ForwardHandler {
                 }
             })?;
 
-            // save `client_id` to ctx for later use
-            ctx.set(
-                consts::CtxKeys::BACKEND_AUTH_CLIENT_ID.to_string(),
-                auth_res.client_id.clone(),
-            );
+        debug!(%correlation_id, "AuthenticationServer response: {:?}", auth_res);
+        info!(
+            %correlation_id,
+            log_type=LogTypes::AUTHENTICATION_SERVER,
+            "Obtained ntor credentials for backend_url: {}",
+            backend_url
+        );
 
-            let pub_key = utils::cert::extract_x509_pem(auth_res.x509_certificate.clone())
-                .map_err(|e| {
-                    error!(
-                        %correlation_id,
-                        log_type=LogTypes::AUTHENTICATION_SERVER,
-                        "Failed to parse x509 certificate: {:?}",
-                        e
-                    );
-                    APIHandlerResponse {
-                        status: StatusCode::INTERNAL_SERVER_ERROR,
-                        body: None,
-                    }
-                })?;
-
-            debug!(%correlation_id, "AuthenticationServer response: {:?}", auth_res);
-            info!(
-                %correlation_id,
-                log_type=LogTypes::AUTHENTICATION_SERVER,
-                "Obtained ntor credentials for backend_url: {}",
-                backend_url
-            );
-
-            Ok(NTorServerCertificate {
-                server_id: backend_url, // todo I still prefer taking the server_id value from certificate's subject
-                public_key: pub_key,
-            })
-        }
+        Ok(NTorServerCertificate {
+            server_id: backend_url, // todo I still prefer taking the server_id value from certificate's subject
+            public_key: pub_key,
+        })
     }
 
     /// Verify `int_fp_jwt` and return `fp_rp_jwt`
@@ -237,67 +237,63 @@ impl ForwardHandler {
 
     pub fn handle_init_tunnel_response(&self, ctx: &mut Layer8Context) -> APIHandlerResponse {
         let ntor_server_id = ctx
-            .get(&consts::CtxKeys::NTOR_SERVER_ID)
+            .get(consts::CtxKeys::NTOR_SERVER_ID)
             .unwrap_or(&"".to_string())
             .clone();
         let ntor_static_public_key = hex::decode(
-            ctx.get(&consts::CtxKeys::NTOR_STATIC_PUBLIC_KEY)
+            ctx.get(consts::CtxKeys::NTOR_STATIC_PUBLIC_KEY)
                 .unwrap_or(&"".to_string()),
         )
         .unwrap_or_default();
 
-        let response_body = ctx.get_response_body();
-
-        return match utils::bytes_to_json::<InitTunnelResponseFromRP>(response_body) {
-            Err(e) => {
-                error!(
-                    correlation_id = ctx.get_correlation_id(),
-                    log_type = LogTypes::HANDLE_UPSTREAM_RESPONSE,
-                    "Error parsing RP response: {:?}",
-                    e
-                );
-                APIHandlerResponse {
-                    status: StatusCode::INTERNAL_SERVER_ERROR,
-                    body: None,
+        let res_from_rp =
+            match serde_json::from_slice::<InitTunnelResponseFromRP>(ctx.get_response_body()) {
+                Ok(val) => val,
+                Err(e) => {
+                    error!(
+                        correlation_id = ctx.get_correlation_id(),
+                        log_type = LogTypes::HANDLE_UPSTREAM_RESPONSE,
+                        "Error parsing RP response: {:?}",
+                        e
+                    );
+                    return APIHandlerResponse {
+                        status: StatusCode::INTERNAL_SERVER_ERROR,
+                        body: None,
+                    };
                 }
-            }
-            Ok(res_from_rp) => {
-                let int_fp_jwt = {
-                    let mut claims = JWTClaims::new(Some(self.config.jwt_exp_in_hours));
-                    claims.uuid = Some(utils::new_uuid());
-                    utils::jwt::create_jwt_token(claims, &self.config.jwt_virtual_connection_key)
-                };
+            };
 
-                let int_fp_session = IntFPSession {
-                    client_id: ctx
-                        .get(&consts::CtxKeys::BACKEND_AUTH_CLIENT_ID)
-                        .unwrap_or(&"".to_string())
-                        .to_string(),
-                    rp_base_url: ctx
-                        .param("backend_url")
-                        .unwrap_or(&"".to_string())
-                        .to_string(),
-                    fp_rp_jwt: res_from_rp.fp_rp_jwt,
-                };
-
-                let mut jwts = self.jwts_storage.lock().unwrap();
-                jwts.insert(int_fp_jwt.clone(), int_fp_session);
-
-                let res_to_int = InitTunnelResponseToINT {
-                    ephemeral_public_key: res_from_rp.public_key,
-                    t_b_hash: res_from_rp.t_b_hash,
-                    int_rp_jwt: res_from_rp.int_rp_jwt,
-                    int_fp_jwt,
-                    ntor_static_public_key,
-                    ntor_server_id,
-                };
-
-                APIHandlerResponse {
-                    status: StatusCode::OK,
-                    body: Some(res_to_int.to_bytes()),
-                }
-            }
+        let int_fp_jwt = {
+            let mut claims = JWTClaims::new(Some(self.config.jwt_exp_in_hours));
+            claims.uuid = Some(utils::new_uuid());
+            utils::jwt::create_jwt_token(claims, &self.config.jwt_virtual_connection_key)
         };
+
+        let int_fp_session = IntFPSession {
+            client_id: ctx
+                .get(consts::CtxKeys::BACKEND_AUTH_CLIENT_ID)
+                .unwrap_or(&"".to_string())
+                .clone(),
+            rp_base_url: ctx.param("backend_url").unwrap_or(&"".to_string()).clone(),
+            fp_rp_jwt: res_from_rp.fp_rp_jwt,
+        };
+
+        let mut jwts = self.jwts_storage.lock().unwrap();
+        jwts.insert(int_fp_jwt.clone(), int_fp_session);
+
+        let res_to_int = InitTunnelResponseToINT {
+            ephemeral_public_key: res_from_rp.public_key,
+            t_b_hash: res_from_rp.t_b_hash,
+            int_rp_jwt: res_from_rp.int_rp_jwt,
+            int_fp_jwt,
+            ntor_static_public_key,
+            ntor_server_id,
+        };
+
+        APIHandlerResponse {
+            status: StatusCode::OK,
+            body: Some(res_to_int.to_bytes()),
+        }
     }
 
     pub fn handle_healthcheck(&self, ctx: &mut Layer8Context) -> APIHandlerResponse {

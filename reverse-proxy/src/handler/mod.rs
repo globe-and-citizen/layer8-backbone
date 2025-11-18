@@ -1,16 +1,12 @@
-use crate::config::{HandlerConfig, RPConfig};
-use crate::handler::common::consts::LogTypes;
-use crate::handler::healthcheck::{RpHealthcheckError, RpHealthcheckSuccess};
-use init_tunnel::InitEncryptedTunnelResponse;
-use init_tunnel::handler::InitTunnelHandler;
+use std::collections::HashMap;
+use std::sync::{Mutex, MutexGuard};
+
 use ntor::common::{InitSessionMessage, NTorParty};
 use ntor::server::NTorServer;
 use pingora::http::StatusCode;
 use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
 use pingora_router::handler::{APIHandlerResponse, ResponseBodyTrait};
 use proxy::handler::ProxyHandler;
-use std::collections::HashMap;
-use std::sync::{Mutex, MutexGuard};
 use tracing::info;
 use utils::jwt::JWTClaims;
 use utils::new_uuid;
@@ -19,6 +15,12 @@ pub(crate) mod common;
 mod healthcheck;
 mod init_tunnel;
 mod proxy;
+
+use crate::config::{HandlerConfig, RPConfig};
+use crate::handler::common::consts::LogTypes;
+use crate::handler::healthcheck::{RpHealthcheckError, RpHealthcheckSuccess};
+use init_tunnel::InitEncryptedTunnelResponse;
+use init_tunnel::handler::InitTunnelHandler;
 
 thread_local! {
     // <session_id, shared_secret>
@@ -103,8 +105,8 @@ impl ReverseHandler {
         };
 
         let response = InitEncryptedTunnelResponse {
-            public_key: init_session_response.public_key(),
-            t_b_hash: init_session_response.t_b_hash(),
+            public_key: init_session_response.public_key().to_vec(),
+            t_b_hash: init_session_response.t_b_hash().to_vec(),
             int_rp_jwt,
             fp_rp_jwt,
         };
@@ -116,11 +118,12 @@ impl ReverseHandler {
             "Save new nTor session: {}",
             ntor_session_id
         );
+
         NTOR_SHARED_SECRETS.with(|memory| {
             let mut guard: MutexGuard<HashMap<String, Vec<u8>>> = memory.lock().unwrap();
             guard.insert(
                 ntor_session_id,
-                ntor_server.get_shared_secret().unwrap_or_default(),
+                ntor_server.get_shared_secret().unwrap_or_default().to_vec(),
             );
         });
 
@@ -177,17 +180,24 @@ impl ReverseHandler {
             Err(res) => return res,
         };
 
-        return match ProxyHandler::encrypt_response_body(
+        let encrypted_message = ProxyHandler::encrypt_response_body(
             wrapped_response,
             self.config.ntor_server_id.clone(),
             shared_secret,
-        ) {
-            Ok(encrypted_message) => APIHandlerResponse {
-                status: StatusCode::OK,
-                body: Some(encrypted_message.to_bytes()),
-            },
+        );
+
+        match encrypted_message {
+            Ok(encrypted_message) => {
+                let data = bincode::encode_to_vec(&encrypted_message, bincode::config::standard())
+                    .expect("this struct is bincode serializable");
+
+                APIHandlerResponse {
+                    status: StatusCode::OK,
+                    body: Some(data),
+                }
+            }
             Err(res) => res,
-        };
+        }
     }
 
     pub async fn handle_healthcheck(&self, ctx: &mut Layer8Context) -> APIHandlerResponse {

@@ -1,15 +1,16 @@
+use pingora::prelude::*;
+use tokio::runtime::Runtime;
+use tracing::{debug, info};
+
 mod config;
 mod handler;
 mod proxy;
 mod statistics;
 
-use crate::config::FPConfig;
-use crate::handler::ForwardHandler;
-use crate::statistics::Statistics;
-use pingora::prelude::*;
+use config::FPConfig;
+use handler::ForwardHandler;
 use proxy::ForwardProxy;
-use tokio::runtime::Runtime;
-use tracing::{debug, info};
+use statistics::Statistics;
 
 fn load_config() -> FPConfig {
     // Load environment variables from .env file

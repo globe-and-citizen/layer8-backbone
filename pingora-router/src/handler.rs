@@ -70,8 +70,8 @@ pub trait ResponseBodyTrait: Serialize + for<'de> Deserialize<'de> + Debug {
         serde_json::to_vec(self).unwrap()
     }
 
-    fn from_bytes(bytes: Vec<u8>) -> Result<Box<Self>, serde_json::Error> {
-        serde_json::from_slice(&bytes)
+    fn from_bytes(bytes: &[u8]) -> Result<Box<Self>, serde_json::Error> {
+        serde_json::from_slice(bytes)
     }
 
     /// Override this method to handle error serialization if your handler implements
@@ -93,8 +93,8 @@ pub trait RequestBodyTrait: Serialize + for<'de> Deserialize<'de> + Debug {
         serde_json::to_vec(self).unwrap()
     }
 
-    fn from_bytes(bytes: Vec<u8>) -> Result<Box<Self>, serde_json::Error> {
-        serde_json::from_slice(&bytes)
+    fn from_bytes(bytes: &[u8]) -> Result<Box<Self>, serde_json::Error> {
+        serde_json::from_slice(bytes)
     }
 }
 
@@ -112,9 +112,9 @@ pub trait RequestBodyTrait: Serialize + for<'de> Deserialize<'de> + Debug {
 /// ResponseBodyTrait` (constructed from the JSON error), and a 400 Bad Request status.
 pub trait DefaultHandlerTrait {
     fn parse_request_body<T: RequestBodyTrait, E: ResponseBodyTrait>(
-        data: &Vec<u8>,
+        data: &[u8],
     ) -> Result<T, Option<E>> {
-        match T::from_bytes(data.clone()) {
+        match T::from_bytes(data) {
             Ok(body) => Ok(*body),
             Err(e) => Err(E::from_json_err(e)),
         }
