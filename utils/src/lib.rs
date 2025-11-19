@@ -46,11 +46,11 @@ pub fn string_to_array32(s: String) -> Option<[u8; 32]> {
     }
 }
 
-pub fn bytes_to_json<T>(bytes: Vec<u8>) -> Result<T, serde_json::Error>
+pub fn bytes_to_json<T>(bytes: &[u8]) -> Result<T, serde_json::Error>
 where
     T: Serialize + for<'de> Deserialize<'de>,
 {
-    serde_json::from_slice::<T>(&bytes)
+    serde_json::from_slice::<T>(bytes)
 }
 
 pub fn bytes_to_string(bytes: &[u8]) -> String {

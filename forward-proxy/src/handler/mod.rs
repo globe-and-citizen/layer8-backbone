@@ -107,9 +107,7 @@ impl ForwardHandler {
             ctx.insert_response_header("Connection", "close"); // Ensure connection closes???
             return Err(APIHandlerResponse {
                 status: StatusCode::BAD_REQUEST,
-                body: Some(
-                    serde_json::to_vec(&response_body).expect("this struct is json serializable"),
-                ),
+                body: Some(response_body.to_bytes()),
             });
         }
         #[derive(Deserialize, Debug)]
@@ -246,22 +244,22 @@ impl ForwardHandler {
         )
         .unwrap_or_default();
 
-        let res_from_rp =
-            match serde_json::from_slice::<InitTunnelResponseFromRP>(ctx.get_response_body()) {
-                Ok(val) => val,
-                Err(e) => {
-                    error!(
-                        correlation_id = ctx.get_correlation_id(),
-                        log_type = LogTypes::HANDLE_UPSTREAM_RESPONSE,
-                        "Error parsing RP response: {:?}",
-                        e
-                    );
-                    return APIHandlerResponse {
-                        status: StatusCode::INTERNAL_SERVER_ERROR,
-                        body: None,
-                    };
-                }
-            };
+        let response_body = ctx.get_response_body();
+        let res_from_rp = match utils::bytes_to_json::<InitTunnelResponseFromRP>(response_body) {
+            Ok(val) => val,
+            Err(e) => {
+                error!(
+                    correlation_id = ctx.get_correlation_id(),
+                    log_type = LogTypes::HANDLE_UPSTREAM_RESPONSE,
+                    "Error parsing RP response: {:?}",
+                    e
+                );
+                return APIHandlerResponse {
+                    status: StatusCode::INTERNAL_SERVER_ERROR,
+                    body: None,
+                };
+            }
+        };
 
         let int_fp_jwt = {
             let mut claims = JWTClaims::new(Some(self.config.jwt_exp_in_hours));
