@@ -180,7 +180,7 @@ impl ReverseHandler {
             shared_secret,
         ) {
             Ok(encrypted_message) => {
-                let body = bincode::encode_to_vec(encrypted_message, bincode::config::standard()).expect("we expect the encrypted message to bincode serializable");
+                let body = utils::type_to_bincode(&encrypted_message);
                 APIHandlerResponse {
                     status: StatusCode::OK,
                     body: Some(body),

@@ -104,8 +104,8 @@ impl ProxyHandler {
         let correlation_id = ctx.get_correlation_id();
 
         // deserialize from bincode
-        match bincode::decode_from_slice(&ctx.get_response_body(), bincode::config::standard()) {
-            Ok((res, _)) => Ok(res),
+        match utils::bincode_to_type(&ctx.get_response_body()) {
+            Ok(res) => Ok(res),
             Err(err) => {
                 error!(
                     %correlation_id,
