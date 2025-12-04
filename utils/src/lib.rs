@@ -143,7 +143,6 @@ pub fn get_socket_addrs(url: &Url) -> String {
         .join(",")
 }
 
-/// Warning: Please make sure that you are not passing in a &[`Vec<u8>`], this has extra metadata bytes; call .as_bytes() or .to_slice()
 pub fn bincode_to_type<T: bincode::de::Decode<()>>(
     data: &[u8],
 ) -> Result<T, bincode::error::DecodeError> {
