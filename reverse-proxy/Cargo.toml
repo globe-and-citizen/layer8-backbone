@@ -19,7 +19,7 @@ futures = "0.3.31"
 boring = "4.17.0"
 once_cell = "1.21.3"
 dotenv = "0.15.0"
-ntor = { git = "https://github.com/globe-and-citizen/ntor.git", branch = "feat/provide-bincode-serde"}
+ntor = { git = "https://github.com/globe-and-citizen/ntor.git", tag = "0.1.2"}
 config = "0.15.11"
 toml = "0.8.23"
 uuid = { version = "1.16.0", features = ["v4"] }
