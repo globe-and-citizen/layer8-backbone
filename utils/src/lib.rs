@@ -142,3 +142,15 @@ pub fn get_socket_addrs(url: &Url) -> String {
         .collect::<Vec<String>>()
         .join(",")
 }
+
+pub fn bincode_to_type<T: bincode::de::Decode<()>>(
+    data: &[u8],
+) -> Result<T, bincode::error::DecodeError> {
+    let (_type, _) = bincode::decode_from_slice::<T, _>(data, bincode::config::standard())?;
+    Ok(_type)
+}
+
+pub fn type_to_bincode<T: bincode::enc::Encode>(_type: &T) -> Vec<u8> {
+    bincode::encode_to_vec(_type, bincode::config::standard())
+        .expect("this will be a compilation error before it gets to runtime")
+}

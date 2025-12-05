@@ -180,9 +180,10 @@ impl ReverseHandler {
             shared_secret,
         ) {
             Ok(encrypted_message) => {
+                let body = utils::type_to_bincode(&encrypted_message);
                 APIHandlerResponse {
                     status: StatusCode::OK,
-                    body: Some(encrypted_message.to_bytes()),
+                    body: Some(body),
                 }
             }
             Err(res) => res

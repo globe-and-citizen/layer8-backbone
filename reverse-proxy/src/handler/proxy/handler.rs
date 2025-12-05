@@ -1,7 +1,7 @@
 use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
 use reqwest::header::HeaderMap;
 use pingora_router::handler::{APIHandlerResponse, DefaultHandlerTrait, ResponseBodyTrait};
-use ntor::common::NTorParty;
+use ntor::common::{EncryptedMessage, NTorParty};
 use ntor::server::NTorServer;
 use reqwest::Client;
 use pingora::http::StatusCode;
@@ -10,7 +10,7 @@ use utils::bytes_to_json;
 use utils::jwt::JWTClaims;
 use crate::handler::common::consts::{HeaderKeys, LogTypes};
 use crate::handler::common::types::ErrorResponse;
-use crate::handler::proxy::{EncryptedMessage, L8ResponseObject, L8RequestObject};
+use crate::handler::proxy::{L8ResponseObject, L8RequestObject};
 
 /// Struct containing only associated methods (no instance methods or fields)
 pub struct ProxyHandler {}
@@ -103,28 +103,25 @@ impl ProxyHandler {
     {
         let correlation_id = ctx.get_correlation_id();
 
-        match ProxyHandler::parse_request_body::<
-            EncryptedMessage,
-            ErrorResponse
-        >(&ctx.get_request_body()) {
+        // deserialize from bincode
+        match utils::bincode_to_type(ctx.get_request_body().as_slice()) {
             Ok(res) => Ok(res),
             Err(err) => {
-                let body = match err {
-                    None => None,
-                    Some(err_response) => {
-                        error!(
-                            %correlation_id,
-                            log_type=LogTypes::HANDLE_PROXY_REQUEST,
-                            "Error parsing request body: {}",
-                            err_response.error
-                        );
-                        Some(err_response.to_bytes())
-                    }
-                };
-                Err(APIHandlerResponse {
+                error!(
+                    %correlation_id,
+                    log_type=LogTypes::HANDLE_PROXY_REQUEST,
+                    "Error parsing request body: {}",
+                    err
+                );
+                return Err(APIHandlerResponse {
                     status: StatusCode::BAD_REQUEST,
-                    body,
-                })
+                    body: Some(
+                        ErrorResponse {
+                            error: format!("Error parsing request body: {}", err),
+                        }
+                        .to_bytes(),
+                    ),
+                });
             }
         }
     }
@@ -139,25 +136,30 @@ impl ProxyHandler {
         ntor_server.set_shared_secret(shared_secret.clone());
 
         // Decrypt the request body using nTor shared secret
-        let decrypted_data = ntor_server.decrypt(ntor::common::EncryptedMessage {
-            nonce: <[u8; 12]>::try_from(request_body.nonce).unwrap_or_default(),
-            data: request_body.data,
-        }).map_err(|err| {
-            return APIHandlerResponse {
-                status: StatusCode::BAD_REQUEST,
-                body: Some(format!("Decryption failed: {}", err).as_bytes().to_vec()),
-            };
-        })?;
-        // let decrypted_data = request_body.data;
-
-        // parse decrypted data into WrappedUserRequest
-        let wrapped_request: L8RequestObject = bytes_to_json(decrypted_data)
+        let decrypted_data = ntor_server
+            .decrypt(ntor::common::EncryptedMessage {
+                nonce: <[u8; 12]>::try_from(request_body.nonce).unwrap_or_default(),
+                data: request_body.data,
+            })
             .map_err(|err| {
                 return APIHandlerResponse {
                     status: StatusCode::BAD_REQUEST,
-                    body: Some(format!("Failed to parse request body: {}", err).as_bytes().to_vec()),
+                    body: Some(format!("Decryption failed: {}", err).as_bytes().to_vec()),
                 };
             })?;
+        // let decrypted_data = request_body.data;
+
+        // parse decrypted data into WrappedUserRequest
+        let wrapped_request: L8RequestObject = bytes_to_json(decrypted_data).map_err(|err| {
+            return APIHandlerResponse {
+                status: StatusCode::BAD_REQUEST,
+                body: Some(
+                    format!("Failed to parse request body: {}", err)
+                        .as_bytes()
+                        .to_vec(),
+                ),
+            };
+        })?;
 
         Ok(wrapped_request)
     }
@@ -269,7 +271,7 @@ impl ProxyHandler {
         })?;
 
         Ok(EncryptedMessage {
-            nonce: encrypted_data.nonce.to_vec(),
+            nonce: encrypted_data.nonce,
             data: encrypted_data.data,
         })
     }
