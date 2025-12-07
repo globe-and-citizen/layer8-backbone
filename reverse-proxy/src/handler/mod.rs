@@ -3,7 +3,7 @@ use std::sync::{Mutex, MutexGuard};
 use ntor::common::{InitSessionMessage, NTorParty};
 use ntor::server::NTorServer;
 use pingora::http::StatusCode;
-use tracing::{debug, info};
+use tracing::{info};
 use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
 use pingora_router::handler::{APIHandlerResponse, ResponseBodyTrait};
 use init_tunnel::handler::InitTunnelHandler;

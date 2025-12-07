@@ -3,7 +3,7 @@ use pingora::proxy::Session;
 use pingora::http::{ResponseHeader, StatusCode};
 use async_trait::async_trait;
 use bytes::Bytes;
-use tracing::{debug, info};
+use tracing::{info};
 use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
 use pingora_router::router::Router;
 use crate::handler::common::consts::LogTypes;
