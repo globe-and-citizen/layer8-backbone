@@ -56,20 +56,15 @@ impl ForwardHandler {
     ) -> Result<NTorServerCertificate, APIHandlerResponse>
     {
         let correlation_id = ctx.get_correlation_id();
-
         let client = Client::new();
 
-        //todo
-        // the input backend_url is originally from interceptor request,
-        // the interceptor only accepts URLs with http(s) scheme.
-        // But the authentication server expects a URL without scheme
         let request_path = format!(
             "{}{}",
             self.config.auth_get_certificate_url,
-            backend_url.replace("http://", "").replace("https://", "")
+            backend_url
         );
         let res = client.get(&request_path)
-            .header("Authorization", format!("Bearer {}", self.config.auth_access_token))
+            .header("Authorization", self.config.auth_access_token.clone())
             .send()
             .await
             // unable to connect
@@ -104,7 +99,7 @@ impl ForwardHandler {
         } else {
             #[derive(Deserialize, Debug)]
             struct AuthServerResponse {
-                pub x509_certificate: String,
+                pub cert: String,
                 pub client_id: String,
             }
 
@@ -124,7 +119,7 @@ impl ForwardHandler {
             // save `client_id` to ctx for later use
             ctx.set(consts::CtxKeys::BACKEND_AUTH_CLIENT_ID.to_string(), auth_res.client_id.clone());
 
-            let pub_key = utils::cert::extract_x509_pem(auth_res.x509_certificate.clone())
+            let pub_key = utils::cert::extract_x509_pem(auth_res.cert.clone())
                 .map_err(|e| {
                     error!(
                         %correlation_id,
