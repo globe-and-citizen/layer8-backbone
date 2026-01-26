@@ -42,19 +42,19 @@ const downloadProfilePicture = async () => {
         if (!response.ok) {
             throw new Error('Network response was not ok');
         }
-        
+
         const blob = await response.blob();
-        
+
         // Create a temporary URL for the blob
         const url = window.URL.createObjectURL(blob);
-        
+
         // Create a temporary anchor element to trigger download
         const a = document.createElement('a');
         a.href = url;
         a.download = `${profile.value.username}_profile_picture.${image.split('.').pop()}`;
         document.body.appendChild(a);
         a.click();
-        
+
         // Clean up
         document.body.removeChild(a);
         window.URL.revokeObjectURL(url);
@@ -150,7 +150,7 @@ const loginWithLayer8Popup = async () => {
         return;
     }
     window.addEventListener("message", async (event) => {
-        if (event.data.redr) {
+        if (event.data.redirect_uri) {
             setTimeout(() => {
                 interceptorWasm.fetch(`${backend_url}/authorization-callback`, {
                     method: "POST",

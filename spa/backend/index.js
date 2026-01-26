@@ -13,8 +13,36 @@ const app = express();
 const port = process.env.PORT || 3000;
 const SECRET_KEY = process.env.JWT_SECRET || "my_very_secret_key";
 
+const loggerMiddleware = (req, res, next) => {
+  const start = Date.now();
+
+  // Capture request details
+  const { method, url, headers, body } = req;
+  console.log("Incoming Request:", JSON.stringify({
+    method,
+    url,
+    headers,
+    body,
+  }));
+
+  // Capture response body
+  const originalSend = res.send;
+  res.send = function (data) {
+    console.log("Outgoing Response:", JSON.stringify({
+      statusCode: res.statusCode,
+      headers: res.getHeaders(),
+      body: data.toString(),
+      duration: `${Date.now() - start}ms`,
+    }));
+    return originalSend.apply(res, arguments);
+  };
+
+  next();
+};
+
 app.use(express.json());
 app.use(cors());
+app.use(loggerMiddleware)
 
 // Hard-coded variables for now
 // Please login as client (layer8/12341234) to http://localhost:5001 and
@@ -34,8 +62,8 @@ console.log("LAYER8_SECRET: ", layer8Secret);
 const layer8Auth = new ClientOAuth2({
   clientId: layer8Uuid,
   clientSecret: layer8Secret,
-  accessTokenUri: `${LAYER8_URL}/api/oauth`,
-  authorizationUri: `${LAYER8_URL}/authorize`,
+  accessTokenUri: `${LAYER8_URL}/api/v1/oauth`,
+  authorizationUri: `${LAYER8_URL}/oauth/authorize`,
   redirectUri: LAYER8_CALLBACK_URL,
   scopes: ["read:user"],
 });
@@ -223,6 +251,7 @@ app.get("/profile/:username", (req, res) => {
 });
 
 app.get("/api/login/layer8/auth", async (req, res) => {
+  console.log("Layer8 auth URL:", layer8Auth.code.getUri());
   res.status(200).json({ authURL: layer8Auth.code.getUri() });
 });
 
@@ -238,10 +267,11 @@ app.post("/authorization-callback", async (req, res) => {
   myHeaders.append("Content-Type", "application/json");
 
   const raw = JSON.stringify({
-    authorization_code: req.body.code,
+    code: req.body.code,
     redirect_uri: LAYER8_CALLBACK_URL,
-    client_oauth_uuid: layer8Uuid,
-    client_oauth_secret: layer8Secret,
+    client_id: layer8Uuid,
+    client_secret: layer8Secret,
+    grant_type: 'authorization_code'
   });
 
   const requestOptions = {
@@ -254,7 +284,7 @@ app.post("/authorization-callback", async (req, res) => {
   // Variable to store the Layer8 token response
   let layer8TokenResponse;
 
-  await fetch(LAYER8_URL + "/api/token", requestOptions)
+  await fetch(LAYER8_URL + "/api/v1/oauth/token", requestOptions)
     .then((response) => response.text())
     .then((result) => {
       layer8TokenResponse = result;
@@ -264,7 +294,8 @@ app.post("/authorization-callback", async (req, res) => {
 
   // layer8TokenResponse 2:  {"is_success":true,"message":"access token generated successfully","errors":null,"data":{"access_token":"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE3NTI3NTc3MjksImlhdCI6MTc1Mjc1NzEyOSwiaXNzIjoiR2xvYmUgYW5kIENpdGl6ZW4iLCJzdWIiOiIyNmRmZDc4ZC1iZTdhLTQzMjEtYmNmYi01OTI3ZGEyMWM3ZmIiLCJVc2VySUQiOjEsIlNjb3BlcyI6ImNvdW50cnksZW1haWxfdmVyaWZpZWQsZGlzcGxheV9uYW1lLGNvbG9yIn0.0Umong9zxiW_wmBVmbtQ2xJyGavOQSDau6Uq22zo6TU","token_type":"bearer","expires_in_minutes":10}}
 
-  const accessToken = JSON.parse(layer8TokenResponse).data.access_token;
+  let resp = JSON.parse(layer8TokenResponse)
+  const accessToken = resp.data.access_token;
 
   let metadataResponse;
 
@@ -274,15 +305,15 @@ app.post("/authorization-callback", async (req, res) => {
   //     "client_oauth_secret": "be3caef54fc0ec0dcd87b0a65cf24f81598243b5f01b4cce6a344718db854fe6"
   //    }
 
-  await fetch(LAYER8_URL + "/api/zk-metadata", {
+  await fetch(LAYER8_URL + "/api/v1/oauth/zk-metadata", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${accessToken}`,
     },
     body: JSON.stringify({
-      client_oauth_uuid: layer8Uuid,
-      client_oauth_secret: layer8Secret,
+      client_id: layer8Uuid,
+      client_secret: layer8Secret,
     }),
   })
     .then((response) => response.json())
