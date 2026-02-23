@@ -2,7 +2,7 @@
 const express = require("express");
 const cors = require("cors");
 const bcrypt = require("bcrypt");
-const { poems, users, images } = require("./mock-database.js");
+const {poems, users, images} = require("./mock-database.js");
 const jwt = require("jsonwebtoken");
 const fs = require("fs");
 const path = require("path");
@@ -13,329 +13,353 @@ const app = express();
 const port = process.env.PORT || 3000;
 const SECRET_KEY = process.env.JWT_SECRET || "my_very_secret_key";
 
-const loggerMiddleware = (req, res, next) => {
-  const start = Date.now();
-
-  // Capture request details
-  const { method, url, headers, body } = req;
-  console.log("Incoming Request:", JSON.stringify({
-    method,
-    url,
-    headers,
-    body,
-  }));
-
-  // Capture response body
-  const originalSend = res.send;
-  res.send = function (data) {
-    console.log("Outgoing Response:", JSON.stringify({
-      statusCode: res.statusCode,
-      headers: res.getHeaders(),
-      body: data.toString(),
-      duration: `${Date.now() - start}ms`,
-    }));
-    return originalSend.apply(res, arguments);
-  };
-
-  next();
-};
-
 app.use(express.json());
 app.use(cors());
-app.use(loggerMiddleware)
 
-// Hard-coded variables for now
-// Please login as client (layer8/12341234) to http://localhost:5001 and
-// replace the layer8secret and layer8Uuid with the values you get from the Layer8 client
-const layer8Secret = process.env.LAYER8_SECRET;// "4a73983ffd5fecfd8f6f2792121a6658";
-const layer8Uuid = process.env.LAYER8_UUID; // "26d6f8b5-9438-4556-872b-d60535d8d3c8";
-const LAYER8_URL = process.env.LAYER8_URL; // "http://52.221.209.158:5001";
-const LAYER8_CALLBACK_URL = process.env.LAYER8_CALLBACK_URL; // "http://localhost:3030/oauth2/callback";
-const LAYER8_RESOURCE_URL = process.env.LAYER8_RESOURCE_URL; // "http://localhost:5001/api/user";
+/* =========================
+   Logger Middleware
+========================= */
+const loggerMiddleware = (req, res, next) => {
+    const start = Date.now();
+    const originalSend = res.send;
 
-console.log("LAYER8_URL: ", LAYER8_URL);
-console.log("LAYER8_CALLBACK_URL: ", LAYER8_CALLBACK_URL);
-console.log("LAYER8_RESOURCE_URL: ", LAYER8_RESOURCE_URL);
-console.log("LAYER8_UUID: ", layer8Uuid);
-console.log("LAYER8_SECRET: ", layer8Secret);
+    res.send = function (data) {
+        console.log("Outgoing Response:", {
+            statusCode: res.statusCode,
+            duration: `${Date.now() - start}ms`,
+        });
+        return originalSend.apply(res, arguments);
+    };
 
-const layer8Auth = new ClientOAuth2({
-  clientId: layer8Uuid,
-  clientSecret: layer8Secret,
-  accessTokenUri: `${LAYER8_URL}/api/v1/oauth`,
-  authorizationUri: `${LAYER8_URL}/oauth/authorize`,
-  redirectUri: LAYER8_CALLBACK_URL,
-  scopes: ["read:user"],
+    next();
+};
+
+app.use(loggerMiddleware);
+
+/* =========================
+   Layer8 Config (UNCHANGED)
+========================= */
+const layer8Secret = process.env.LAYER8_SECRET;
+const layer8Uuid = process.env.LAYER8_UUID;
+const LAYER8_URL = process.env.LAYER8_URL;
+const LAYER8_CALLBACK_URL = process.env.LAYER8_CALLBACK_URL;
+
+const layer8Client = new ClientOAuth2({
+    clientId: layer8Uuid,
+    clientSecret: layer8Secret,
+    accessTokenUri: `${LAYER8_URL}/api/v1/oauth`,
+    authorizationUri: `${LAYER8_URL}/oauth/authorize`,
+    redirectUri: LAYER8_CALLBACK_URL,
+    state: generateRandomString()
 });
 
-// console.log("inMemoryUsers: ", inMemoryUsers);
+/* =========================
+   Helper Functions (NEW)
+========================= */
 
-// Configure storage for uploaded files
+async function exchangeLayer8Code(code) {
+    const response = await fetch(`${LAYER8_URL}/api/v1/oauth/token`, {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({
+            code,
+            redirect_uri: LAYER8_CALLBACK_URL,
+            client_id: layer8Uuid,
+            client_secret: layer8Secret,
+            grant_type: "authorization_code",
+        }),
+    });
+
+    const text = await response.text();
+    return text ? JSON.parse(text) : {};
+}
+
+async function fetchLayer8Metadata(accessToken) {
+    const response = await fetch(`${LAYER8_URL}/api/v1/oauth/zk-metadata`, {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
+            client_id: layer8Uuid,
+            client_secret: layer8Secret,
+        }),
+    });
+
+    return response.json();
+}
+
+/* =========================
+   File Upload Setup
+========================= */
+
 const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    const uploadDir = path.join(__dirname, "uploads");
-    // Create uploads directory if it doesn't exist
-    if (!fs.existsSync(uploadDir)) {
-      fs.mkdirSync(uploadDir, { recursive: true });
-    }
-    cb(null, uploadDir);
-  },
-  filename: (req, file, cb) => {
-    // Use username as the filename
-    const username = req.params.username;
-    const ext = path.extname(file.originalname);
-    cb(null, `${username}_profile${ext}`);
-  },
+    destination: (req, file, cb) => {
+        const uploadDir = path.join(__dirname, "uploads");
+        if (!fs.existsSync(uploadDir)) {
+            fs.mkdirSync(uploadDir, {recursive: true});
+        }
+        cb(null, uploadDir);
+    },
+    filename: (req, file, cb) => {
+        const username = req.params.username;
+        const ext = path.extname(file.originalname);
+        cb(null, `${username}_profile${ext}`);
+    },
 });
 
 const upload = multer({
-  storage: storage,
-  limits: { fileSize: 1024 * 1024 * 5 }, // 5MB limit
-  fileFilter: (req, file, cb) => {
-    if (file.mimetype.startsWith("image/")) {
-      cb(null, true);
-    } else {
-      cb(new Error("Only image files are allowed!"), false);
-    }
-  },
+    storage,
+    limits: {fileSize: 1024 * 1024 * 5},
+    fileFilter: (req, file, cb) => {
+        if (file.mimetype.startsWith("image/")) cb(null, true);
+        else cb(new Error("Only image files are allowed!"), false);
+    },
 });
 
-// Serve static images
 app.use("/images", express.static(path.join(__dirname, "images")));
+app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
-// Health check endpoint
+/* =========================
+   Basic Routes
+========================= */
+
 app.get("/healthcheck", (req, res) => {
-  res.send("Bro, ur poems coming soon. Relax a little.");
+    res.send("Bro, ur poems coming soon. Relax a little.");
 });
 
 app.get("/", (req, res) => {
-  res.json({ message: "Hello there!" });
+    res.json({message: "Hello there!"});
 });
 
-// Updated poem endpoint
+/* =========================
+   Poems & Images
+========================= */
+
 app.get("/poems", (req, res) => {
-  const poem_id = parseInt(req.query.id, 10);
+    const poem_id = parseInt(req.query.id, 10);
 
-  if (poem_id) {
-    // Return single poem if ID is provided
-    const poem = poems.find((p) => p.id === poem_id);
-    if (poem) {
-      res.status(200).json(poem);
-    } else {
-      res.status(404).json({ error: "Poem not found!" });
+    if (poem_id) {
+        const poem = poems.find((p) => p.id === poem_id);
+        return poem
+            ? res.status(200).json(poem)
+            : res.status(404).json({error: "Poem not found!"});
     }
-  } else {
-    // Return all poems if no ID
+
     res.status(200).json(poems);
-  }
 });
 
-// New images endpoint
 app.get("/images", (req, res) => {
-  const image_name = req.query.name;
+    const image_name = req.query.name;
 
-  if (image_name) {
-    // Get all images and search using if contains name
-    const image = images.find((i) =>
-      i.name.toLowerCase().includes(image_name.toLowerCase())
-    );
-    if (image) {
-      res.status(200).json(image);
-    } else {
-      res.status(404).json({ error: "Image not found!" });
+    if (image_name) {
+        const image = images.find((i) =>
+            i.name.toLowerCase().includes(image_name.toLowerCase())
+        );
+
+        return image
+            ? res.status(200).json(image)
+            : res.status(404).json({error: "Image not found!"});
     }
-  } else {
-    // Return all images if no name
+
     res.status(200).json(images);
-  }
 });
+
+/* =========================
+   Register & Login
+========================= */
 
 app.post("/register", async (req, res) => {
-  const { username, password } = req.body;
+    const {username, password} = req.body;
 
-  // Check if user already exists
-  if (users.find((u) => u.username === username)) {
-    return res.status(400).json({ error: "Username already exists" });
-  }
+    if (users.find((u) => u.username === username)) {
+        return res.status(400).json({error: "Username already exists"});
+    }
 
-  try {
     const hashedPassword = await bcrypt.hash(password, 10);
+
     users.push({
-      username,
-      password: hashedPassword,
-      metadata: {
-        email_verified: false,
-        country: "",
-        display_name: "",
-        color: ""
-      }
+        username,
+        password: hashedPassword,
+        metadata: {
+            email_verified: false,
+            country: "",
+            display_name: "",
+            color: "",
+        },
     });
+
     res.status(200).send("User registered successfully!");
-  } catch (err) {
-    console.log("err: ", err);
-    res.status(500).send({ error: "Something went wrong!" });
-  }
 });
 
 app.post("/login", async (req, res) => {
-  const { username, password } = req.body;
-  const user = users.find((u) => u.username === username);
+    const {username, password} = req.body;
+    const user = users.find((u) => u.username === username);
 
-  if (user && (await bcrypt.compare(password, user.password))) {
-    const token = jwt.sign({ username }, SECRET_KEY);
-    res.status(200).json({ user, token });
-  } else {
-    res.status(401).json({ error: "Invalid credentials!" });
-  }
+    if (user && (await bcrypt.compare(password, user.password))) {
+        const token = jwt.sign({username}, SECRET_KEY);
+        return res.status(200).json({user, token});
+    }
+
+    res.status(401).json({error: "Invalid credentials!"});
 });
 
-app.post(
-  "/profile/:username/upload",
-  upload.single("profile_pic"),
-  (req, res) => {
-    const { username } = req.params;
+/* =========================
+   Profile
+========================= */
 
-    if (!req.file) {
-      return res
-        .status(400)
-        .json({ error: "No file uploaded or invalid file type" });
-    }
-
-    // Find the user
-    const user = users.find((u) => u.username === username);
-    if (!user) {
-      // Clean up the uploaded file if user doesn't exist
-      fs.unlinkSync(req.file.path);
-      return res.status(404).json({ error: "User not found" });
-    }
-
-    // Update user metadata with profile picture path
-    if (!user.metadata) {
-      user.metadata = {};
-    }
-
-    // Store relative path to the image
-    user.metadata.profilePicture = `/uploads/${req.file.filename}`;
-
-    res.status(200).json({
-      message: "Profile picture uploaded successfully",
-      path: user.metadata.profilePicture,
-    });
-  }
-);
-
-// Serve uploaded files statically
-app.use("/uploads", express.static(path.join(__dirname, "uploads")));
-
-// Update the existing profile endpoint to include profile picture
 app.get("/profile/:username", (req, res) => {
-  const { username } = req.params;
-  const user = users.find((u) => u.username === username);
+    const user = users.find((u) => u.username === req.params.username);
 
-  if (user) {
+    if (!user) return res.status(404).json({error: "User not found!"});
+
     const response = {
-      username: user.username,
-      metadata: user.metadata || null,
+        username: user.username,
+        metadata: user.metadata || null,
     };
 
-    // If profile picture exists, include full URL
     if (user.metadata?.profilePicture) {
-      response.profilePicture = `${req.protocol}://${req.get("host")}${user.metadata.profilePicture
-        }`;
+        response.profilePicture =
+            `${req.protocol}://${req.get("host")}` +
+            user.metadata.profilePicture;
     }
 
     res.status(200).json(response);
-  } else {
-    res.status(404).json({ error: "User not found!" });
-  }
 });
 
-app.get("/api/login/layer8/auth", async (req, res) => {
-  console.log("Layer8 auth URL:", layer8Auth.code.getUri());
-  res.status(200).json({ authURL: layer8Auth.code.getUri() });
+app.post(
+    "/profile/:username/upload",
+    upload.single("profile_pic"),
+    (req, res) => {
+        const user = users.find((u) => u.username === req.params.username);
+
+        if (!req.file)
+            return res.status(400).json({error: "No file uploaded"});
+
+        if (!user) {
+            fs.unlinkSync(req.file.path);
+            return res.status(404).json({error: "User not found"});
+        }
+
+        user.metadata.profilePicture = `/uploads/${req.file.filename}`;
+
+        res.status(200).json({
+            message: "Profile picture uploaded successfully",
+            path: user.metadata.profilePicture,
+        });
+    }
+);
+
+/* =========================
+   OAuth (read:user)
+========================= */
+
+function generateRandomString(size = 32) {
+    const {randomBytes} = require("crypto");
+    return randomBytes(size).toString("base64url");
+}
+
+app.get("/api/login/layer8/auth", (req, res) => {
+    res.status(200).json({authURL: layer8Client.code.getUri({scopes: ["read:user"]})});
 });
 
 app.post("/authorization-callback", async (req, res) => {
-  const token = req.headers.authorization;
-  const tokenStr = token.replace("Bearer ", "");
-  const payload = JSON.parse(atob(tokenStr.split('.')[1]));
-  const username = payload.username;
+    try {
+        const token = req.headers.authorization;
+        const tokenStr = token.replace("Bearer ", "");
+        const payload = JSON.parse(atob(tokenStr.split('.')[1]));
+        const username = payload.username;
 
-  let inMemoryUsers = users.find((u) => u.username === username);
+        let inMemoryUsers = users.find((u) => u.username === username);
 
-  const myHeaders = new Headers();
-  myHeaders.append("Content-Type", "application/json");
+        const tokenResp = await exchangeLayer8Code(req.body.code);
+        const accessToken = tokenResp?.data?.access_token;
+        console.log("accessToken resp", tokenResp);
 
-  const raw = JSON.stringify({
-    code: req.body.code,
-    redirect_uri: LAYER8_CALLBACK_URL,
-    client_id: layer8Uuid,
-    client_secret: layer8Secret,
-    grant_type: 'authorization_code'
-  });
+        if (!accessToken)
+            return res.status(400).json({error: "No access token returned"});
 
-  const requestOptions = {
-    method: "POST",
-    headers: myHeaders,
-    body: raw,
-    redirect: "follow",
-  };
+        const metadataResponse = await fetchLayer8Metadata(accessToken);
+        console.log("metadata", metadataResponse)
 
-  // Variable to store the Layer8 token response
-  let layer8TokenResponse;
+        if (metadataResponse.is_success) {
+            inMemoryUsers.metadata.email_verified =
+                metadataResponse.data.is_email_verified;
+            inMemoryUsers.metadata.bio = metadataResponse.data.bio;
+            inMemoryUsers.metadata.display_name = metadataResponse.data.display_name;
+            inMemoryUsers.metadata.color = metadataResponse.data.color;
+        }
 
-  await fetch(LAYER8_URL + "/api/v1/oauth/token", requestOptions)
-    .then((response) => response.text())
-    .then((result) => {
-      layer8TokenResponse = result;
-    })
-    .catch((error) => console.error(error));
-
-
-  // layer8TokenResponse 2:  {"is_success":true,"message":"access token generated successfully","errors":null,"data":{"access_token":"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE3NTI3NTc3MjksImlhdCI6MTc1Mjc1NzEyOSwiaXNzIjoiR2xvYmUgYW5kIENpdGl6ZW4iLCJzdWIiOiIyNmRmZDc4ZC1iZTdhLTQzMjEtYmNmYi01OTI3ZGEyMWM3ZmIiLCJVc2VySUQiOjEsIlNjb3BlcyI6ImNvdW50cnksZW1haWxfdmVyaWZpZWQsZGlzcGxheV9uYW1lLGNvbG9yIn0.0Umong9zxiW_wmBVmbtQ2xJyGavOQSDau6Uq22zo6TU","token_type":"bearer","expires_in_minutes":10}}
-
-  let resp = JSON.parse(layer8TokenResponse)
-  const accessToken = resp.data.access_token;
-
-  let metadataResponse;
-
-  //  Body :
-  //   {
-  //     "client_oauth_uuid": "26dfd78d-be7a-4321-bcfb-5927da21c7fb",
-  //     "client_oauth_secret": "be3caef54fc0ec0dcd87b0a65cf24f81598243b5f01b4cce6a344718db854fe6"
-  //    }
-
-  await fetch(LAYER8_URL + "/api/v1/oauth/zk-metadata", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${accessToken}`,
-    },
-    body: JSON.stringify({
-      client_id: layer8Uuid,
-      client_secret: layer8Secret,
-    }),
-  })
-    .then((response) => response.json())
-    .then((data) => {
-      metadataResponse = data;
-    })
-    .catch((err) => console.error(err));
-
-    // console.log("metadataResponse: ", metadataResponse);
-
-  if (metadataResponse.is_success) {
-    inMemoryUsers.metadata.email_verified =
-      metadataResponse.data.is_email_verified;
-    inMemoryUsers.metadata.bio = metadataResponse.data.bio;
-    inMemoryUsers.metadata.display_name = metadataResponse.data.display_name;
-    inMemoryUsers.metadata.color = metadataResponse.data.color;
-  }
-
-  res.status(200).json({ message: "Layer8 auth successful" });
+        res.status(200).json({
+            message: "Layer8 auth successful",
+        });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({error: "Layer8 auth failed"});
+    }
 });
 
+/* =========================
+   OIDC (openid)
+========================= */
+
+app.get("/api/l8-login", (req, res) => {
+    res.status(200).json({authURL: `${layer8Client.code.getUri({scopes: ["openid"]})}&nonce=${generateRandomString()}`});
+});
+
+app.post("/l8-login-callback", async (req, res) => {
+    try {
+        const tokenResp = await exchangeLayer8Code(req.body.code);
+        const idToken = tokenResp?.data?.id_token;
+        console.log("tokenResp", tokenResp);
+
+        if (!idToken)
+            return res.status(400).json({error: "No id_token in response"});
+
+        const decoded = jwt.decode(idToken);
+
+        const username =
+            decoded?.username ||
+            decoded?.email ||
+            decoded?.sub;
+
+        if (!username)
+            return res.status(400).json({error: "Invalid ID token"});
+
+        let user = users.find((u) => u.username === username);
+
+        if (!user) {
+            users.push({
+                username,
+                password: null,
+                metadata: {
+                    email_verified: decoded?.email_verified ?? false,
+                    display_name: decoded?.display_name || "",
+                    color: decoded?.color || "",
+                },
+            });
+        }
+
+        const token = jwt.sign({username}, SECRET_KEY);
+
+        res.status(200).json({
+            message: "Layer8 auth successful",
+            profile: decoded,
+            token,
+        });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({error: "Layer8 login failed"});
+    }
+});
+
+/* =========================
+   Start Server
+========================= */
+
 const host = process.env.HOST || "localhost";
+
 app.listen(port, () => {
-  console.log(`Node.js server is running on http://${host}:${port}`);
+    console.log(`Node.js server is running on http://${host}:${port}`);
 });

@@ -34,9 +34,9 @@ const authOptions = ref({
 
 const downloadProfilePicture = async () => {
     if (!profile.value.profilePicture) return;
-    
+
     let image = profile.value.profilePicture.split('uploads/')[1];
-    
+
     try {
         const response = await interceptorWasm.fetch(`${backend_url}/uploads/${image}`);
         if (!response.ok) {
