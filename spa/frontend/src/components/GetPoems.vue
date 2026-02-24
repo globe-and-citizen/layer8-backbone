@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue';
-import * as interceptorWasm from "layer8-interceptor-production";
 import { getCurrentInstance } from 'vue';
+import {interceptorFetch} from "@/utils.ts";
 const { appContext } = getCurrentInstance();
 const backend_url = appContext.config.globalProperties.$backend_url;
 
@@ -14,7 +14,7 @@ const errorMessage = ref<string | null>(null);
 
 function openPoem(id: string) {
     isLoading.value = true;
-    interceptorWasm.fetch(`${backend_url}/poems?id=${id}`)
+    interceptorFetch(`${backend_url}/poems?id=${id}`)
         .then(response => response.json())
         .then(data => {
             selectedPoem.value = data;
@@ -42,7 +42,7 @@ function searchPoem() {
     }
 
     isLoading.value = true;
-    interceptorWasm.fetch(`${backend_url}/poems?id=${searchId.value}`)
+    interceptorFetch(`${backend_url}/poems?id=${searchId.value}`)
         .then(response => {
             if (!response.ok) throw new Error('Poem not found');
             return response.json();
@@ -62,7 +62,7 @@ function searchPoem() {
 
 function fetchAllPoems() {
     isLoading.value = true;
-    interceptorWasm.fetch(`${backend_url}/poems`)
+    interceptorFetch(`${backend_url}/poems`)
         .then(response => response.json())
         .then(data => {
             poems.value = data;

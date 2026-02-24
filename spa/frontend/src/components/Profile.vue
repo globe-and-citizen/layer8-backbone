@@ -1,8 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref, watch, computed } from 'vue';
-import { getToken } from '@/utils.js';
+import {getToken, interceptorFetch} from '@/utils.js';
 import router from '@/router';
-import * as interceptorWasm from "layer8-interceptor-production";
 import { getCurrentInstance } from 'vue';
 
 const instance = getCurrentInstance();
@@ -38,7 +37,7 @@ const downloadProfilePicture = async () => {
     let image = profile.value.profilePicture.split('uploads/')[1];
 
     try {
-        const response = await interceptorWasm.fetch(`${backend_url}/uploads/${image}`);
+        const response = await interceptorFetch(`${backend_url}/uploads/${image}`);
         if (!response.ok) {
             throw new Error('Network response was not ok');
         }
@@ -70,7 +69,7 @@ const openAuthModal = () => {
 const loadProfilePicture = async (pictureUrl: string) => {
     let image = pictureUrl.split('uploads/')[1];
     let new_url = "";
-    await interceptorWasm.fetch(`${backend_url}/uploads/${image}`)
+    await interceptorFetch(`${backend_url}/uploads/${image}`)
         .then(response => {
             if (!response.ok) {
                 throw new Error('Network response was not ok');
@@ -99,7 +98,7 @@ const initializeAuth = async () => {
     }
 
     try {
-        const response = await interceptorWasm.fetch(`${backend_url}/update-user-profile-metadata`, {
+        const response = await interceptorFetch(`${backend_url}/update-user-profile-metadata`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -113,7 +112,7 @@ const initializeAuth = async () => {
             const payload = JSON.parse(atob(token.split('.')[1]));
             const username = payload.username;
 
-            const profileResponse = await interceptorWasm.fetch(`${backend_url}/profile/${username}`);
+            const profileResponse = await interceptorFetch(`${backend_url}/profile/${username}`);
             const data = await profileResponse.json();
 
             profile.value.username = username;
@@ -140,7 +139,7 @@ const initializeAuth = async () => {
 };
 
 const loginWithLayer8Popup = async () => {
-    const response = await interceptorWasm.fetch(`${backend_url}/api/login/layer8/auth`)
+    const response = await interceptorFetch(`${backend_url}/api/login/layer8/auth`)
     const data = await response.json()
     // create opener window
     const popup = window.open(data.authURL, "Login with Layer8", "width=1200,height=900");
@@ -152,7 +151,7 @@ const loginWithLayer8Popup = async () => {
     window.addEventListener("message", async (event) => {
         if (event.data.redirect_uri) {
             setTimeout(() => {
-                interceptorWasm.fetch(`${backend_url}/authorization-callback`, {
+                interceptorFetch(`${backend_url}/authorization-callback`, {
                     method: "POST",
                     headers: {
                         "Content-Type": "Application/Json",
@@ -213,7 +212,7 @@ const fetchProfileData = async () => {
     const username = payload.username;
 
     try {
-        const response = await interceptorWasm.fetch(`${backend_url}/profile/${username}`);
+        const response = await interceptorFetch(`${backend_url}/profile/${username}`);
         const data = await response.json();
 
         profile.value.username = username;

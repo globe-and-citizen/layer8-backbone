@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue';
-import { getToken } from '@/utils.js';
-import * as interceptorWasm from "layer8-interceptor-production";
+import {getToken, interceptorFetch} from '@/utils.js';
 import { getCurrentInstance } from 'vue';
 const { appContext } = getCurrentInstance();
 const backend_url = appContext.config.globalProperties.$backend_url;
@@ -16,14 +15,14 @@ const handleFileChange = (event: Event) => {
     const input = event.target as HTMLInputElement;
     if (input.files && input.files[0]) {
         selectedFile.value = input.files[0];
-        
+
         // Create preview
         const reader = new FileReader();
         reader.onload = (e) => {
             previewImage.value = e.target?.result as string;
         };
         reader.readAsDataURL(input.files[0]);
-        
+
         errorMessage.value = null;
     }
 };
@@ -48,7 +47,7 @@ const uploadImage = async () => {
         const formData = new FormData();
         formData.append('profile_pic', selectedFile.value);
 
-        const response = await interceptorWasm.fetch(`${backend_url}/profile/${username}/upload`, {
+        const response = await interceptorFetch(`${backend_url}/profile/${username}/upload`, {
             method: 'POST',
             body: formData
         });
@@ -75,41 +74,41 @@ const uploadImage = async () => {
     <div class="upload-container">
         <div class="upload-card">
             <h1>Update Profile Picture</h1>
-            
+
             <div v-if="previewImage" class="image-preview">
                 <img :src="previewImage" alt="Preview of selected image" />
             </div>
-            
+
             <div class="upload-form">
-                <input 
-                    type="file" 
-                    id="profile-pic" 
-                    accept="image/*" 
+                <input
+                    type="file"
+                    id="profile-pic"
+                    accept="image/*"
                     @change="handleFileChange"
                     class="file-input"
                 />
                 <label for="profile-pic" class="file-label">
                     Choose an image
                 </label>
-                
-                <button 
-                    @click="uploadImage" 
+
+                <button
+                    @click="uploadImage"
                     :disabled="!selectedFile || isLoading"
                     class="upload-button"
                 >
                     <span v-if="isLoading">Uploading...</span>
                     <span v-else>Upload</span>
                 </button>
-                
+
                 <div v-if="errorMessage" class="error-message">
                     {{ errorMessage }}
                 </div>
-                
+
                 <div v-if="successMessage" class="success-message">
                     {{ successMessage }}
                 </div>
             </div>
-            
+
             <router-link to="/profile" class="back-link">
                 Back to Profile
             </router-link>

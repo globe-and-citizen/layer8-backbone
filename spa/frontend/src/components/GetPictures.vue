@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue';
-import * as interceptorWasm from "layer8-interceptor-production";
 import { getCurrentInstance } from 'vue';
+import {interceptorFetch} from "@/utils.ts";
 const { appContext } = getCurrentInstance();
 const backend_url = appContext.config.globalProperties.$backend_url;
 
@@ -9,7 +9,7 @@ const images = ref<any[]>([]);
 const searchName = ref<string>('');
 
 function openImage(id: string) {
-    interceptorWasm.fetch(`${backend_url}/images?id=${id}`)
+    interceptorFetch(`${backend_url}/images?id=${id}`)
         .then(response => response.json())
         .catch(err => {
             console.error('Error fetching image:', err);
@@ -22,7 +22,7 @@ function searchImage() {
         return;
     }
 
-    interceptorWasm.fetch(`${backend_url}/images?name=${searchName.value}`)
+    interceptorFetch(`${backend_url}/images?name=${searchName.value}`)
         .then(response => {
             if (!response.ok) throw new Error('Image not found');
             return response.json();
@@ -41,7 +41,7 @@ function searchImage() {
 }
 
 function fetchAllImages() {
-    interceptorWasm.fetch(`${backend_url}/images`)
+    interceptorFetch(`${backend_url}/images`)
         .then(response => response.json())
         .then(data => {
             images.value = data.map((img: any) => ({
@@ -63,18 +63,18 @@ onMounted(() => {
 <template>
     <div class="gallery-vertical">
         <h1>📸 Image Gallery</h1>
-        
+
         <div class="search-container">
-            <input 
-                v-model="searchName" 
-                type="text" 
+            <input
+                v-model="searchName"
+                type="text"
                 placeholder="Enter Image Name"
                 min="1"
             />
             <button @click="searchImage">Search</button>
             <button @click="fetchAllImages">Show All</button>
         </div>
-        
+
         <div class="image-container">
             <div
                 class="image-card"

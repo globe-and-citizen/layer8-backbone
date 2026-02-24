@@ -18,8 +18,7 @@
 
 <script setup>
 import {ref} from 'vue';
-import {saveToken} from "@/utils.js";
-import * as interceptorWasm from "layer8-interceptor-production";
+import {interceptorFetch, saveToken} from "@/utils.js";
 import {getCurrentInstance} from 'vue';
 
 const {appContext} = getCurrentInstance();
@@ -34,7 +33,7 @@ const handleLogin = () => {
         "password": password.value
     }
 
-    interceptorWasm.fetch(`${backend_url}/login`, {
+    interceptorFetch(`${backend_url}/login`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json'
@@ -55,7 +54,7 @@ const handleLogin = () => {
 };
 
 const loginWithLayer8Popup = async () => {
-    const response = await interceptorWasm.fetch(`${backend_url}/api/l8-login`)
+    const response = await interceptorFetch(`${backend_url}/api/l8-login`)
     const data = await response.json()
     console.log(data)
     // create opener window
@@ -64,7 +63,7 @@ const loginWithLayer8Popup = async () => {
         if (event.data.redirect_uri) {
             setTimeout(() => {
                 console.log("Received message from popup:", event.data);
-                interceptorWasm.fetch(`${backend_url}/l8-login-callback`, {
+                interceptorFetch(`${backend_url}/l8-login-callback`, {
                     method: "POST",
                     headers: {
                         "Content-Type": "application/Json",

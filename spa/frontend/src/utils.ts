@@ -1,6 +1,17 @@
 import {computed} from "vue";
 import * as interceptorWasm from "layer8-interceptor-production";
 
+export async function interceptorFetch(
+    url: string,
+    options: RequestInit = {}
+): Promise<Response> {
+    if (import.meta.env.VITE_ENABLE_LAYER8 === 'true') {
+        return (await interceptorWasm.fetch(url, options)) as Response;
+    } else {
+        return (await fetch(url, options)) as Response;
+    }
+}
+
 function getCookie(name: string): string | undefined {
     const value = `; ${document.cookie}`;
     const parts = value.split(`; ${name}=`);

@@ -3,8 +3,6 @@
 import { computed, ref } from "vue";
 import { onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import * as interceptorWasm from "layer8-interceptor-production";
-
 
 const router = useRouter()
 const code = ref(new URLSearchParams(window.location.search).get("code"))
@@ -12,13 +10,14 @@ const code = ref(new URLSearchParams(window.location.search).get("code"))
 const token = ref(document.cookie.split(';').filter(item => item.trim().startsWith('token=')).map(c => c.split('=')[1])[0])
 console.log("Auth JWT token: ", token.value)
 import { getCurrentInstance } from 'vue';
+import {interceptorFetch} from "@/utils.js";
 const { appContext } = getCurrentInstance();
 const BACKEND_URL = appContext.config.globalProperties.$backend_url;
 
 
 onMounted(() => {
     setTimeout(() => {
-        interceptorWasm.fetch(BACKEND_URL + "/api/login/layer8/auth", {
+        interceptorFetch(BACKEND_URL + "/api/login/layer8/auth", {
             method: "POST",
             headers: {
                 "Content-Type": "Application/Json"
