@@ -8,13 +8,32 @@ const fs = require("fs");
 const path = require("path");
 const multer = require("multer");
 const ClientOAuth2 = require("client-oauth2");
+const session = require("express-session");
 
 const app = express();
 const port = process.env.PORT || 3000;
 const SECRET_KEY = process.env.JWT_SECRET || "my_very_secret_key";
 
 app.use(express.json());
-app.use(cors());
+app.use(cors({
+    origin: "http://localhost:5173", // EXACT frontend origin
+    credentials: true,               // allow cookies
+}));
+// Session middleware
+app.use(
+    session({
+        name: "demo.spa", // cookie name
+        secret: "super-secret-key", // change in production
+        resave: false,
+        saveUninitialized: false,
+        cookie: {
+            // httpOnly: true,
+            // secure: false, // true if HTTPS
+            // sameSite: "lax",
+            maxAge: 1000 * 60 * 60, // 1 hour
+        },
+    })
+);
 
 /* =========================
    Logger Middleware
@@ -27,6 +46,7 @@ const loggerMiddleware = (req, res, next) => {
         console.log("Outgoing Response:", {
             statusCode: res.statusCode,
             duration: `${Date.now() - start}ms`,
+            path: req.path,
         });
         return originalSend.apply(res, arguments);
     };
@@ -88,6 +108,16 @@ async function fetchLayer8Metadata(accessToken) {
     });
 
     return response.json();
+}
+
+function isLoggedIn(req, res) {
+    if (!req.session.username) {
+        console.log('user not logged in');
+        res.status(401).json({ error: "Unauthorized" });
+        return
+    }
+    console.log('logged in user:', req.session.username);
+    return req.session.username
 }
 
 /* =========================
@@ -205,14 +235,38 @@ app.post("/login", async (req, res) => {
     res.status(401).json({error: "Invalid credentials!"});
 });
 
+app.get("/me", (req, res) => {
+    if (!req.session.username) {
+        return res.status(401).json({ authenticated: false });
+    }
+
+    const user = users.find((u) => u.username === req.session.username);
+
+    res.status(200).json({
+        authenticated: true,
+        user: user,
+    });
+});
+
+app.post("/logout", (req, res) => {
+    console.log("logout user:", req.session.user);
+    req.session.destroy(() => {
+        res.clearCookie("demo.spa");
+        // res.json({ message: "Logged out" });
+        res.status(200).json({ authenticated: false });
+    });
+});
+
 /* =========================
    Profile
 ========================= */
 
 app.get("/profile/:username", (req, res) => {
-    const user = users.find((u) => u.username === req.params.username);
+    let username = isLoggedIn(req, res);
+    if (!username) return;
 
-    if (!user) return res.status(404).json({error: "User not found!"});
+    const user = users.find((u) => u.username === req.params.username);
+    // if (!user) return res.status(404).json({error: "User not found!"});
 
     const response = {
         username: user.username,
@@ -266,12 +320,15 @@ app.get("/api/login/layer8/auth", (req, res) => {
 
 app.post("/authorization-callback", async (req, res) => {
     try {
-        const token = req.headers.authorization;
-        const tokenStr = token.replace("Bearer ", "");
-        const payload = JSON.parse(atob(tokenStr.split('.')[1]));
-        const username = payload.username;
+        // const token = req.headers.authorization;
+        // const tokenStr = token.replace("Bearer ", "");
+        // const payload = JSON.parse(atob(tokenStr.split('.')[1]));
+        // const username = payload.username;
+        const username = isLoggedIn(req, res);
+        if (!username) return;
 
         let inMemoryUsers = users.find((u) => u.username === username);
+        console.log('memo user', username, inMemoryUsers);
 
         const tokenResp = await exchangeLayer8Code(req.body.code);
         const accessToken = tokenResp?.data?.access_token;
@@ -314,8 +371,7 @@ app.post("/l8-login-callback", async (req, res) => {
         const idToken = tokenResp?.data?.id_token;
         console.log("tokenResp", tokenResp);
 
-        if (!idToken)
-            return res.status(400).json({error: "No id_token in response"});
+        if (!idToken) return res.status(400).json({error: "No id_token in response"});
 
         const decoded = jwt.decode(idToken);
 
@@ -324,13 +380,12 @@ app.post("/l8-login-callback", async (req, res) => {
             decoded?.email ||
             decoded?.sub;
 
-        if (!username)
-            return res.status(400).json({error: "Invalid ID token"});
+        if (!username) return res.status(400).json({error: "Invalid ID token"});
 
         let user = users.find((u) => u.username === username);
 
         if (!user) {
-            users.push({
+            user = {
                 username,
                 password: null,
                 metadata: {
@@ -338,15 +393,19 @@ app.post("/l8-login-callback", async (req, res) => {
                     display_name: decoded?.display_name || "",
                     color: decoded?.color || "",
                 },
-            });
+            }
+            users.push(user);
         }
 
-        const token = jwt.sign({username}, SECRET_KEY);
+        // Save user info in session
+        req.session.username = username;
+
+        // const token = jwt.sign({username}, SECRET_KEY);
 
         res.status(200).json({
             message: "Layer8 auth successful",
-            profile: decoded,
-            token,
+            profile: user,
+            // token,
         });
     } catch (err) {
         console.error(err);

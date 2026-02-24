@@ -18,7 +18,7 @@
 
 <script setup>
 import {ref} from 'vue';
-import {interceptorFetch, saveToken} from "@/utils.js";
+import {interceptorFetch, saveToken, setUser} from "@/utils.js";
 import {getCurrentInstance} from 'vue';
 
 const {appContext} = getCurrentInstance();
@@ -77,9 +77,11 @@ const loginWithLayer8Popup = async () => {
                         if (popup) {
                             popup.close();
                         }
+                        console.log('logged in with layer8', data)
 
-                        let token = data.token || data["token"] || data.get("token");
-                        saveToken(token);
+                        // let token = data.token || data["token"] || data.get("token");
+                        // saveToken(token);
+                        setUser(data.profile?.username);
                         alert(`Logged in as: ${data.profile.username}`);
                         location.href = '/profile';
                     })

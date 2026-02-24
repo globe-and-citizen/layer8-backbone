@@ -1,10 +1,11 @@
-import {computed} from "vue";
+import {computed, getCurrentInstance} from "vue";
 import * as interceptorWasm from "layer8-interceptor-production";
 
 export async function interceptorFetch(
     url: string,
     options: RequestInit = {}
 ): Promise<Response> {
+    options.credentials = "include"; // VERY IMPORTANT for cookies to be sent
     if (import.meta.env.VITE_ENABLE_LAYER8 === 'true') {
         return (await interceptorWasm.fetch(url, options)) as Response;
     } else {
@@ -32,22 +33,64 @@ export function getToken(name: string): string | undefined {
     return undefined;
 }
 
+export const isLoggedIn = computed(() => {
+    // return getCookie("jwt") !== undefined && getCookie("jwt")?.length > 0;
+    return localStorage.getItem('username') !== null;
+})
+
 export function logout() {
-    document.cookie = 'jwt=; expires=Thu, 01 Jan 1970 00:00:01 GMT;';
-    alert('Logged out successfully.')
-    location.href = '/'
+    // document.cookie = 'jwt=; expires=Thu, 01 Jan 1970 00:00:01 GMT;';
+    // alert('Logged out successfully.')
+    // location.href = '/'
+    interceptorFetch(`${import.meta.env.VITE_BACKEND_URL}/logout`, {method: 'POST'})
+        .then(res => res.json())
+        .then(data => {
+            console.log(data);
+            localStorage.removeItem('username');
+            alert('Logged out successfully.')
+            location.href = '/'
+        }).catch(err => console.error(err));
 }
 
-export const isLoggedIn = computed(() => {
-    return getCookie("jwt") !== undefined && getCookie("jwt")?.length > 0; // todo
-})
+export function setUser(username: string | null) {
+    if (username) {
+        localStorage.setItem('username', username);
+    } else {
+        localStorage.removeItem('username');
+    }
+}
+
+export function getAuthUsername(): string {
+    // const token = getToken('jwt');
+    // if (!token) {
+    //     console.error('No token found');
+    //     return;
+    // }
+    //
+    // const payload = JSON.parse(atob(token.split('.')[1]));
+    // const username = payload.username;
+    return localStorage.getItem('username') || '';
+}
+
+export async function checkAuth() {
+    // return getCookie("jwt") !== undefined && getCookie("jwt")?.length > 0; // todo
+    let res = await interceptorFetch(`${import.meta.env.VITE_BACKEND_URL}/me`)
+    if (res.status < 400) {
+        const data = await res.json();
+        setUser(data.user?.username);
+        return true;
+    }
+    setUser(null);
+    return false;
+
+}
 
 export function toBlob(filename: string, bytes: Uint8Array | number[] | ArrayBuffer): Blob | null {
     if (bytes && bytes.length > 0) {
         if (!(bytes instanceof Uint8Array)) {
             bytes = new Uint8Array(bytes);
         }
-        return new File([bytes], filename, { type: "image/jpeg" });
+        return new File([bytes], filename, {type: "image/jpeg"});
     }
     return null
 }

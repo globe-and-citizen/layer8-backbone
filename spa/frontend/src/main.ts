@@ -19,9 +19,7 @@ if (import.meta.env.VITE_ENABLE_LAYER8 === 'true') {
     } catch (err) {
         throw new Error(`Failed to initialize encrypted tunnel: ${err}`);
     }
-
 }
-
 
 const app = createApp(App)
 app.config.globalProperties.$backend_url = backend_url;

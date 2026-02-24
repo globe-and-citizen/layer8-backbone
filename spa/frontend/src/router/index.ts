@@ -1,7 +1,7 @@
 import {createRouter, createWebHistory} from 'vue-router'
 import HomeView from '@/components/HomeView.vue'
 import UploadView from '@/components/Upload.vue'
-import {getToken} from "@/utils.ts";
+import {checkAuth} from "@/utils.ts";
 
 const router = createRouter({
     history: createWebHistory(import.meta.env.BASE_URL),
@@ -55,13 +55,10 @@ const router = createRouter({
     ],
 })
 
-router.beforeEach((to, from, next) => {
-    let token = getToken('jwt');
-    if (to.meta.requiresAuth && !token) {
-        console.log('unauthorized');
+router.beforeEach(async (to, from, next) => {
+    let isAuthenticated = await checkAuth();
+    if (to.meta.requiresAuth && !isAuthenticated) {
         next('/');
-    } else if (to.meta.requiresGuest && token) {
-        next('/profile'); // or any route for logged-in users
     } else {
         next();
     }

@@ -1,14 +1,14 @@
 <script setup lang="ts">
-import { onMounted, ref, watch, computed } from 'vue';
-import {getToken, interceptorFetch} from '@/utils.js';
+import {onMounted, ref, watch, computed} from 'vue';
+import {getAuthUsername, getToken, interceptorFetch} from '@/utils.js';
 import router from '@/router';
-import { getCurrentInstance } from 'vue';
+import {getCurrentInstance} from 'vue';
 
 const instance = getCurrentInstance();
 if (!instance) {
     throw new Error('getCurrentInstance() returned null. This component must be used within a Vue component context.');
 }
-const { appContext } = instance;
+const {appContext} = instance;
 const backend_url = appContext.config.globalProperties.$backend_url;
 
 const profile = ref({
@@ -91,26 +91,25 @@ const closeAuthModal = () => {
 };
 
 const initializeAuth = async () => {
-    const token = getToken('jwt');
-    if (!token) {
-        console.error('No token found');
-        return;
-    }
+    // const token = getToken('jwt');
+    // if (!token) {
+    //     console.error('No token found');
+    //     return;
+    // }
 
     try {
         const response = await interceptorFetch(`${backend_url}/update-user-profile-metadata`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}`
+                // 'Authorization': `Bearer ${token}`
             },
             body: JSON.stringify(authOptions.value)
         });
 
         if (response.ok) {
             // Refresh the profile data
-            const payload = JSON.parse(atob(token.split('.')[1]));
-            const username = payload.username;
+            const username = getAuthUsername();
 
             const profileResponse = await interceptorFetch(`${backend_url}/profile/${username}`);
             const data = await profileResponse.json();
@@ -143,11 +142,11 @@ const loginWithLayer8Popup = async () => {
     const data = await response.json()
     // create opener window
     const popup = window.open(data.authURL, "Login with Layer8", "width=1200,height=900");
-    const token = getToken('jwt');
-    if (!token) {
-        console.error('No token found');
-        return;
-    }
+    // const token = getToken('jwt');
+    // if (!token) {
+    //     console.error('No token found');
+    //     return;
+    // }
     window.addEventListener("message", async (event) => {
         if (event.data.redirect_uri) {
             setTimeout(() => {
@@ -155,7 +154,7 @@ const loginWithLayer8Popup = async () => {
                     method: "POST",
                     headers: {
                         "Content-Type": "Application/Json",
-                        'Authorization': `${token}`
+                        // 'Authorization': `${token}`
                     },
                     body: JSON.stringify({
                         code: event.data.code
@@ -163,7 +162,7 @@ const loginWithLayer8Popup = async () => {
                 })
                     .then(res => res.json())
                     .then(data => {
-                        router.push({ name: 'profile' })
+                        router.push({name: 'profile'})
                         if (popup) {
                             popup.close();
                         }
@@ -202,14 +201,7 @@ const reputationColor = computed(() => {
 });
 
 const fetchProfileData = async () => {
-    const token = getToken('jwt');
-    if (!token) {
-        console.error('No token found');
-        return;
-    }
-
-    const payload = JSON.parse(atob(token.split('.')[1]));
-    const username = payload.username;
+    const username = getAuthUsername()
 
     try {
         const response = await interceptorFetch(`${backend_url}/profile/${username}`);
@@ -242,7 +234,7 @@ watch(() => profile.value.profilePicture, async (newUrl) => {
     } else {
         profilePictureUrl.value = "";
     }
-}, { immediate: true });
+}, {immediate: true});
 
 </script>
 
@@ -254,7 +246,7 @@ watch(() => profile.value.profilePicture, async (newUrl) => {
                 <div class="profile-info">
                     <!-- Profile picture section -->
                     <div v-if="profilePictureUrl" class="profile-picture">
-                        <img :src="profilePictureUrl" :alt="`${profile.username}'s profile picture`" />
+                        <img :src="profilePictureUrl" :alt="`${profile.username}'s profile picture`"/>
                     </div>
                     <div v-else class="profile-picture placeholder">
                         <span>{{ profile.username.charAt(0).toUpperCase() }}</span>
@@ -301,7 +293,7 @@ watch(() => profile.value.profilePicture, async (newUrl) => {
                         <span class="score">{{ reputationScore }}/5</span>
                         <div class="score-bar">
                             <div class="score-fill"
-                                :style="{ width: `${(reputationScore / 5) * 100}%`, backgroundColor: reputationColor }">
+                                 :style="{ width: `${(reputationScore / 5) * 100}%`, backgroundColor: reputationColor }">
                             </div>
                         </div>
                     </div>
