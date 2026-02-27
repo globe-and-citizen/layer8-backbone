@@ -49,15 +49,16 @@ impl ReverseHandler {
             guard.get(&session_id).cloned()
         });
 
-        return match shared_secret {
+        match shared_secret {
             Some(secret) => Ok(secret.clone()),
             None => {
                 Err(APIHandlerResponse {
                     status: StatusCode::UNAUTHORIZED,
                     body: Some("Invalid or expired nTor session ID".as_bytes().to_vec()),
+                    cookies: None,
                 })
             }
-        };
+        }
     }
 
     pub async fn handle_init_tunnel(&self, ctx: &mut Layer8Context) -> APIHandlerResponse {
@@ -83,6 +84,7 @@ impl ReverseHandler {
                 return APIHandlerResponse {
                     status: StatusCode::BAD_REQUEST,
                     body: Some("Invalid public key length".as_bytes().to_vec()),
+                    cookies: None,
                 };
             }
 
@@ -125,6 +127,7 @@ impl ReverseHandler {
 
         APIHandlerResponse {
             status: StatusCode::OK,
+            cookies: None,
             body: Some(response.to_bytes()),
         }
     }
@@ -174,7 +177,7 @@ impl ReverseHandler {
             Err(res) => return res,
         };
 
-        return match ProxyHandler::encrypt_response_body(
+        match ProxyHandler::encrypt_response_body(
             wrapped_response,
             self.config.ntor_server_id.clone(),
             shared_secret,
@@ -183,11 +186,12 @@ impl ReverseHandler {
                 let body = utils::type_to_bincode(&encrypted_message);
                 APIHandlerResponse {
                     status: StatusCode::OK,
+                    cookies,
                     body: Some(body),
                 }
             }
             Err(res) => res
-        };
+        }
     }
 
     pub async fn handle_healthcheck(&self, ctx: &mut Layer8Context) -> APIHandlerResponse {
@@ -200,6 +204,7 @@ impl ReverseHandler {
                 ctx.insert_response_header("x-rp-healthcheck-error", "response-header-error");
                 return APIHandlerResponse {
                     status: StatusCode::IM_A_TEAPOT,
+                    cookies: None,
                     body: Some(response_bytes),
                 };
             }
@@ -211,9 +216,10 @@ impl ReverseHandler {
 
         ctx.insert_response_header("x-rp-healthcheck-success", "response-header-success");
 
-        return APIHandlerResponse {
+        APIHandlerResponse {
             status: StatusCode::OK,
+            cookies: None,
             body: Some(response_bytes),
-        };
+        }
     }
 }

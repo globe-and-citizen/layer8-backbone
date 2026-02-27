@@ -71,7 +71,7 @@ impl<T> Router<T> {
             Method::GET => self.gets.get(path),
             Method::PUT => self.puts.get(path),
             Method::DELETE => self.deletes.get(path),
-            _ => return None,
+            _ => None,
         }
     }
 
@@ -80,11 +80,11 @@ impl<T> Router<T> {
         let path = ctx.path();
 
         if method == Method::OPTIONS {
-            return APIHandlerResponse::new(StatusCode::NO_CONTENT, None);
+            return APIHandlerResponse::new(StatusCode::NO_CONTENT, None, None);
         }
 
         if let Some(handlers) = self.get_handlers(&method, &path) {
-            let mut response = APIHandlerResponse::new(StatusCode::OK, None);
+            let mut response = APIHandlerResponse::new(StatusCode::OK, None, None);
             for handler in handlers.iter() {
                 response = handler(&self.handler, ctx).await;
                 if response.status != StatusCode::OK {
@@ -98,7 +98,7 @@ impl<T> Router<T> {
 
             response
         } else {
-            return APIHandlerResponse::new(StatusCode::NOT_FOUND, None);
+            APIHandlerResponse::new(StatusCode::NOT_FOUND, None, None)
         }
     }
 

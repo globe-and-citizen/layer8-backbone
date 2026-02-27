@@ -15,7 +15,7 @@ impl InitTunnelHandler {
         _backend_url: String,
     ) -> Result<InitEncryptedTunnelRequest, APIHandlerResponse>
     {
-        return match InitTunnelHandler::parse_request_body::<
+        match InitTunnelHandler::parse_request_body::<
             InitEncryptedTunnelRequest,
             ErrorResponse
         >(&ctx.get_request_body())
@@ -29,9 +29,10 @@ impl InitTunnelHandler {
 
                 Err(APIHandlerResponse {
                     status: StatusCode::BAD_REQUEST,
+                    cookies: None,
                     body,
                 })
             }
-        };
+        }
     }
 }

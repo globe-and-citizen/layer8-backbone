@@ -48,12 +48,13 @@ pub type APIHandler<T> = Box<dyn for<'a> Fn(&'a T, &'a mut Layer8Context) -> Box
 #[derive(Debug, Default)]
 pub struct APIHandlerResponse {
     pub status: StatusCode,
+    pub cookies: Option<String>,
     pub body: Option<Vec<u8>>,
 }
 
 impl APIHandlerResponse {
-    pub fn new(status: StatusCode, body: Option<Vec<u8>>) -> Self {
-        APIHandlerResponse { status, body }
+    pub fn new(status: StatusCode, body: Option<Vec<u8>>, cookies: Option<String>) -> Self {
+        APIHandlerResponse { status, cookies, body }
     }
 }
 
@@ -74,7 +75,7 @@ pub trait ResponseBodyTrait: Serialize + for<'de> Deserialize<'de> + Debug {
 
     /// Override this method to handle error serialization if your handler implements
     /// the `DefaultHandler` trait.
-    fn from_json_err(_err: serde_json::Error) -> Option<Self> {None}
+    fn from_json_err(_err: serde_json::Error) -> Option<Self> { None }
 }
 
 /// `RequestBodyTrait` provides a default method to deserialize the request body bytes

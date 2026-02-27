@@ -26,17 +26,19 @@ impl ProxyHandler {
     ) -> Result<JWTClaims, APIHandlerResponse> {
         match ctx.get_request_header().get(header_key) {
             None => {
-                return Err(APIHandlerResponse {
+                Err(APIHandlerResponse {
                     status: StatusCode::BAD_REQUEST,
+                    cookies: None,
                     body: Some(ErrorResponse {
                         error: format!("Missing {} header", header_key.to_string()),
                     }.to_bytes()),
-                });
+                })
             },
             Some(token) => {
                 if token.is_empty() {
                     return Err(APIHandlerResponse {
                         status: StatusCode::BAD_REQUEST,
+                        cookies: None,
                         body: Some(ErrorResponse {
                             error: format!("Empty {} header", header_key.to_string()),
                         }.to_bytes()),
@@ -56,6 +58,7 @@ impl ProxyHandler {
                         );
                         Err(APIHandlerResponse {
                             status: StatusCode::BAD_REQUEST,
+                            cookies: None,
                             body: Some(ErrorResponse {
                                 error: err.to_string(),
                             }.to_bytes()),
@@ -80,21 +83,22 @@ impl ProxyHandler {
             Err(err) => return Err(err)
         }
 
-        return match ProxyHandler::validate_jwt_token(ctx, HeaderKeys::INT_RP_JWT_KEY, jwt_secret) {
+        match ProxyHandler::validate_jwt_token(ctx, HeaderKeys::INT_RP_JWT_KEY, jwt_secret) {
             Ok(claims) => {
                 // extract ntor_session_id from claims
                 match claims.ntor_session_id {
                     Some(ntor_session_id) => Ok(ntor_session_id),
                     None => Err(APIHandlerResponse {
                         status: StatusCode::BAD_REQUEST,
+                        cookies: None,
                         body: Some(ErrorResponse {
                             error: "Missing ntor_session_id in JWT claims".to_string(),
                         }.to_bytes()),
                     }),
                 }
             }
-            Err(err) => return Err(err)
-        };
+            Err(err) => Err(err)
+        }
     }
 
     pub(crate) fn validate_request_body(
@@ -113,15 +117,16 @@ impl ProxyHandler {
                     "Error parsing request body: {}",
                     err
                 );
-                return Err(APIHandlerResponse {
+                Err(APIHandlerResponse {
                     status: StatusCode::BAD_REQUEST,
+                    cookies: None,
                     body: Some(
                         ErrorResponse {
                             error: format!("Error parsing request body: {}", err),
                         }
                         .to_bytes(),
                     ),
-                });
+                })
             }
         }
     }
@@ -144,6 +149,7 @@ impl ProxyHandler {
             .map_err(|err| {
                 return APIHandlerResponse {
                     status: StatusCode::BAD_REQUEST,
+                    cookies: None,
                     body: Some(format!("Decryption failed: {}", err).as_bytes().to_vec()),
                 };
             })?;
@@ -153,6 +159,7 @@ impl ProxyHandler {
         let wrapped_request: L8RequestObject = bytes_to_json(decrypted_data).map_err(|err| {
             return APIHandlerResponse {
                 status: StatusCode::BAD_REQUEST,
+                cookies: None,
                 body: Some(
                     format!("Failed to parse request body: {}", err)
                         .as_bytes()
@@ -199,7 +206,7 @@ impl ProxyHandler {
             .send()
             .await;
 
-        return match response {
+        match response {
             Ok(success_res) => {
                 let status = success_res.status().as_u16();
                 let status_text = success_res.status()
@@ -245,10 +252,11 @@ impl ProxyHandler {
 
                 Err(APIHandlerResponse {
                     status: StatusCode::BAD_GATEWAY,
+                    cookies: None,
                     body: Some(err_body.to_bytes()),
                 })
             }
-        };
+        }
     }
 
     pub(crate) fn encrypt_response_body(
@@ -266,6 +274,7 @@ impl ProxyHandler {
         let encrypted_data = ntor_server.encrypt(data).map_err(|err| {
             return APIHandlerResponse {
                 status: StatusCode::INTERNAL_SERVER_ERROR,
+                cookies: None,
                 body: Some(format!("Encryption failed: {}", err).as_bytes().to_vec()),
             };
         })?;

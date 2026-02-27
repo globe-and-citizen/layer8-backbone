@@ -75,6 +75,7 @@ impl ForwardHandler {
 
                 APIHandlerResponse {
                     status: StatusCode::INTERNAL_SERVER_ERROR,
+                    cookies: None,
                     body: Some(response_body.to_bytes()),
                 }
             })?;
@@ -94,6 +95,7 @@ impl ForwardHandler {
 
             Err(APIHandlerResponse {
                 status: StatusCode::BAD_REQUEST,
+                cookies: None,
                 body: Some(response_body.to_bytes()),
             })
         } else {
@@ -112,6 +114,7 @@ impl ForwardHandler {
                 );
                 APIHandlerResponse {
                     status: StatusCode::INTERNAL_SERVER_ERROR,
+                    cookies: None,
                     body: None,
                 }
             })?;
@@ -129,6 +132,7 @@ impl ForwardHandler {
                     );
                     APIHandlerResponse {
                         status: StatusCode::INTERNAL_SERVER_ERROR,
+                        cookies: None,
                         body: None,
                     }
                 })?;
@@ -153,22 +157,19 @@ impl ForwardHandler {
         &self,
         token: &str,
     ) -> Result<IntFPSession, String> {
-        return match utils::jwt::verify_jwt_token(token, &self.config.jwt_virtual_connection_key) {
+        match utils::jwt::verify_jwt_token(token, &self.config.jwt_virtual_connection_key) {
             Ok(_claims) => {
                 // todo check claims if needed
-
                 match {
                     let jwts = self.jwts_storage.lock().unwrap();
                     jwts.get(token).cloned()
                 } {
-                    None => {
-                        Err("token not found!".to_string())
-                    }
+                    None => Err("token not found!".to_string()),
                     Some(session) => Ok(session)
                 }
             }
             Err(err) => Err(err.to_string())
-        };
+        }
     }
 
     /// Validate request body and get ntor certificate for the given backend URL.
@@ -183,12 +184,14 @@ impl ForwardHandler {
             Err(Some(e)) => {
                 return APIHandlerResponse {
                     status: StatusCode::BAD_REQUEST,
+                    cookies: None,
                     body: Some(e.to_bytes()),
                 };
             }
             Err(None) => {
                 return APIHandlerResponse {
                     status: StatusCode::BAD_REQUEST,
+                    cookies: None,
                     body: None,
                 };
             }
@@ -217,6 +220,7 @@ impl ForwardHandler {
 
         APIHandlerResponse {
             status: StatusCode::OK,
+            cookies: None,
             body: Some(received_body),
         }
     }
@@ -229,7 +233,7 @@ impl ForwardHandler {
 
         let response_body = ctx.get_response_body();
 
-        return match utils::bytes_to_json::<InitTunnelResponseFromRP>(response_body) {
+        match utils::bytes_to_json::<InitTunnelResponseFromRP>(response_body) {
             Err(e) => {
                 error!(
                     correlation_id=ctx.get_correlation_id(),
@@ -239,6 +243,7 @@ impl ForwardHandler {
                 );
                 APIHandlerResponse {
                     status: StatusCode::INTERNAL_SERVER_ERROR,
+                    cookies: None,
                     body: None,
                 }
             }
@@ -269,10 +274,11 @@ impl ForwardHandler {
 
                 APIHandlerResponse {
                     status: StatusCode::OK,
+                    cookies: None,
                     body: Some(res_to_int.to_bytes()),
                 }
             }
-        };
+        }
     }
 
     pub fn handle_healthcheck(&self, ctx: &mut Layer8Context) -> APIHandlerResponse {
@@ -285,6 +291,7 @@ impl ForwardHandler {
                 ctx.insert_response_header("x-fp-healthcheck-error", "response-header-error");
                 return APIHandlerResponse {
                     status: StatusCode::IM_A_TEAPOT,
+                    cookies: None,
                     body: Some(response_bytes),
                 };
             }
@@ -296,9 +303,10 @@ impl ForwardHandler {
 
         ctx.insert_response_header("x-fp-healthcheck-success", "response-header-success");
 
-        return APIHandlerResponse {
+        APIHandlerResponse {
             status: StatusCode::OK,
+            cookies: None,
             body: Some(response_bytes),
-        };
+        }
     }
 }
