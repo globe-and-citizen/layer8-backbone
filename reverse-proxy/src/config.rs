@@ -1,5 +1,5 @@
 use serde::Deserialize;
-use crate::tls_conf::TlsConfig;
+use crate::tls_conf::ProxyConfig;
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct RPConfig {
@@ -8,7 +8,7 @@ pub struct RPConfig {
     #[serde(flatten)]
     pub server: ServerConfig,
     #[serde(flatten)]
-    pub tls: TlsConfig,
+    pub proxy: ProxyConfig,
     #[serde(flatten)]
     pub handler: HandlerConfig
 }

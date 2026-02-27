@@ -177,6 +177,9 @@ impl ReverseHandler {
             Err(res) => return res,
         };
 
+        let cookies: Option<String> = wrapped_response.headers.get("set-cookie")
+            .and_then(|v| v.as_str().map(|s| s.to_string()));
+
         match ProxyHandler::encrypt_response_body(
             wrapped_response,
             self.config.ntor_server_id.clone(),

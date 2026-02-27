@@ -7,22 +7,26 @@ use tracing::{info};
 use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
 use pingora_router::router::Router;
 use crate::handler::common::consts::LogTypes;
+use crate::tls_conf::ProxyConfig;
 
 pub struct ReverseProxy<T> {
-    router: Router<T>
+    config: ProxyConfig,
+    router: Router<T>,
 }
 
 impl<T> ReverseProxy<T> {
-    pub fn new(router: Router<T>) -> Self {
+    pub fn new(config: ProxyConfig, router: Router<T>) -> Self {
         ReverseProxy {
-            router
+            config,
+            router,
         }
     }
 
     async fn set_headers(
+        &self,
         session: &mut Session,
         ctx: &mut Layer8Context,
-        response_status: StatusCode
+        response_status: StatusCode,
     ) -> pingora::Result<()> {
         let mut header = ResponseHeader::build(response_status, None)?;
 
@@ -34,17 +38,36 @@ impl<T> ReverseProxy<T> {
         // Common headers
         header.insert_header("Content-Type", "application/json").unwrap_or_default();
         header
-            .insert_header("Access-Control-Allow-Origin", "*")
-            .unwrap_or_default();
-        header
             .insert_header("Access-Control-Allow-Methods", "*")
-            .unwrap_or_default();
-        header
-            .insert_header("Access-Control-Allow-Headers", "*")
             .unwrap_or_default();
         header
             .insert_header("Access-Control-Max-Age", "86400")
             .unwrap_or_default();
+
+        header
+            .insert_header(
+                "Access-Control-Allow-Credentials",
+                self.config.cors_allow_credentials.to_string(),
+            )
+            .unwrap_or_default();
+
+
+        if let Some(origin) = ctx.request.header.get("origin") {
+            if self
+                .config
+                .cors_allow_origins
+                .iter()
+                .any(|allowed| allowed == origin)
+            {
+                header
+                    .insert_header("Access-Control-Allow-Origin", origin.to_string())
+                    .unwrap_or_default();
+            }
+        }
+
+        if let Some(req_headers) = ctx.request.header.get("Access-Control-Request-Headers") {
+            header.insert_header("Access-Control-Allow-Headers", req_headers).unwrap_or_default();
+        }
 
         let correlation_id = ctx.get_correlation_id();
         info!(
@@ -82,7 +105,6 @@ impl<T: Sync> ProxyHttp for ReverseProxy<T> {
     {
         // create Context
         ctx.update(session).await?;
-
         let correlation_id = ctx.set_correlation_id();
 
         info!(
@@ -109,7 +131,12 @@ impl<T: Sync> ProxyHttp for ReverseProxy<T> {
             ctx.insert_response_header("Content-length", &body_bytes.len().to_string());
             response_bytes = body_bytes;
         };
-        ReverseProxy::<T>::set_headers(session, ctx, handler_response.status).await?;
+
+        // set cookies to response
+        if let Some(cookies) = handler_response.cookies {
+            ctx.insert_response_header("Set-Cookie", &cookies);
+        }
+        self.set_headers(session, ctx, handler_response.status).await?;
 
         // Write the response body to the session after setting headers
         session.write_response_body(Some(Bytes::from(response_bytes)), true).await?;
@@ -127,7 +154,6 @@ impl<T: Sync> ProxyHttp for ReverseProxy<T> {
         if let Some(_err) = e {
             status = session.response_written().unwrap().status.as_u16();
         }
-
         let correlation_id = ctx.get_correlation_id();
 
         info!(

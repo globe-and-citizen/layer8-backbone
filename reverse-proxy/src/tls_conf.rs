@@ -8,16 +8,20 @@ use tracing::{debug, error, info};
 use crate::handler::common::consts::LogTypes;
 
 #[derive(Debug, Deserialize, Clone)]
-pub struct TlsConfig {
+pub struct ProxyConfig {
     #[serde(deserialize_with = "utils::deserializer::string_to_bool")]
     pub enable_tls: bool,
     pub ca_cert: String,
     pub cert: String,
     pub key: String,
+    #[serde(deserialize_with = "utils::deserializer::string_to_bool")]
+    pub cors_allow_credentials: bool,
+    #[serde(deserialize_with = "utils::deserializer::string_to_vec")]
+    pub cors_allow_origins: Vec<String>
 }
 
 #[async_trait::async_trait]
-impl TlsAccept for TlsConfig {
+impl TlsAccept for ProxyConfig {
     async fn certificate_callback(&self, ssl: &mut TlsRef) {
         // set the hostname for the SSL context
         ssl.set_hostname("localhost")
@@ -87,7 +91,7 @@ impl TlsAccept for TlsConfig {
     }
 }
 
-impl TlsConfig {
+impl ProxyConfig {
     fn verify_callback(
         ca_cert_pub_key: PKey<Public>,
     ) -> Box<dyn Fn(&mut SslRef) -> Result<(), SslVerifyError> + 'static + Sync + Send> {

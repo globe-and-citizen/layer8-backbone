@@ -16,7 +16,7 @@ const SECRET_KEY = process.env.JWT_SECRET || "my_very_secret_key";
 
 app.use(express.json());
 app.use(cors({
-    origin: "http://localhost:5173", // EXACT frontend origin
+    origin: ["http://localhost:5173", "http://localhost:6193"], // EXACT frontend origin
     credentials: true,               // allow cookies
 }));
 // Session middleware
@@ -27,7 +27,7 @@ app.use(
         resave: false,
         saveUninitialized: false,
         cookie: {
-            // httpOnly: true,
+            httpOnly: true,
             // secure: false, // true if HTTPS
             // sameSite: "lax",
             maxAge: 1000 * 60 * 60, // 1 hour

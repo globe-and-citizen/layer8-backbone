@@ -52,3 +52,23 @@ where
         _ => Err(serde::de::Error::custom("Expected 'true' or 'false'")),
     }
 }
+
+pub fn string_to_vec<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let s: String = Deserialize::deserialize(deserializer).map_err(|e| {
+        serde::de::Error::custom(format!(
+            "Failed to deserialize string to Vec<String>: {}",
+            e
+        ))
+    })?;
+
+    if s.trim().is_empty() {
+        return Ok(vec![]);
+    }
+
+    Ok(s.split(',')
+        .map(|item| item.trim().to_string())
+        .collect())
+}

@@ -1,4 +1,4 @@
-use crate::config::TlsConfig;
+use crate::config::ProxyConfig;
 use crate::handler::ForwardHandler;
 use crate::handler::consts::{CtxKeys, HeaderKeys, LogTypes, RequestPaths};
 use crate::handler::types::response::ErrorResponse;
@@ -22,16 +22,35 @@ use std::time::Duration;
 use tracing::{debug, error, info};
 
 pub struct ForwardProxy {
-    tls_config: TlsConfig,
+    config: ProxyConfig,
     handler: ForwardHandler,
 }
 
 impl ForwardProxy {
-    pub fn new(tls_config: TlsConfig, handler: ForwardHandler) -> Self {
+    pub fn new(tls_config: ProxyConfig, handler: ForwardHandler) -> Self {
         ForwardProxy {
-            tls_config,
+            config: tls_config,
             handler,
         }
+    }
+
+    pub fn set_response_header(&self, ctx: &Layer8Context, response: &mut ResponseHeader) -> pingora::Result<()> {
+        response.insert_header("Access-Control-Allow-Credentials", self.config.cors_allow_credentials.to_string())?;
+        response.insert_header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")?;
+        response.insert_header("Access-Control-Max-Age", "86400")?;
+
+        if let Some(origin) = ctx.request.header.get("origin") {
+            if self
+                .config
+                .cors_allow_origins
+                .iter()
+                .any(|allowed| allowed == origin)
+            {
+                response.insert_header("Access-Control-Allow-Origin", origin.to_string())?;
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -84,11 +103,10 @@ impl ProxyHttp for ForwardProxy {
         // A dns name can resolve to multiple socket addresses.
         // We will try to connect to each address until one succeeds.
         let mut address_list: Vec<&str> = addrs.split(',').collect();
-        let enable_tls = self.tls_config.enable_tls; // clone for move into closure
         let upstream_sni = sni.to_string(); // clone for move into closure
         let mut opt_peer = None;
         for addr in address_list.clone() {
-            match std::panic::catch_unwind(|| HttpPeer::new(addr, enable_tls, upstream_sni.clone()))
+            match std::panic::catch_unwind(|| HttpPeer::new(addr, self.config.enable_tls, upstream_sni.clone()))
             {
                 Ok(p) => {
                     info!(
@@ -128,15 +146,15 @@ impl ProxyHttp for ForwardProxy {
             }
         };
 
-        if self.tls_config.enable_tls {
-            let cert = X509::from_pem(&self.tls_config.cert.clone().into_bytes())
+        if self.config.enable_tls {
+            let cert = X509::from_pem(&self.config.cert.clone().into_bytes())
                 .or_err(TLS_CONF_ERR, "Failed to load FP's certificate")?;
 
-            let ca_cert = X509::from_pem(&self.tls_config.ca_cert.clone().into_bytes())
+            let ca_cert = X509::from_pem(&self.config.ca_cert.clone().into_bytes())
                 .or_err(TLS_CONF_ERR, "Failed to load CA certificate")?;
 
             let key =
-                boring::pkey::PKey::private_key_from_pem(&self.tls_config.key.clone().into_bytes())
+                boring::pkey::PKey::private_key_from_pem(&self.config.key.clone().into_bytes())
                     .or_err(TLS_CONF_ERR, "Failed to load private key")?;
 
             // The certificate to present in mTLS connections to upstream
@@ -184,9 +202,15 @@ impl ProxyHttp for ForwardProxy {
                 // Handle CORS preflight request
                 ctx.response.status = StatusCode::NO_CONTENT;
                 let mut header = ResponseHeader::build(StatusCode::NO_CONTENT, None)?;
-                header.insert_header("Access-Control-Allow-Origin", "*")?;
-                header.insert_header("Access-Control-Allow-Methods", "POST")?;
-                header.insert_header("Access-Control-Allow-Headers", "*")?;
+                if let Some(req_headers) = session
+                    .req_header()
+                    .headers
+                    .get("Access-Control-Request-Headers")
+                {
+                    header.insert_header("Access-Control-Allow-Headers", req_headers)?;
+                }
+                self.set_response_header(ctx, &mut header)?;
+
                 session.write_response_header_ref(&header).await?;
                 session.set_keepalive(None);
                 return Ok(true);
@@ -248,22 +272,19 @@ impl ProxyHttp for ForwardProxy {
                     } else {
                         error_response_bytes = ErrorResponse {
                             error: "Invalid backend_url".to_string(),
-                        }
-                        .to_bytes();
+                        }.to_bytes();
                     }
                 } else {
                     error_response_bytes = ErrorResponse {
                         error: "backend_url is a required param".to_string(),
-                    }
-                    .to_bytes();
+                    }.to_bytes();
                 }
             }
             (RequestPaths::PROXY, "POST") => {
                 error_response_bytes = match ctx.get_request_header().get(HeaderKeys::INT_FP_JWT) {
                     None => ErrorResponse {
                         error: "Missing int_fp_jwt header".to_string(),
-                    }
-                    .to_bytes(),
+                    }.to_bytes(),
                     Some(int_fp_jwt) => match self.handler.verify_int_fp_jwt(int_fp_jwt.as_str()) {
                         Ok(session) => {
                             debug!(%correlation_id, "IntFPSession: {:?}", session);
@@ -284,8 +305,7 @@ impl ProxyHttp for ForwardProxy {
                             } else {
                                 ErrorResponse {
                                     error: "Invalid backend_url".to_string(),
-                                }
-                                .to_bytes()
+                                }.to_bytes()
                             }
                         }
                         Err(err) => {
@@ -492,11 +512,16 @@ impl ProxyHttp for ForwardProxy {
         &self,
         _session: &mut Session,
         upstream_response: &mut ResponseHeader,
-        _ctx: &mut Self::CTX,
+        ctx: &mut Self::CTX,
     ) -> pingora::Result<()> {
-        upstream_response.insert_header("Access-Control-Allow-Origin", "*")?;
-        upstream_response.insert_header("Access-Control-Allow-Methods", "POST")?;
-        upstream_response.insert_header("Access-Control-Allow-Headers", "*")?;
+        self.set_response_header(ctx, upstream_response)?;
+        // if let Some(req_headers) = session
+        //     .req_header()
+        //     .headers
+        //     .get("Access-Control-Request-Headers")
+        // {
+        //     upstream_response.insert_header("Access-Control-Allow-Headers", req_headers)?;
+        // }
 
         if let Some(length) = upstream_response.headers.get("content-length") {
             if length != "0" {
@@ -597,7 +622,7 @@ impl ProxyHttp for ForwardProxy {
 
         if session.req_header().method.as_str() == "POST"
             && (session.req_header().uri.path() == RequestPaths::PROXY
-                || session.req_header().uri.path() == RequestPaths::INIT_TUNNEL)
+            || session.req_header().uri.path() == RequestPaths::INIT_TUNNEL)
         {
             let client_id = ctx
                 .get(&CtxKeys::BACKEND_AUTH_CLIENT_ID.to_string())
@@ -615,8 +640,7 @@ impl ProxyHttp for ForwardProxy {
                     request_path,
                     total_byte_transferred,
                     status,
-                )
-                .await;
+                ).await;
             });
         }
 

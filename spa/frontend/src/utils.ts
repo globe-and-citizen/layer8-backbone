@@ -48,6 +48,7 @@ export function logout() {
             console.log(data);
             localStorage.removeItem('username');
             alert('Logged out successfully.')
+            document.cookie = "demo.spa=; Path=/; Max-Age=0"
             location.href = '/'
         }).catch(err => console.error(err));
 }

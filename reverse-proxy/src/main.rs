@@ -63,10 +63,10 @@ fn main() {
 
     let mut my_proxy = http_proxy_service(
         &my_server.configuration,
-        ReverseProxy::new(router),
+        ReverseProxy::new(rp_config.proxy.clone(), router),
     );
 
-    if rp_config.tls.enable_tls {
+    if rp_config.proxy.enable_tls {
         my_proxy.add_tls_with_settings(
             &format!(
                 "{}:{}",
@@ -74,7 +74,7 @@ fn main() {
                 rp_config.server.listen_port
             ),
             None,
-            TlsSettings::with_callbacks(Box::new(rp_config.tls)).expect("Cannot set TlsSettings callbacks")
+            TlsSettings::with_callbacks(Box::new(rp_config.proxy)).expect("Cannot set TlsSettings callbacks")
         );
     } else {
         my_proxy.add_tcp(&format!(

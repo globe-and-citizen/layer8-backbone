@@ -9,7 +9,7 @@ pub struct FPConfig {
     #[serde(flatten)]
     pub log_config: LogConfig,
     #[serde(flatten)]
-    pub tls_config: TlsConfig,
+    pub tls_config: ProxyConfig,
     #[serde(flatten)] // This flattens the HandlerConfig fields into this struct
     pub handler_config: HandlerConfig,
     #[serde(flatten)]
@@ -38,12 +38,16 @@ pub struct HandlerConfig {
 }
 
 #[derive(Debug, Deserialize, Clone)]
-pub struct TlsConfig {
+pub struct ProxyConfig {
     #[serde(deserialize_with = "deserializer::string_to_bool")]
     pub enable_tls: bool,
     pub ca_cert: String,
     pub cert: String,
     pub key: String,
+    #[serde(deserialize_with = "utils::deserializer::string_to_bool")]
+    pub cors_allow_credentials: bool,
+    #[serde(deserialize_with = "deserializer::string_to_vec")]
+    pub cors_allow_origins: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]

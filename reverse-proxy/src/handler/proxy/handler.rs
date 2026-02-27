@@ -178,8 +178,15 @@ impl ProxyHandler {
     ) -> Result<L8ResponseObject, APIHandlerResponse>
     {
         let correlation_id = ctx.get_correlation_id();
-        let header_map = utils::hashmap_to_headermap(&wrapped_request.headers)
+        let mut header_map = utils::hashmap_to_headermap(&wrapped_request.headers)
             .unwrap_or_else(|_| HeaderMap::new());
+
+        if let Some(cookies) = ctx.request.header.get(reqwest::header::COOKIE.as_str()) {
+            if let Ok(cookie_hv) = reqwest::header::HeaderValue::from_str(cookies.as_ref()) {
+                header_map.append(reqwest::header::COOKIE, cookie_hv);
+            }
+        };
+
         debug!(
             %correlation_id,
             log_type=LogTypes::HANDLE_PROXY_REQUEST,
