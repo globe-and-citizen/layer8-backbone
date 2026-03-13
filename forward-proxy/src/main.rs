@@ -16,7 +16,8 @@ fn load_config() -> FPConfig {
     dotenv::dotenv().ok();
 
     // Deserialize from env vars
-    let config: FPConfig = envy::from_env().expect("Failed to load config");
+    let mut config: FPConfig = envy::from_env().expect("Failed to load config");
+    config.tls_config.load().expect("Failed to load tls config");
 
     debug!(name: "FPConfig", value = ?config);
     config
@@ -29,7 +30,6 @@ fn main() {
     // Initialize the async runtime
     let rt = Runtime::new().unwrap();
     rt.block_on(Statistics::init_influxdb_client(&config.influxdb_config));
-
 
     let _logger_guard = utils::log::init_logger(
         config.log_config.log_level.clone(),

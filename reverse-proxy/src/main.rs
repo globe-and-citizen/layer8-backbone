@@ -21,9 +21,11 @@ fn load_config() -> RPConfig {
     dotenv::dotenv().ok();
 
     // Deserialize from env vars
-    let config: RPConfig = envy::from_env().map_err(|e| {
+    let mut config: RPConfig = envy::from_env().map_err(|e| {
         error!("Failed to load configuration: {}", e);
     }).unwrap();
+
+    config.proxy.load_mtls_certs().expect("Failed to load mtls certs");
 
     debug!(name: "RPConfig", value = ?config);
     config

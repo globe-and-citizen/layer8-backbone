@@ -4,16 +4,25 @@ use boring::{
 };
 use pingora::{listeners::TlsAccept, protocols::tls::TlsRef};
 use serde::Deserialize;
-use tracing::{debug, error, info};
+use tracing::{error, info};
 use crate::handler::common::consts::LogTypes;
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct ProxyConfig {
     #[serde(deserialize_with = "utils::deserializer::string_to_bool")]
     pub enable_tls: bool,
+    #[serde(default)]
     pub ca_cert: String,
+    #[serde(default)]
     pub cert: String,
+    #[serde(default)]
     pub key: String,
+    #[serde(default)]
+    pub path_to_ca_cert: String,
+    #[serde(default)]
+    pub path_to_cert: String,
+    #[serde(default)]
+    pub path_to_key: String,
     #[serde(deserialize_with = "utils::deserializer::string_to_bool")]
     pub cors_allow_credentials: bool,
     #[serde(deserialize_with = "utils::deserializer::string_to_vec")]
@@ -92,9 +101,29 @@ impl TlsAccept for ProxyConfig {
 }
 
 impl ProxyConfig {
+    pub fn load_mtls_certs(&mut self) -> Result<(), String> {
+        if self.ca_cert.is_empty() {
+            self.ca_cert = std::fs::read_to_string(&self.path_to_ca_cert)
+                .map_err(|e| format!("Failed to read CA certificate: {}", e))?;
+        }
+
+        if self.cert.is_empty() {
+            self.cert = std::fs::read_to_string(&self.path_to_cert)
+                .map_err(|e| format!("Failed to read certificate: {}", e))?;
+        }
+
+        if self.key.is_empty() {
+            self.key = std::fs::read_to_string(&self.path_to_key)
+                .map_err(|e| format!("Failed to read key: {}", e))?;
+        }
+
+        Ok(())
+    }
+
     fn verify_callback(
         ca_cert_pub_key: PKey<Public>,
     ) -> Box<dyn Fn(&mut SslRef) -> Result<(), SslVerifyError> + 'static + Sync + Send> {
+        println!("must reach here 1");
         Box::new(move |ssl| -> Result<(), SslVerifyError> {
             Self::verify_client_file(&ca_cert_pub_key, ssl)
         })
@@ -104,6 +133,8 @@ impl ProxyConfig {
         server_ca_public_key: &PKey<Public>,
         ssl: &mut TlsRef,
     ) -> Result<(), SslVerifyError> {
+        println!("must reach here 2");
+
         if ssl.verify_mode() != SslVerifyMode::PEER {
             error!(
                 log_type=LogTypes::TLS_HANDSHAKE,
@@ -124,7 +155,9 @@ impl ProxyConfig {
         };
 
         // Making sure the client CN is "forward_proxy" in debug logs
-        debug!("Debug Client certificate: {:?}", client_cert.subject_name());
+        println!("Debug Client certificate: {:?}", client_cert.subject_name());
+        println!("Server ca pub: {:?}", server_ca_public_key);
+        println!("Client cert: {:?}", client_cert.to_pem());
 
         // Verify the client certificate against the server's CA
         if !client_cert.verify(&server_ca_public_key).unwrap_or_default() {
@@ -142,3 +175,4 @@ impl ProxyConfig {
         Ok(())
     }
 }
+
