@@ -1,7 +1,11 @@
 use boring::{
-    pkey::{PKey, Public},
+    pkey::{PKey},
     ssl::{SslAlert, SslRef, SslVerifyError, SslVerifyMode},
+    x509::{X509StoreContext},
 };
+use boring::stack::Stack;
+use boring::x509::store::X509StoreBuilder;
+use boring::x509::X509;
 use pingora::{listeners::TlsAccept, protocols::tls::TlsRef};
 use serde::Deserialize;
 use tracing::{error, info};
@@ -26,14 +30,14 @@ pub struct ProxyConfig {
     #[serde(deserialize_with = "utils::deserializer::string_to_bool")]
     pub cors_allow_credentials: bool,
     #[serde(deserialize_with = "utils::deserializer::string_to_vec")]
-    pub cors_allow_origins: Vec<String>
+    pub cors_allow_origins: Vec<String>,
 }
 
 #[async_trait::async_trait]
 impl TlsAccept for ProxyConfig {
     async fn certificate_callback(&self, ssl: &mut TlsRef) {
-        // set the hostname for the SSL context
-        ssl.set_hostname("localhost")
+        // set hostname
+        ssl.set_hostname("reverse-proxy")
             .inspect_err(|e| {
                 error!(
                     log_type=LogTypes::TLS_HANDSHAKE,
@@ -42,49 +46,69 @@ impl TlsAccept for ProxyConfig {
             })
             .unwrap();
 
-        // provide the private key
-        {
-            let key = PKey::private_key_from_pem(&self.key.clone().into_bytes())
+        // load private key
+        let key = PKey::private_key_from_pem(self.key.as_bytes())
+            .inspect_err(|e| {
+                error!(
+                    log_type=LogTypes::TLS_HANDSHAKE,
+                    "Failed to parse server private key: {}", e
+                );
+            })
+            .unwrap();
+
+        ssl.set_private_key(&key)
+            .inspect_err(|e| {
+                error!(
+                    log_type=LogTypes::TLS_HANDSHAKE,
+                    "Failed to set server private key: {}", e
+                );
+            })
+            .unwrap();
+
+        // load certificate chain
+        let mut certs = boring::x509::X509::stack_from_pem(self.cert.as_bytes())
+            .inspect_err(|e| {
+                error!(
+                    log_type=LogTypes::TLS_HANDSHAKE,
+                    "Failed to parse server certificate chain: {}", e
+                );
+            })
+            .unwrap();
+
+        if certs.is_empty() {
+            error!(
+                log_type=LogTypes::TLS_HANDSHAKE,
+                "Certificate chain is empty"
+            );
+            panic!("Empty certificate chain");
+        }
+
+        // first cert = leaf
+        let leaf = certs.remove(0);
+
+        ssl.set_certificate(&leaf)
+            .inspect_err(|e| {
+                error!(
+                    log_type=LogTypes::TLS_HANDSHAKE,
+                    "Failed to set server certificate: {}", e
+                );
+            })
+            .unwrap();
+
+        // remaining certs = intermediates
+        for cert in certs {
+            ssl.add_chain_cert(&cert)
                 .inspect_err(|e| {
                     error!(
                         log_type=LogTypes::TLS_HANDSHAKE,
-                        "Failed to parse server private key: {}", e
-                    );
-                })
-                .unwrap();
-            ssl.set_private_key(&key)
-                .inspect_err(|e| {
-                    error!(
-                        log_type=LogTypes::TLS_HANDSHAKE,
-                        "Failed to set server private key: {}", e
+                        "Failed to add chain certificate: {}", e
                     );
                 })
                 .unwrap();
         }
 
-        // provide the certificate chain file
-        {
-            let cert = boring::x509::X509::from_pem(&self.cert.clone().into_bytes())
-                .inspect_err(|e| {
-                    error!(
-                        log_type=LogTypes::TLS_HANDSHAKE,
-                        "Failed to parse server certificate: {}", e
-                    );
-                })
-                .unwrap();
-
-            ssl.set_certificate(&cert)
-                .inspect_err(|e| {
-                    error!(
-                        log_type=LogTypes::TLS_HANDSHAKE,
-                        "Failed to set server certificate: {}", e
-                    );
-                })
-                .unwrap();
-        }
-
-        // the CA certificate is used to verify the client certificate
-        let ca_cert = boring::x509::X509::from_pem(&self.ca_cert.clone().into_bytes())
+        // load CA used to verify clients
+        let ca_cert = boring::x509::X509::from_pem(self.ca_cert.as_bytes())
             .inspect_err(|e| {
                 error!(
                     log_type=LogTypes::TLS_HANDSHAKE,
@@ -95,7 +119,7 @@ impl TlsAccept for ProxyConfig {
 
         ssl.set_custom_verify_callback(
             SslVerifyMode::PEER,
-            Self::verify_callback(ca_cert.public_key().unwrap()),
+            Self::verify_callback(ca_cert.clone()),
         );
     }
 }
@@ -121,56 +145,67 @@ impl ProxyConfig {
     }
 
     fn verify_callback(
-        ca_cert_pub_key: PKey<Public>,
+        ca_cert: X509,
     ) -> Box<dyn Fn(&mut SslRef) -> Result<(), SslVerifyError> + 'static + Sync + Send> {
-        println!("must reach here 1");
         Box::new(move |ssl| -> Result<(), SslVerifyError> {
-            Self::verify_client_file(&ca_cert_pub_key, ssl)
+            Self::verify_client_file(&ca_cert, ssl)
         })
     }
 
     fn verify_client_file(
-        server_ca_public_key: &PKey<Public>,
+        ca_cert: &X509,
         ssl: &mut TlsRef,
     ) -> Result<(), SslVerifyError> {
-        println!("must reach here 2");
-
-        if ssl.verify_mode() != SslVerifyMode::PEER {
+        let client_cert = ssl.peer_certificate().ok_or_else(|| {
             error!(
                 log_type=LogTypes::TLS_HANDSHAKE,
-                "SSL verify mode is not set to PEER, cannot verify client certificate"
+                "Failed to get client certificate"
             );
-            return Err(SslVerifyError::Invalid(SslAlert::INTERNAL_ERROR));
+            SslVerifyError::Invalid(SslAlert::NO_CERTIFICATE)
+        })?;
+
+        // Build CA trust store
+        let mut store_builder = X509StoreBuilder::new()
+            .map_err(|_| SslVerifyError::Invalid(SslAlert::INTERNAL_ERROR))?;
+
+        store_builder
+            .add_cert(ca_cert.clone())
+            .map_err(|_| SslVerifyError::Invalid(SslAlert::INTERNAL_ERROR))?;
+
+        let store = store_builder.build();
+
+        // Create verification context
+        let mut ctx = X509StoreContext::new()
+            .map_err(|_| SslVerifyError::Invalid(SslAlert::INTERNAL_ERROR))?;
+
+        // Get client-supplied intermediate chain
+        let verified = if let Some(chain) = ssl.peer_cert_chain() {
+            ctx.init(&store, &client_cert, chain, |c| c.verify_cert())
+        } else {
+            let empty_chain = Stack::<X509>::new()
+                .map_err(|_| SslVerifyError::Invalid(SslAlert::INTERNAL_ERROR))?;
+            ctx.init(&store, &client_cert, &empty_chain, |c| c.verify_cert())
         }
-
-        let client_cert = match ssl.peer_certificate() {
-            Some(val) => val,
-            None => {
+            .map_err(|_| {
                 error!(
-                    log_type=LogTypes::TLS_HANDSHAKE,
-                    "Failed to get client certificate"
-                );
-                return Err(SslVerifyError::Invalid(SslAlert::NO_CERTIFICATE));
-            }
-        };
+            log_type=LogTypes::TLS_HANDSHAKE,
+            "Certificate verification process failed"
+        );
+                SslVerifyError::Invalid(SslAlert::BAD_CERTIFICATE)
+            })?;
 
-        // Making sure the client CN is "forward_proxy" in debug logs
-        println!("Debug Client certificate: {:?}", client_cert.subject_name());
-        println!("Server ca pub: {:?}", server_ca_public_key);
-        println!("Client cert: {:?}", client_cert.to_pem());
-
-        // Verify the client certificate against the server's CA
-        if !client_cert.verify(&server_ca_public_key).unwrap_or_default() {
+        if !verified {
             error!(
-                log_type=LogTypes::TLS_HANDSHAKE,
-                "Client certificate verification failed"
-            );
+            log_type=LogTypes::TLS_HANDSHAKE,
+            "Client certificate verification failed"
+        );
             return Err(SslVerifyError::Invalid(SslAlert::BAD_CERTIFICATE));
         }
+
         info!(
-            log_type=LogTypes::TLS_HANDSHAKE,
-            "Client certificate verification succeeded"
-        );
+        log_type=LogTypes::TLS_HANDSHAKE,
+        "Client certificate verification succeeded"
+    );
 
         Ok(())
     }

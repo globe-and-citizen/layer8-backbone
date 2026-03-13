@@ -6,7 +6,7 @@ use crate::statistics::Statistics;
 use async_trait::async_trait;
 use boring::x509::X509;
 use bytes::Bytes;
-use pingora::Error;
+use pingora::{Error};
 use pingora::OrErr;
 use pingora::http::{RequestHeader, ResponseHeader, StatusCode};
 use pingora::listeners::tls::TLS_CONF_ERR;
@@ -69,8 +69,6 @@ impl ProxyHttp for ForwardProxy {
         _session: &mut Session,
         ctx: &mut Self::CTX,
     ) -> pingora::Result<Box<HttpPeer>> {
-        // testing certs data; fixme to be dynamic
-
         // mTLS Steps:
         // 1. Client connects to server
         // 2. Server presents its TLS certificate
@@ -147,19 +145,17 @@ impl ProxyHttp for ForwardProxy {
         };
 
         if self.config.enable_tls {
-            let cert = X509::from_pem(&self.config.cert.clone().into_bytes())
-                .or_err(TLS_CONF_ERR, "Failed to load FP's certificate")?;
+            let cert_chain = X509::stack_from_pem(self.config.cert.as_bytes())
+                .or_err(TLS_CONF_ERR, "Failed to load FP certificate chain")?;
 
-            let ca_cert = X509::from_pem(&self.config.ca_cert.clone().into_bytes())
+            let ca_cert = X509::from_pem(self.config.ca_cert.as_bytes())
                 .or_err(TLS_CONF_ERR, "Failed to load CA certificate")?;
 
-            let key =
-                boring::pkey::PKey::private_key_from_pem(&self.config.key.clone().into_bytes())
-                    .or_err(TLS_CONF_ERR, "Failed to load private key")?;
+            let key = boring::pkey::PKey::private_key_from_pem(self.config.key.as_bytes())
+                .or_err(TLS_CONF_ERR, "Failed to load private key")?;
 
-            // The certificate to present in mTLS connections to upstream
-            // The organization implementing mTLS acts as its own certificate authority.
-            let cert_key = CertKey::new(vec![cert], key);
+            // The certificate chain to present in mTLS connections to upstream
+            let cert_key = CertKey::new(cert_chain, key);
 
             // Providing Peer Options
             let mut peer_options = PeerOptions::new();
