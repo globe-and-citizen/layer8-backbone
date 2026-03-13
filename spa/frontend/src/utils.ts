@@ -1,5 +1,5 @@
 import {computed, getCurrentInstance} from "vue";
-import * as interceptorWasm from "layer8-interceptor-production";
+import * as interceptorWasm from "l8-intercept";
 
 export async function interceptorFetch(
     url: string,
