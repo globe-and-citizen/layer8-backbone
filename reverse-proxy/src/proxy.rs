@@ -76,7 +76,7 @@ impl<T> ReverseProxy<T> {
             "Response Headers: {:?}",
             header.headers
         );
-        session.write_response_header_ref(&header).await
+        session.write_response_header_ref(&header, false).await
     }
 }
 
@@ -121,7 +121,7 @@ impl<T: Sync> ProxyHttp for ReverseProxy<T> {
         let handler_response = self.router.call_handler(ctx).await;
         if handler_response.status == StatusCode::NOT_FOUND && handler_response.body.is_none() {
             let header = ResponseHeader::build(StatusCode::NOT_FOUND, None)?;
-            session.write_response_header_ref(&header).await?;
+            session.write_response_header_ref(&header, false).await?;
             session.set_keepalive(None);
             return Ok(true);
         }

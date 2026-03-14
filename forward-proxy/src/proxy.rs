@@ -6,14 +6,13 @@ use crate::statistics::Statistics;
 use async_trait::async_trait;
 use boring::x509::X509;
 use bytes::Bytes;
-use pingora::{Error};
+use pingora::{Error, ErrorType};
 use pingora::OrErr;
 use pingora::http::{RequestHeader, ResponseHeader, StatusCode};
 use pingora::listeners::tls::TLS_CONF_ERR;
 use pingora::prelude::{HttpPeer, ProxyHttp, Session};
 use pingora::upstreams::peer::PeerOptions;
 use pingora::utils::tls::CertKey;
-use pingora_error::ErrorType;
 use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
 use pingora_router::handler::ResponseBodyTrait;
 use reqwest::header::TRANSFER_ENCODING;
@@ -207,7 +206,7 @@ impl ProxyHttp for ForwardProxy {
                 }
                 self.set_response_header(ctx, &mut header)?;
 
-                session.write_response_header_ref(&header).await?;
+                session.write_response_header_ref(&header, false).await?;
                 session.set_keepalive(None);
                 return Ok(true);
             }
@@ -247,7 +246,7 @@ impl ProxyHttp for ForwardProxy {
                     response_bytes = body_bytes;
                 };
 
-                session.write_response_header_ref(&header).await?;
+                session.write_response_header_ref(&header, false).await?;
 
                 // Write the response body to the session after setting headers
                 session
@@ -318,7 +317,7 @@ impl ProxyHttp for ForwardProxy {
             _ => {
                 ctx.response.status = StatusCode::NOT_FOUND;
                 let header = ResponseHeader::build(StatusCode::NOT_FOUND, None)?;
-                session.write_response_header_ref(&header).await?;
+                session.write_response_header_ref(&header, false).await?;
                 session.set_keepalive(None);
                 return Ok(true);
             }
@@ -328,7 +327,7 @@ impl ProxyHttp for ForwardProxy {
             ctx.response.status = StatusCode::BAD_REQUEST;
             ctx.set_response_body(error_response_bytes.clone());
             let header = ResponseHeader::build(StatusCode::BAD_REQUEST, None)?;
-            session.write_response_header_ref(&header).await?;
+            session.write_response_header_ref(&header, false).await?;
             session
                 .write_response_body(Some(Bytes::from(error_response_bytes)), true)
                 .await?;
