@@ -1,5 +1,5 @@
+use std::sync::Arc;
 use boring::{
-    pkey::{PKey},
     ssl::{SslAlert, SslRef, SslVerifyError, SslVerifyMode},
     x509::{X509StoreContext},
 };
@@ -7,143 +7,72 @@ use boring::stack::Stack;
 use boring::x509::store::X509StoreBuilder;
 use boring::x509::X509;
 use pingora::{listeners::TlsAccept, protocols::tls::TlsRef};
-use serde::Deserialize;
 use tracing::{error, info};
+use utils::cert::TLSConfig;
 use crate::handler::common::consts::LogTypes;
 
-#[derive(Debug, Deserialize, Clone)]
-pub struct ProxyConfig {
-    #[serde(deserialize_with = "utils::deserializer::string_to_bool")]
-    pub enable_tls: bool,
-    #[serde(default)]
-    pub ca_cert: String,
-    #[serde(default)]
-    pub cert: String,
-    #[serde(default)]
-    pub key: String,
-    #[serde(default)]
-    pub path_to_ca_cert: String,
-    #[serde(default)]
-    pub path_to_cert: String,
-    #[serde(default)]
-    pub path_to_key: String,
-    #[serde(deserialize_with = "utils::deserializer::string_to_bool")]
-    pub cors_allow_credentials: bool,
-    #[serde(deserialize_with = "utils::deserializer::string_to_vec")]
-    pub cors_allow_origins: Vec<String>,
+pub struct TLSServerConfig {
+    pub host_name: String,
+    pub tls_config: Arc<TLSConfig>,
 }
 
 #[async_trait::async_trait]
-impl TlsAccept for ProxyConfig {
+impl TlsAccept for TLSServerConfig {
     async fn certificate_callback(&self, ssl: &mut TlsRef) {
         // set hostname
-        ssl.set_hostname("reverse-proxy")
+        ssl.set_hostname(&self.host_name)
             .inspect_err(|e| {
                 error!(
-                    log_type=LogTypes::TLS_HANDSHAKE,
-                    "Failed to set hostname: {}", e
-                );
-            })
-            .unwrap();
-
-        // load private key
-        let key = PKey::private_key_from_pem(self.key.as_bytes())
-            .inspect_err(|e| {
-                error!(
-                    log_type=LogTypes::TLS_HANDSHAKE,
-                    "Failed to parse server private key: {}", e
-                );
-            })
-            .unwrap();
-
-        ssl.set_private_key(&key)
-            .inspect_err(|e| {
-                error!(
-                    log_type=LogTypes::TLS_HANDSHAKE,
-                    "Failed to set server private key: {}", e
-                );
-            })
-            .unwrap();
-
-        // load certificate chain
-        let mut certs = boring::x509::X509::stack_from_pem(self.cert.as_bytes())
-            .inspect_err(|e| {
-                error!(
-                    log_type=LogTypes::TLS_HANDSHAKE,
-                    "Failed to parse server certificate chain: {}", e
-                );
-            })
-            .unwrap();
-
-        if certs.is_empty() {
-            error!(
-                log_type=LogTypes::TLS_HANDSHAKE,
-                "Certificate chain is empty"
+                log_type = LogTypes::TLS_HANDSHAKE,
+                "Failed to set hostname: {}", e
             );
-            panic!("Empty certificate chain");
-        }
-
-        // first cert = leaf
-        let leaf = certs.remove(0);
-
-        ssl.set_certificate(&leaf)
-            .inspect_err(|e| {
-                error!(
-                    log_type=LogTypes::TLS_HANDSHAKE,
-                    "Failed to set server certificate: {}", e
-                );
             })
             .unwrap();
 
-        // remaining certs = intermediates
-        for cert in certs {
-            ssl.add_chain_cert(&cert)
+        // load current certificate/key atomically
+        let cert_key = self.tls_config.cert_key.load_full();
+
+        // set private key
+        ssl.set_private_key(&cert_key.key())
+            .inspect_err(|e| {
+                error!(
+                log_type = LogTypes::TLS_HANDSHAKE,
+                "Failed to set server private key: {}", e
+            );
+            })
+            .unwrap();
+
+        // leaf certificate
+        ssl.set_certificate(&cert_key.leaf())
+            .inspect_err(|e| {
+                error!(
+                log_type = LogTypes::TLS_HANDSHAKE,
+                "Failed to set server certificate: {}", e
+            );
+            })
+            .unwrap();
+
+        // intermediate chain
+        for cert in cert_key.intermediates() {
+            ssl.add_chain_cert(cert)
                 .inspect_err(|e| {
                     error!(
-                        log_type=LogTypes::TLS_HANDSHAKE,
-                        "Failed to add chain certificate: {}", e
-                    );
+                    log_type = LogTypes::TLS_HANDSHAKE,
+                    "Failed to add chain certificate: {}", e
+                );
                 })
                 .unwrap();
         }
 
-        // load CA used to verify clients
-        let ca_cert = boring::x509::X509::from_pem(self.ca_cert.as_bytes())
-            .inspect_err(|e| {
-                error!(
-                    log_type=LogTypes::TLS_HANDSHAKE,
-                    "Failed to parse CA certificate: {}", e
-                );
-            })
-            .unwrap();
-
+        // CA used for client verification
         ssl.set_custom_verify_callback(
             SslVerifyMode::PEER,
-            Self::verify_callback(ca_cert.clone()),
+            Self::verify_callback(self.tls_config.ca_cert.clone()),
         );
     }
 }
 
-impl ProxyConfig {
-    pub fn load_mtls_certs(&mut self) -> Result<(), String> {
-        if self.ca_cert.is_empty() {
-            self.ca_cert = std::fs::read_to_string(&self.path_to_ca_cert)
-                .map_err(|e| format!("Failed to read CA certificate: {}", e))?;
-        }
-
-        if self.cert.is_empty() {
-            self.cert = std::fs::read_to_string(&self.path_to_cert)
-                .map_err(|e| format!("Failed to read certificate: {}", e))?;
-        }
-
-        if self.key.is_empty() {
-            self.key = std::fs::read_to_string(&self.path_to_key)
-                .map_err(|e| format!("Failed to read key: {}", e))?;
-        }
-
-        Ok(())
-    }
-
+impl TLSServerConfig {
     fn verify_callback(
         ca_cert: X509,
     ) -> Box<dyn Fn(&mut SslRef) -> Result<(), SslVerifyError> + 'static + Sync + Send> {

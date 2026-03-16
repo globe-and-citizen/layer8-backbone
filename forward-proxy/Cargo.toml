@@ -24,4 +24,3 @@ hex = "0.4.3"
 envy = "0.4.2"
 tracing = "0.1.41"
 influxdb2 = { version = "0.5.2", default-features = false, features = ["rustls"] }
-

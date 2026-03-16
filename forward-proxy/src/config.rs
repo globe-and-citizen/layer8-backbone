@@ -1,4 +1,5 @@
 use serde::Deserialize;
+use utils::cert::TLSPathConfig;
 use utils::deserializer;
 
 #[derive(Debug, Deserialize)]
@@ -7,13 +8,13 @@ pub struct FPConfig {
     #[serde(deserialize_with = "deserializer::string_to_number")]
     pub listen_port: u16,
     #[serde(flatten)]
-    pub log_config: LogConfig,
+    pub log: LogConfig,
     #[serde(flatten)]
-    pub tls_config: ProxyConfig,
+    pub proxy: ProxyConfig,
     #[serde(flatten)] // This flattens the HandlerConfig fields into this struct
-    pub handler_config: HandlerConfig,
+    pub handler: HandlerConfig,
     #[serde(flatten)]
-    pub influxdb_config: InfluxDBConfig,
+    pub influxdb: InfluxDBConfig,
 }
 
 #[derive(Debug, Deserialize)]
@@ -37,47 +38,14 @@ pub struct HandlerConfig {
     pub auth_get_certificate_url: String,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize)]
 pub struct ProxyConfig {
-    #[serde(deserialize_with = "deserializer::string_to_bool")]
-    pub enable_tls: bool,
-    #[serde(default)]
-    pub ca_cert: String,
-    #[serde(default)]
-    pub cert: String,
-    #[serde(default)]
-    pub key: String,
-    #[serde(default)]
-    pub path_to_ca_cert: String,
-    #[serde(default)]
-    pub path_to_cert: String,
-    #[serde(default)]
-    pub path_to_key: String,
+    #[serde(flatten)]
+    pub tls_path: TLSPathConfig,
     #[serde(deserialize_with = "utils::deserializer::string_to_bool")]
     pub cors_allow_credentials: bool,
     #[serde(deserialize_with = "deserializer::string_to_vec")]
     pub cors_allow_origins: Vec<String>,
-}
-
-impl ProxyConfig {
-    pub fn load(&mut self) -> Result<(), String> {
-        if self.ca_cert.is_empty() {
-            self.ca_cert = std::fs::read_to_string(&self.path_to_ca_cert)
-                .map_err(|e| format!("Failed to read CA certificate: {}", e))?;
-        }
-
-        if self.cert.is_empty() {
-            self.cert = std::fs::read_to_string(&self.path_to_cert)
-                .map_err(|e| format!("Failed to read certificate: {}", e))?;
-        }
-
-        if self.key.is_empty() {
-            self.key = std::fs::read_to_string(&self.path_to_key)
-                .map_err(|e| format!("Failed to read key: {}", e))?;
-        }
-
-        Ok(())
-    }
 }
 
 #[derive(Debug, Deserialize)]

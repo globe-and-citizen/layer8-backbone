@@ -2,13 +2,14 @@ mod proxy;
 mod handler;
 mod config;
 mod statistics;
-
 use crate::handler::ForwardHandler;
 use proxy::ForwardProxy;
 use pingora::prelude::*;
 use tokio::runtime::Runtime;
+use std::sync::Arc;
 use crate::config::FPConfig;
 use tracing::{info, debug};
+use utils::cert::{watch_tls, TLSConfig};
 use crate::statistics::Statistics;
 
 fn load_config() -> FPConfig {
@@ -16,8 +17,7 @@ fn load_config() -> FPConfig {
     dotenv::dotenv().ok();
 
     // Deserialize from env vars
-    let mut config: FPConfig = envy::from_env().expect("Failed to load config");
-    config.tls_config.load().expect("Failed to load tls config");
+    let config: FPConfig = envy::from_env().expect("Failed to load config");
 
     debug!(name: "FPConfig", value = ?config);
     config
@@ -25,17 +25,27 @@ fn load_config() -> FPConfig {
 
 fn main() {
     let config = load_config();
+    let tls_config = match TLSConfig::load(&config.proxy.tls_path) {
+        Ok(conf) => Arc::new(conf),
+        Err(err) => {
+            panic!("Failed to load TLS config {}", err)
+        }
+    };
+    watch_tls(
+        tls_config.clone(),
+        config.proxy.tls_path.clone(),
+    );
     // let influxdb_client = InfluxDBClient::new(&config.influxdb_config);
 
     // Initialize the async runtime
     let rt = Runtime::new().unwrap();
-    rt.block_on(Statistics::init_influxdb_client(&config.influxdb_config));
+    rt.block_on(Statistics::init_influxdb_client(&config.influxdb));
 
     let _logger_guard = utils::log::init_logger(
-        config.log_config.log_level.clone(),
-        config.log_config.log_format.clone(),
-        config.log_config.log_path.clone(),
-        config.log_config.log_filename.clone(),
+        config.log.log_level.clone(),
+        config.log.log_format.clone(),
+        config.log.log_path.clone(),
+        config.log.log_filename.clone(),
     );
 
     let mut server = Server::new(Some(Opt {
@@ -44,11 +54,11 @@ fn main() {
     })).expect("Failed to create server");
     server.bootstrap();
 
-    let fp_handler = ForwardHandler::new(config.handler_config);
+    let fp_handler = ForwardHandler::new(config.handler);
 
     let mut proxy = http_proxy_service(
         &server.configuration,
-        ForwardProxy::new(config.tls_config, fp_handler),
+        ForwardProxy::new(config.proxy, tls_config, fp_handler),
     );
 
     proxy.add_tcp(&format!("{}:{}", config.listen_address, config.listen_port));

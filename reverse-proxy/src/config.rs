@@ -1,5 +1,5 @@
 use serde::Deserialize;
-use crate::tls_conf::ProxyConfig;
+use utils::cert::TLSPathConfig;
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct RPConfig {
@@ -41,4 +41,14 @@ pub(super) struct HandlerConfig {
     #[serde(deserialize_with = "utils::deserializer::string_to_number")]
     pub jwt_exp_in_hours: i64,
     pub backend_url: String,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct ProxyConfig {
+    #[serde(flatten)]
+    pub tls_path: TLSPathConfig,
+    #[serde(deserialize_with = "utils::deserializer::string_to_bool")]
+    pub cors_allow_credentials: bool,
+    #[serde(deserialize_with = "utils::deserializer::string_to_vec")]
+    pub cors_allow_origins: Vec<String>,
 }

@@ -11,8 +11,10 @@ use pingora_router::handler::APIHandler;
 use pingora_router::router::Router;
 use std::sync::Arc;
 use tracing::{debug, error};
+use utils::cert::{watch_tls, TLSConfig};
 use crate::config::RPConfig;
 use crate::proxy::ReverseProxy;
+use crate::tls_conf::TLSServerConfig;
 
 mod config;
 
@@ -21,11 +23,9 @@ fn load_config() -> RPConfig {
     dotenv::dotenv().ok();
 
     // Deserialize from env vars
-    let mut config: RPConfig = envy::from_env().map_err(|e| {
+    let config: RPConfig = envy::from_env().map_err(|e| {
         error!("Failed to load configuration: {}", e);
     }).unwrap();
-
-    config.proxy.load_mtls_certs().expect("Failed to load mtls certs");
 
     debug!(name: "RPConfig", value = ?config);
     config
@@ -34,6 +34,21 @@ fn load_config() -> RPConfig {
 fn main() {
     // Load environment variables from .env file
     let rp_config = load_config();
+    let tls_config = match TLSConfig::load(&rp_config.proxy.tls_path) {
+        Ok(conf) => Arc::new(conf),
+        Err(err) => {
+            panic!("Failed to load TLS config {}", err)
+        }
+    };
+    watch_tls(
+        tls_config.clone(),
+        rp_config.proxy.tls_path.clone(),
+    );
+
+    let tls_server_config = TLSServerConfig {
+        host_name: "reverse-proxy".to_string(),
+        tls_config,
+    };
 
     let _logger_guard = utils::log::init_logger(
         rp_config.log.log_level.clone(),
@@ -68,7 +83,7 @@ fn main() {
         ReverseProxy::new(rp_config.proxy.clone(), router),
     );
 
-    if rp_config.proxy.enable_tls {
+    if rp_config.proxy.tls_path.enable_tls {
         my_proxy.add_tls_with_settings(
             &format!(
                 "{}:{}",
@@ -76,7 +91,7 @@ fn main() {
                 rp_config.server.listen_port
             ),
             None,
-            TlsSettings::with_callbacks(Box::new(rp_config.proxy)).expect("Cannot set TlsSettings callbacks")
+            TlsSettings::with_callbacks(Box::new(tls_server_config)).expect("Cannot set TlsSettings callbacks")
         );
     } else {
         my_proxy.add_tcp(&format!(

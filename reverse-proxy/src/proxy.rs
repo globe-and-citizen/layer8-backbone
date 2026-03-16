@@ -6,8 +6,8 @@ use bytes::Bytes;
 use tracing::{info};
 use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
 use pingora_router::router::Router;
+use crate::config::ProxyConfig;
 use crate::handler::common::consts::LogTypes;
-use crate::tls_conf::ProxyConfig;
 
 pub struct ReverseProxy<T> {
     config: ProxyConfig,

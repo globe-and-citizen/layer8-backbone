@@ -4,31 +4,31 @@ use crate::handler::consts::{CtxKeys, HeaderKeys, LogTypes, RequestPaths};
 use crate::handler::types::response::ErrorResponse;
 use crate::statistics::Statistics;
 use async_trait::async_trait;
-use boring::x509::X509;
 use bytes::Bytes;
 use pingora::{Error, ErrorType};
 use pingora::OrErr;
 use pingora::http::{RequestHeader, ResponseHeader, StatusCode};
-use pingora::listeners::tls::TLS_CONF_ERR;
 use pingora::prelude::{HttpPeer, ProxyHttp, Session};
 use pingora::upstreams::peer::PeerOptions;
-use pingora::utils::tls::CertKey;
 use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
 use pingora_router::handler::ResponseBodyTrait;
 use reqwest::header::TRANSFER_ENCODING;
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::{debug, error, info};
+use utils::cert::TLSConfig;
 
 pub struct ForwardProxy {
     config: ProxyConfig,
+    tlsconfig: Arc<TLSConfig>,
     handler: ForwardHandler,
 }
 
 impl ForwardProxy {
-    pub fn new(tls_config: ProxyConfig, handler: ForwardHandler) -> Self {
+    pub fn new(config: ProxyConfig, tlsconfig: Arc<TLSConfig>, handler: ForwardHandler) -> Self {
         ForwardProxy {
-            config: tls_config,
+            config,
+            tlsconfig,
             handler,
         }
     }
@@ -103,7 +103,7 @@ impl ProxyHttp for ForwardProxy {
         let upstream_sni = sni.to_string(); // clone for move into closure
         let mut opt_peer = None;
         for addr in address_list.clone() {
-            match std::panic::catch_unwind(|| HttpPeer::new(addr, self.config.enable_tls, upstream_sni.clone()))
+            match std::panic::catch_unwind(|| HttpPeer::new(addr, self.config.tls_path.enable_tls, upstream_sni.clone()))
             {
                 Ok(p) => {
                     info!(
@@ -143,28 +143,16 @@ impl ProxyHttp for ForwardProxy {
             }
         };
 
-        if self.config.enable_tls {
-            let cert_chain = X509::stack_from_pem(self.config.cert.as_bytes())
-                .or_err(TLS_CONF_ERR, "Failed to load FP certificate chain")?;
-
-            let ca_cert = X509::from_pem(self.config.ca_cert.as_bytes())
-                .or_err(TLS_CONF_ERR, "Failed to load CA certificate")?;
-
-            let key = boring::pkey::PKey::private_key_from_pem(self.config.key.as_bytes())
-                .or_err(TLS_CONF_ERR, "Failed to load private key")?;
-
-            // The certificate chain to present in mTLS connections to upstream
-            let cert_key = CertKey::new(cert_chain, key);
-
+        if self.config.tls_path.enable_tls {
             // Providing Peer Options
             let mut peer_options = PeerOptions::new();
             {
                 peer_options.verify_cert = true; // Verify the server's certificate
-                peer_options.ca = Some(Arc::new(Box::new([ca_cert])));
+                peer_options.ca = Some(Arc::new(Box::new([self.tlsconfig.ca_cert.clone()])));
                 peer_options.verify_hostname = true; // Whether to check if upstream server cert's Host matches the SNI
             }
 
-            peer.client_cert_key = Some(Arc::new(cert_key));
+            peer.client_cert_key = Some(self.tlsconfig.cert_key.load_full());
             peer.options = peer_options;
         }
 

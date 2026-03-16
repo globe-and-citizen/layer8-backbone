@@ -19,4 +19,8 @@ tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.19", features = ["json", "env-filter", "fmt"] }
 tracing-appender = "0.2.3"
 bincode = "2.0.1"
+arc-swap = "1.7.1"
+notify = "6"
+boring = "4.17.0"
+pingora = { version = "0.8.0", features = ["lb", "boringssl"] }
 
