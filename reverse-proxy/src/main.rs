@@ -11,7 +11,7 @@ use pingora_router::handler::APIHandler;
 use pingora_router::router::Router;
 use std::sync::Arc;
 use tracing::{debug, error};
-use utils::cert::{watch_tls, TLSConfig};
+use utils::cert::{watch_tls, TLSCredentials};
 use crate::config::RPConfig;
 use crate::proxy::ReverseProxy;
 use crate::tls_conf::TLSServerConfig;
@@ -34,20 +34,20 @@ fn load_config() -> RPConfig {
 fn main() {
     // Load environment variables from .env file
     let rp_config = load_config();
-    let tls_config = match TLSConfig::load(&rp_config.proxy.tls_path) {
+    let tls_cred = match TLSCredentials::load(&rp_config.proxy.tls) {
         Ok(conf) => Arc::new(conf),
         Err(err) => {
             panic!("Failed to load TLS config {}", err)
         }
     };
     watch_tls(
-        tls_config.clone(),
-        rp_config.proxy.tls_path.clone(),
+        tls_cred.clone(),
+        rp_config.proxy.tls.clone(),
     );
 
     let tls_server_config = TLSServerConfig {
         host_name: "reverse-proxy".to_string(),
-        tls_config,
+        tls_credentials: tls_cred,
     };
 
     let _logger_guard = utils::log::init_logger(
@@ -83,7 +83,7 @@ fn main() {
         ReverseProxy::new(rp_config.proxy.clone(), router),
     );
 
-    if rp_config.proxy.tls_path.enable_tls {
+    if rp_config.proxy.tls.enable_tls {
         my_proxy.add_tls_with_settings(
             &format!(
                 "{}:{}",

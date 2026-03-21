@@ -9,7 +9,7 @@ use tokio::runtime::Runtime;
 use std::sync::Arc;
 use crate::config::FPConfig;
 use tracing::{info, debug};
-use utils::cert::{watch_tls, TLSConfig};
+use utils::cert::{watch_tls, TLSCredentials};
 use crate::statistics::Statistics;
 
 fn load_config() -> FPConfig {
@@ -25,15 +25,15 @@ fn load_config() -> FPConfig {
 
 fn main() {
     let config = load_config();
-    let tls_config = match TLSConfig::load(&config.proxy.tls_path) {
+    let tls_cred = match TLSCredentials::load(&config.proxy.tls) {
         Ok(conf) => Arc::new(conf),
         Err(err) => {
             panic!("Failed to load TLS config {}", err)
         }
     };
     watch_tls(
-        tls_config.clone(),
-        config.proxy.tls_path.clone(),
+        tls_cred.clone(),
+        config.proxy.tls.clone(),
     );
     // let influxdb_client = InfluxDBClient::new(&config.influxdb_config);
 
@@ -58,7 +58,7 @@ fn main() {
 
     let mut proxy = http_proxy_service(
         &server.configuration,
-        ForwardProxy::new(config.proxy, tls_config, fp_handler),
+        ForwardProxy::new(config.proxy, tls_cred, fp_handler),
     );
 
     proxy.add_tcp(&format!("{}:{}", config.listen_address, config.listen_port));

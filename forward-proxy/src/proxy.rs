@@ -16,19 +16,19 @@ use reqwest::header::TRANSFER_ENCODING;
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::{debug, error, info};
-use utils::cert::TLSConfig;
+use utils::cert::TLSCredentials;
 
 pub struct ForwardProxy {
     config: ProxyConfig,
-    tlsconfig: Arc<TLSConfig>,
+    tls_credentials: Arc<TLSCredentials>,
     handler: ForwardHandler,
 }
 
 impl ForwardProxy {
-    pub fn new(config: ProxyConfig, tlsconfig: Arc<TLSConfig>, handler: ForwardHandler) -> Self {
+    pub fn new(config: ProxyConfig, tls_credentials: Arc<TLSCredentials>, handler: ForwardHandler) -> Self {
         ForwardProxy {
             config,
-            tlsconfig,
+            tls_credentials,
             handler,
         }
     }
@@ -103,7 +103,7 @@ impl ProxyHttp for ForwardProxy {
         let upstream_sni = sni.to_string(); // clone for move into closure
         let mut opt_peer = None;
         for addr in address_list.clone() {
-            match std::panic::catch_unwind(|| HttpPeer::new(addr, self.config.tls_path.enable_tls, upstream_sni.clone()))
+            match std::panic::catch_unwind(|| HttpPeer::new(addr, self.config.tls.enable_tls, upstream_sni.clone()))
             {
                 Ok(p) => {
                     info!(
@@ -143,16 +143,16 @@ impl ProxyHttp for ForwardProxy {
             }
         };
 
-        if self.config.tls_path.enable_tls {
+        if self.config.tls.enable_tls {
             // Providing Peer Options
             let mut peer_options = PeerOptions::new();
             {
                 peer_options.verify_cert = true; // Verify the server's certificate
-                peer_options.ca = Some(Arc::new(Box::new([self.tlsconfig.ca_cert.clone()])));
+                peer_options.ca = Some(Arc::new(Box::new([self.tls_credentials.ca_cert.clone()])));
                 peer_options.verify_hostname = true; // Whether to check if upstream server cert's Host matches the SNI
             }
 
-            peer.client_cert_key = Some(self.tlsconfig.cert_key.load_full());
+            peer.client_cert_key = Some(self.tls_credentials.cert_key.load_full());
             peer.options = peer_options;
         }
 

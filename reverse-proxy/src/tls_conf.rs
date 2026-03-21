@@ -8,12 +8,12 @@ use boring::x509::store::X509StoreBuilder;
 use boring::x509::X509;
 use pingora::{listeners::TlsAccept, protocols::tls::TlsRef};
 use tracing::{error, info};
-use utils::cert::TLSConfig;
+use utils::cert::TLSCredentials;
 use crate::handler::common::consts::LogTypes;
 
 pub struct TLSServerConfig {
     pub host_name: String,
-    pub tls_config: Arc<TLSConfig>,
+    pub tls_credentials: Arc<TLSCredentials>,
 }
 
 #[async_trait::async_trait]
@@ -30,7 +30,7 @@ impl TlsAccept for TLSServerConfig {
             .unwrap();
 
         // load current certificate/key atomically
-        let cert_key = self.tls_config.cert_key.load_full();
+        let cert_key = self.tls_credentials.cert_key.load_full();
 
         // set private key
         ssl.set_private_key(&cert_key.key())
@@ -67,7 +67,7 @@ impl TlsAccept for TLSServerConfig {
         // CA used for client verification
         ssl.set_custom_verify_callback(
             SslVerifyMode::PEER,
-            Self::verify_callback(self.tls_config.ca_cert.clone()),
+            Self::verify_callback(self.tls_credentials.ca_cert.clone()),
         );
     }
 }

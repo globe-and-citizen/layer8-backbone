@@ -1,5 +1,5 @@
 use serde::Deserialize;
-use utils::cert::TLSPathConfig;
+use utils::cert::TLSConfig;
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct RPConfig {
@@ -46,7 +46,7 @@ pub(super) struct HandlerConfig {
 #[derive(Debug, Deserialize, Clone)]
 pub struct ProxyConfig {
     #[serde(flatten)]
-    pub tls_path: TLSPathConfig,
+    pub tls: TLSConfig,
     #[serde(deserialize_with = "utils::deserializer::string_to_bool")]
     pub cors_allow_credentials: bool,
     #[serde(deserialize_with = "utils::deserializer::string_to_vec")]

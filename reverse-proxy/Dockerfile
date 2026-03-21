@@ -38,16 +38,39 @@ RUN cargo build --release
 # ------------------------------
 FROM debian:bullseye-slim
 
+ARG TARGETARCH
+ENV STEP_CLI_VERSION=0.25.2
+
+# Install runtime deps + step-cli (multi-arch)
+RUN apt-get update && apt-get install -y \
+    curl \
+    ca-certificates \
+    libcap2-bin \
+    && echo "Installing step-cli for ${TARGETARCH}" \
+    && curl -L https://github.com/smallstep/cli/releases/download/v${STEP_CLI_VERSION}/step_linux_${STEP_CLI_VERSION}_${TARGETARCH}.tar.gz \
+    | tar -xz \
+    && mv step_${STEP_CLI_VERSION}/bin/step /usr/local/bin/step \
+    && rm -rf step_${STEP_CLI_VERSION} \
+    # Allow non-root to bind to 443 (TLS-ALPN)
+    && setcap 'cap_net_bind_service=+ep' /usr/local/bin/step \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
 # Create a non-root user for better security (optional)
 RUN useradd -m layer8
 
 # Copy only the built binary from the builder stage
 COPY --from=builder /usr/src/app/reverse-proxy/target/release/reverse-proxy /usr/local/bin/reverse-proxy
+COPY --from=builder /usr/src/app/reverse-proxy/scripts /scripts
+
+RUN chmod -R 755 /scripts && \
+    mkdir -p /certs && \
+    chown -R layer8:layer8 /certs /scripts
 
 # Switch to non-root user
 USER layer8
 
 EXPOSE 6193
 
-# Default command
-CMD ["reverse-proxy"]
+# Entrypoint (scripts should already be executable from host or COPY)
+ENTRYPOINT ["/scripts/entrypoint.sh"]
