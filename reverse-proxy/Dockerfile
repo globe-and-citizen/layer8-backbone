@@ -23,6 +23,7 @@ WORKDIR /usr/src/app
 COPY ./pingora-router ./pingora-router
 COPY ./utils ./utils
 COPY ./reverse-proxy ./reverse-proxy
+COPY ./certs/scripts ./scripts
 
 # Set working directory to app crate
 WORKDIR /usr/src/app/reverse-proxy
@@ -61,7 +62,7 @@ RUN useradd -m layer8
 
 # Copy only the built binary from the builder stage
 COPY --from=builder /usr/src/app/reverse-proxy/target/release/reverse-proxy /usr/local/bin/reverse-proxy
-COPY --from=builder /usr/src/app/reverse-proxy/scripts /scripts
+COPY --from=builder /usr/src/app/scripts /scripts
 
 RUN chmod -R 755 /scripts && \
     mkdir -p /certs && \
@@ -73,4 +74,4 @@ USER layer8
 EXPOSE 6193
 
 # Entrypoint (scripts should already be executable from host or COPY)
-ENTRYPOINT ["/scripts/entrypoint.sh"]
+ENTRYPOINT ["/scripts/entrypoint.sh", "reverse-proxy"]

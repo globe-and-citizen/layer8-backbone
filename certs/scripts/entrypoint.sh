@@ -9,5 +9,5 @@ until [ -f ${CERT_PATH} ]; do
   sleep 1
 done
 
-echo "Starting forward-proxy..."
-forward-proxy
+echo "Starting "$1"..."
+$1

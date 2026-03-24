@@ -23,6 +23,7 @@ WORKDIR /usr/src/app
 COPY ./pingora-router ./pingora-router
 COPY ./utils ./utils
 COPY ./forward-proxy ./forward-proxy
+COPY ./certs/scripts ./scripts
 
 # Set working directory to app crate
 WORKDIR /usr/src/app/forward-proxy
@@ -63,7 +64,7 @@ RUN useradd -m layer8
 COPY --from=builder /usr/src/app/forward-proxy/target/release/forward-proxy /usr/local/bin/forward-proxy
 
 # Copy scripts
-COPY --from=builder /usr/src/app/forward-proxy/scripts /scripts
+COPY --from=builder /usr/src/app/scripts /scripts
 
 # Create cert directory
 # Set permissions and create dirs in one go
@@ -77,4 +78,4 @@ USER layer8
 EXPOSE 6191
 
 # Entrypoint (scripts should already be executable from host or COPY)
-ENTRYPOINT ["/scripts/entrypoint.sh"]
+ENTRYPOINT ["/scripts/entrypoint.sh", "forward-proxy"]
