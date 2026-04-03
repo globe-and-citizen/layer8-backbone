@@ -4,15 +4,15 @@ use std::sync::{Arc, Mutex};
 use pingora::http::StatusCode;
 use reqwest::Client;
 use pingora_router::{
-   ctx::{Layer8Context, Layer8ContextTrait},
-   handler::{APIHandlerResponse, DefaultHandlerTrait, RequestBodyTrait, ResponseBodyTrait}
+    ctx::{Layer8Context, Layer8ContextTrait},
+    handler::{APIHandlerResponse, DefaultHandlerTrait, RequestBodyTrait, ResponseBodyTrait},
 };
 use serde::Deserialize;
 use tracing::{debug, error, info};
 
 use crate::handler::types::{
-   response::{ErrorResponse, FpHealthcheckError, FpHealthcheckSuccess, InitTunnelResponseFromRP, InitTunnelResponseToINT},
-   request::InitTunnelRequest
+    response::{ErrorResponse, FpHealthcheckError, FpHealthcheckSuccess, InitTunnelResponseFromRP, InitTunnelResponseToINT},
+    request::InitTunnelRequest,
 };
 use utils::{self, jwt::JWTClaims};
 use crate::config::HandlerConfig;
@@ -46,6 +46,16 @@ impl ForwardHandler {
         ForwardHandler {
             config,
             jwts_storage: Arc::new(Mutex::new(HashMap::new())),
+        }
+    }
+
+    pub fn get_session(&self, int_fp_jwt: &str) -> Result<IntFPSession, String> {
+        match {
+            let jwts = self.jwts_storage.lock().unwrap();
+            jwts.get(int_fp_jwt).cloned()
+        } {
+            None => Err("token not found!".to_string()),
+            Some(session) => Ok(session)
         }
     }
 
@@ -160,13 +170,7 @@ impl ForwardHandler {
         match utils::jwt::verify_jwt_token(token, &self.config.jwt_virtual_connection_key) {
             Ok(_claims) => {
                 // todo check claims if needed
-                match {
-                    let jwts = self.jwts_storage.lock().unwrap();
-                    jwts.get(token).cloned()
-                } {
-                    None => Err("token not found!".to_string()),
-                    Some(session) => Ok(session)
-                }
+                self.get_session(token)
             }
             Err(err) => Err(err.to_string())
         }

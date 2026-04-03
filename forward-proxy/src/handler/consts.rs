@@ -18,6 +18,7 @@ impl CtxKeys {
     pub const INT_RP_JWT: &'static str = "int_rp_jwt";
     #[allow(dead_code)]
     pub const INT_FP_JWT: &'static str = "int_fp_jwt";
+    #[allow(dead_code)]
     pub const FP_RP_JWT: &'static str = "fp_rp_jwt";
     pub const BACKEND_AUTH_CLIENT_ID: &'static str = "backend_auth_client_id";
 }

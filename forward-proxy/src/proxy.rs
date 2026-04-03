@@ -180,25 +180,22 @@ impl ProxyHttp for ForwardProxy {
             user_agent = ctx.request.header.get("User-Agent"),
         );
 
-        match session.req_header().method {
-            pingora::http::Method::OPTIONS => {
-                // Handle CORS preflight request
-                ctx.response.status = StatusCode::NO_CONTENT;
-                let mut header = ResponseHeader::build(StatusCode::NO_CONTENT, None)?;
-                if let Some(req_headers) = session
-                    .req_header()
-                    .headers
-                    .get("Access-Control-Request-Headers")
-                {
-                    header.insert_header("Access-Control-Allow-Headers", req_headers)?;
-                }
-                self.set_response_header(ctx, &mut header)?;
-
-                session.write_response_header_ref(&header, false).await?;
-                session.set_keepalive(None);
-                return Ok(true);
+        if session.req_header().method == pingora::http::Method::OPTIONS {
+            // Handle CORS preflight request
+            ctx.response.status = StatusCode::NO_CONTENT;
+            let mut header = ResponseHeader::build(StatusCode::NO_CONTENT, None)?;
+            if let Some(req_headers) = session
+                .req_header()
+                .headers
+                .get("Access-Control-Request-Headers")
+            {
+                header.insert_header("Access-Control-Allow-Headers", req_headers)?;
             }
-            _ => {}
+            self.set_response_header(ctx, &mut header)?;
+
+            session.write_response_header_ref(&header, false).await?;
+            session.set_keepalive(None);
+            return Ok(true);
         }
 
         let mut error_response_bytes: Vec<u8> = vec![];
@@ -264,6 +261,7 @@ impl ProxyHttp for ForwardProxy {
                 }
             }
             (RequestPaths::PROXY, "POST") => {
+                // verify int-fp-jwt token and use it to get upstream address for the next phase (upstream_peer)
                 error_response_bytes = match ctx.get_request_header().get(HeaderKeys::INT_FP_JWT) {
                     None => ErrorResponse {
                         error: "Missing int_fp_jwt header".to_string(),
@@ -271,7 +269,6 @@ impl ProxyHttp for ForwardProxy {
                     Some(int_fp_jwt) => match self.handler.verify_int_fp_jwt(int_fp_jwt.as_str()) {
                         Ok(session) => {
                             debug!(%correlation_id, "IntFPSession: {:?}", session);
-                            ctx.set(CtxKeys::FP_RP_JWT.to_string(), session.fp_rp_jwt);
                             ctx.set(
                                 CtxKeys::BACKEND_AUTH_CLIENT_ID.to_string(),
                                 session.client_id,
@@ -345,7 +342,7 @@ impl ProxyHttp for ForwardProxy {
         if end_of_stream {
             let correlation_id = ctx.get_correlation_id();
 
-            info!(
+            debug!(
                 %correlation_id,
                 log_type = LogTypes::HANDLE_CLIENT_REQUEST,
                 request_summary = session.request_summary(),
@@ -354,21 +351,18 @@ impl ProxyHttp for ForwardProxy {
             );
 
             // This is the last chunk, we can process the data now
+            if session.req_header().uri.path() != RequestPaths::INIT_TUNNEL {
+                info!(
+                    %correlation_id,
+                    log_type = LogTypes::HANDLE_CLIENT_REQUEST,
+                    request_summary = session.request_summary(),
+                    "Forward proxy passing through request body unchanged."
+                );
+                *body = Some(Bytes::copy_from_slice(ctx.get_request_body().as_slice()));
+                return Ok(());
+            }
 
-            let handler_response = match session.req_header().uri.path() {
-                RequestPaths::INIT_TUNNEL => self.handler.handle_init_tunnel_request(ctx).await,
-                _ => {
-                    info!(
-                        %correlation_id,
-                        log_type = LogTypes::HANDLE_CLIENT_REQUEST,
-                        request_summary = session.request_summary(),
-                        "Forward proxy passing through request body unchanged."
-                    );
-                    *body = Some(Bytes::copy_from_slice(ctx.get_request_body().as_slice()));
-                    return Ok(());
-                }
-            };
-
+            let handler_response = self.handler.handle_init_tunnel_request(ctx).await;
             if handler_response.status != StatusCode::OK {
                 error!(
                     %correlation_id,
@@ -415,66 +409,46 @@ impl ProxyHttp for ForwardProxy {
     {
         let correlation_id = ctx.get_correlation_id();
 
-        match session.req_header().uri.path() {
-            RequestPaths::PROXY => match upstream_request.headers.get(HeaderKeys::INT_FP_JWT) {
-                None => {
-                    error!(
-                        %correlation_id,
-                        log_type = LogTypes::HANDLE_CLIENT_REQUEST,
-                        request_summary = session.request_summary(),
-                        "Missing required header: {}",
-                        HeaderKeys::INT_FP_JWT
-                    );
+        if session.req_header().uri.path() == RequestPaths::PROXY {
+            // get int_fp_jwt token for upstream request header manipulation,
+            // cannot be done earlier in request_filter because it doesn't have access to upstream request header
+            let mut pingora_err = None;
+            if let Some(token) = upstream_request.headers.get(HeaderKeys::INT_FP_JWT) {
+                let token_str = token.to_str().or_err(
+                    pingora::ErrorType::InvalidHTTPHeader,
+                    "This value should be checked in the previous step, it should never fail here",
+                )?;
 
-                    return Err(pingora::Error::new(pingora::ErrorType::HTTPStatus(
-                        u16::from(StatusCode::BAD_REQUEST),
-                    )));
-                }
-                Some(token) => {
-                    let token_str = token.to_str().or_err(
-                        pingora::ErrorType::InvalidHTTPHeader,
-                        "Invalid header value for token",
-                    )?;
-
-                    if token_str.is_empty() {
-                        error!(
-                            %correlation_id,
-                            log_type = LogTypes::HANDLE_CLIENT_REQUEST,
-                            request_summary = session.request_summary(),
-                            "{} token is empty",
-                            HeaderKeys::INT_FP_JWT
-                        );
-
-                        return Err(pingora::Error::new(pingora::ErrorType::HTTPStatus(
-                            u16::from(StatusCode::BAD_REQUEST),
-                        )));
+                match self.handler.get_session(token_str) {
+                    Ok(session) => {
+                        upstream_request
+                            .insert_header(HeaderKeys::FP_RP_JWT, session.fp_rp_jwt)
+                            .unwrap_or_default();
+                        upstream_request.remove_header(HeaderKeys::INT_FP_JWT);
                     }
-
-                    match self.handler.verify_int_fp_jwt(token_str) {
-                        Ok(session) => {
-                            upstream_request
-                                .insert_header(HeaderKeys::FP_RP_JWT, session.fp_rp_jwt)
-                                .unwrap_or_default();
-                            upstream_request.remove_header(HeaderKeys::INT_FP_JWT);
-                        }
-                        Err(err) => {
-                            error!(
-                                %correlation_id,
-                                log_type = LogTypes::HANDLE_CLIENT_REQUEST,
-                                request_summary = session.request_summary(),
-                                "Error verifying {} token: {}",
-                                HeaderKeys::INT_FP_JWT,
-                                err
-                            );
-                            return Err(pingora::Error::explain(
-                                pingora::ErrorType::InvalidHTTPHeader,
-                                err,
-                            ));
-                        }
+                    Err(err) => {
+                        pingora_err = Some(pingora::Error::explain(
+                            pingora::ErrorType::InvalidHTTPHeader,
+                            err,
+                        ));
                     }
                 }
-            },
-            _ => {}
+            } else {
+                pingora_err = Some(pingora::Error::new(pingora::ErrorType::HTTPStatus(
+                    u16::from(StatusCode::INTERNAL_SERVER_ERROR),
+                )));
+            }
+
+            if let Some(err) = pingora_err {
+                error!(
+                    %correlation_id,
+                    log_type = LogTypes::HANDLE_CLIENT_REQUEST,
+                    request_summary = session.request_summary(),
+                    "Failed to get session",
+                );
+
+                return Err(err);
+            }
         }
 
         if upstream_request.headers.get("x-empty-body").is_none() {
@@ -536,7 +510,7 @@ impl ProxyHttp for ForwardProxy {
             let correlation_id = ctx.get_correlation_id();
 
             // This is the last chunk, we can process the data now
-            info!(
+            debug!(
                 %correlation_id,
                 log_type = LogTypes::HANDLE_UPSTREAM_RESPONSE,
                 request_summary = session.request_summary(),
@@ -544,20 +518,18 @@ impl ProxyHttp for ForwardProxy {
                 &ctx.get_response_body().len(),
             );
 
-            let handler_response = match session.req_header().uri.path() {
-                RequestPaths::INIT_TUNNEL => self.handler.handle_init_tunnel_response(ctx),
-                _ => {
-                    info!(
-                        %correlation_id,
-                        log_type = LogTypes::HANDLE_UPSTREAM_RESPONSE,
-                        request_summary = session.request_summary(),
-                        "Forward proxy passing through response body unchanged."
-                    );
-                    *body = Some(Bytes::copy_from_slice(ctx.get_response_body().as_slice()));
-                    return Ok(None);
-                }
-            };
+            if session.req_header().uri.path() != RequestPaths::INIT_TUNNEL {
+                info!(
+                    %correlation_id,
+                    log_type = LogTypes::HANDLE_UPSTREAM_RESPONSE,
+                    request_summary = session.request_summary(),
+                    "Forward proxy passing through response body unchanged."
+                );
+                *body = Some(Bytes::copy_from_slice(ctx.get_response_body().as_slice()));
+                return Ok(None);
+            }
 
+            let handler_response = self.handler.handle_init_tunnel_response(ctx);
             if handler_response.status != StatusCode::OK {
                 error!(
                     %correlation_id,
