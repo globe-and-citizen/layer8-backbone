@@ -51,6 +51,153 @@ impl ForwardProxy {
 
         Ok(())
     }
+
+    /// Handles CORS preflight (OPTIONS) requests.
+    /// This function is responsible for:
+    /// - Setting the response status to 204 No Content
+    /// - Extracting Access-Control-Request-Headers from the request if present
+    /// - Setting CORS response headers (origin, credentials, methods, max age)
+    /// - Writing the response headers and keeping the connection alive
+    ///
+    /// # Arguments
+    /// * `ctx` - The request context for retrieving and setting response data
+    /// * `session` - The HTTP session for writing the response
+    ///
+    /// # Returns
+    /// * `Ok(true)` - Successfully handled the preflight request
+    /// * `Err(Error)` - If an error occurred while processing or writing the response
+    pub async fn handle_preflight_request(&self, ctx: &mut Layer8Context, session: &mut Session) -> pingora::Result<bool> {
+        // Handle CORS preflight request
+        ctx.response.status = StatusCode::NO_CONTENT;
+        let mut header = ResponseHeader::build(StatusCode::NO_CONTENT, None)?;
+        if let Some(req_headers) = session
+            .req_header()
+            .headers
+            .get("Access-Control-Request-Headers")
+        {
+            header.insert_header("Access-Control-Allow-Headers", req_headers)?;
+        }
+        self.set_response_header(ctx, &mut header)?;
+
+        session.write_response_header_ref(&header, false).await?;
+        session.set_keepalive(None);
+        Ok(true)
+    }
+
+    /// Handles healthcheck requests.
+    /// This function is responsible for:
+    /// - Retrieving the correlation ID from the context
+    /// - Calling the handler to process the healthcheck request
+    /// - Building a response header with the appropriate status code
+    /// - Adding response headers from the handler response
+    /// - Setting the Content-Length header if a response body is present
+    /// - Writing the response header and body to the session
+    ///
+    /// # Arguments
+    /// * `ctx` - The request context for retrieving and setting response data
+    /// * `session` - The HTTP session for writing the response
+    ///
+    /// # Returns
+    /// * `Ok(true)` - Successfully handled the healthcheck request
+    /// * `Err(Error)` - If an error occurred while processing or writing the response
+    pub async fn handle_healthcheck(&self, ctx: &mut Layer8Context, session: &mut Session) -> pingora::Result<bool> {
+        let correlation_id = ctx.get_correlation_id();
+        let handler_response = self.handler.handle_healthcheck(ctx);
+        let mut header = ResponseHeader::build(handler_response.status, None)?;
+        let response_headers = header.headers.clone();
+        for (key, val) in response_headers.iter() {
+            header
+                .insert_header(key.clone(), val.clone())
+                .map_err(|e| {
+                    error!(
+                        %correlation_id,
+                        log_type = LogTypes::HEALTHCHECK,
+                        "Cannot add request header {}:{:?}, err: {:?}",
+                        key.clone(), val.clone(), e
+                    )
+                })
+                .unwrap_or_default();
+        }
+
+        let mut response_bytes = vec![];
+        if let Some(body_bytes) = handler_response.body {
+            header
+                .insert_header("Content-length", &body_bytes.len().to_string())
+                .unwrap_or_default();
+            response_bytes = body_bytes;
+        };
+
+        session.write_response_header_ref(&header, false).await?;
+        // Write the response body to the session after setting headers
+        session.write_response_body(Some(Bytes::from(response_bytes)), true).await?;
+
+        Ok(true)
+    }
+
+    fn request_filter_init_tunnel(&self, ctx: &mut Layer8Context) -> Vec<u8> {
+        // For init-tunnel request, we expect the body to contain the backend_url in JSON format like {"backend_url": "https://example.com"}
+        // The handler will validate the backend_url and set the UPSTREAM_ADDRESS and UPSTREAM_SNI in the context for the next phase (upstream_peer)
+        if let Some(url) = ctx.param("backend_url") {
+            if let Some(url) = utils::validate_url(url) {
+                let socket_addr = utils::get_socket_addrs(&url);
+                ctx.set(CtxKeys::UPSTREAM_ADDRESS.to_string(), socket_addr);
+                ctx.set(
+                    CtxKeys::UPSTREAM_SNI.to_string(),
+                    url.domain().unwrap_or_default().to_string(),
+                );
+                vec![]
+            } else {
+                ErrorResponse {
+                    error: "Invalid backend_url".to_string(),
+                }.to_bytes()
+            }
+        } else {
+            ErrorResponse {
+                error: "backend_url is a required param".to_string(),
+            }.to_bytes()
+        }
+    }
+
+    fn request_filter_proxy(&self, ctx: &mut Layer8Context) -> Vec<u8> {
+        let correlation_id = ctx.get_correlation_id();
+        // For proxy request, we expect the int-fp-jwt token in the header, and we will use it to get the upstream address for the next phase (upstream_peer)
+        match ctx.get_request_header().get(HeaderKeys::INT_FP_JWT) {
+            None => ErrorResponse {
+                error: "Missing int_fp_jwt header".to_string(),
+            }.to_bytes(),
+            Some(int_fp_jwt) => match self.handler.verify_int_fp_jwt(int_fp_jwt.as_str()) {
+                Ok(session) => {
+                    debug!(%correlation_id, "IntFPSession: {:?}", session);
+                    ctx.set(
+                        CtxKeys::BACKEND_AUTH_CLIENT_ID.to_string(),
+                        session.client_id,
+                    );
+
+                    if let Some(url) = utils::validate_url(&session.rp_base_url) {
+                        let socket_addr = utils::get_socket_addrs(&url);
+                        ctx.set(CtxKeys::UPSTREAM_ADDRESS.to_string(), socket_addr);
+                        ctx.set(
+                            CtxKeys::UPSTREAM_SNI.to_string(),
+                            url.domain().unwrap_or_default().to_string(),
+                        );
+                        vec![]
+                    } else {
+                        ErrorResponse {
+                            error: "Invalid backend_url".to_string(),
+                        }.to_bytes()
+                    }
+                }
+                Err(err) => {
+                    error!(
+                        %correlation_id,
+                        log_type = LogTypes::HANDLE_CLIENT_REQUEST,
+                        "Error verifying int_fp_jwt: {}", err
+                    );
+                    ErrorResponse { error: err }.to_bytes()
+                }
+            },
+        }
+    }
 }
 
 /// To see the order of execution and how the request is processed, refer to the documentation
@@ -63,6 +210,24 @@ impl ProxyHttp for ForwardProxy {
         Layer8Context::default()
     }
 
+    /// This function is responsible for establishing the connection details to the upstream server.
+    /// It performs the following operations:
+    /// - Retrieves the upstream address and SNI (Server Name Indication) from the context
+    /// - Attempts to create an HttpPeer for each available socket address
+    /// - Configures mTLS (mutual TLS) by setting up client certificates and peer verification options
+    /// - Returns the configured HttpPeer wrapped in a Box for the upstream connection
+    ///
+    /// # Arguments
+    /// * `session` - The current session (unused in this implementation)
+    /// * `ctx` - The request context containing upstream address and SNI information
+    ///
+    /// # Returns
+    /// * `Ok(Box<HttpPeer>)` - A successfully configured peer ready for upstream connection
+    /// * `Err(Error)` - A ConnectError if no valid peer could be created for any address
+    ///
+    /// # mTLS Flow
+    /// This function implements step 4 of the mTLS handshake where the client (forward proxy)
+    /// presents its TLS certificate to the upstream server.
     async fn upstream_peer(
         &self,
         _session: &mut Session,
@@ -159,6 +324,24 @@ impl ProxyHttp for ForwardProxy {
         Ok(Box::new(peer))
     }
 
+    /// Filters and processes incoming client requests.
+    /// This function is responsible for:
+    /// - Updating the context with session information
+    /// - Handling CORS preflight requests (OPTIONS method)
+    /// - Routing requests to appropriate handlers based on path and method
+    /// - Processing healthcheck requests
+    /// - Processing init-tunnel requests with backend URL validation
+    /// - Processing proxy requests with JWT token verification
+    /// - Returning error responses for invalid requests
+    ///
+    /// # Arguments
+    /// * `session` - The current HTTP session
+    /// * `ctx` - The request context for storing and retrieving request data
+    ///
+    /// # Returns
+    /// * `Ok(true)` - If the request was fully handled (response already sent)
+    /// * `Ok(false)` - If the request should continue to upstream processing
+    /// * `Err(Error)` - If an error occurred during processing
     async fn request_filter(
         &self,
         session: &mut Session,
@@ -167,137 +350,26 @@ impl ProxyHttp for ForwardProxy {
     where
         Self::CTX: Send + Sync,
     {
-        // create Context
+        // initialize context with request information for later use in the processing pipeline
         ctx.update(session).await?;
-        let correlation_id = ctx.set_correlation_id();
-
-        info!(
-            %correlation_id,
-            log_type = LogTypes::ACCESS_LOG,
-            request_summary = session.request_summary(),
-            origin = ctx.request.header.get("origin"),
-            referer = ctx.request.header.get("referer"),
-            user_agent = ctx.request.header.get("User-Agent"),
-        );
 
         if session.req_header().method == pingora::http::Method::OPTIONS {
-            // Handle CORS preflight request
-            ctx.response.status = StatusCode::NO_CONTENT;
-            let mut header = ResponseHeader::build(StatusCode::NO_CONTENT, None)?;
-            if let Some(req_headers) = session
-                .req_header()
-                .headers
-                .get("Access-Control-Request-Headers")
-            {
-                header.insert_header("Access-Control-Allow-Headers", req_headers)?;
-            }
-            self.set_response_header(ctx, &mut header)?;
-
-            session.write_response_header_ref(&header, false).await?;
-            session.set_keepalive(None);
-            return Ok(true);
+            return self.handle_preflight_request(ctx, session).await;
         }
 
-        let mut error_response_bytes: Vec<u8> = vec![];
-        match (
+        let error_response_bytes = match (
             session.req_header().uri.path(),
             session.req_header().method.as_str(),
         ) {
             (RequestPaths::HEALTHCHECK, "GET") => {
-                let handler_response = self.handler.handle_healthcheck(ctx);
-                let mut header = ResponseHeader::build(handler_response.status, None)?;
-                let response_headers = header.headers.clone();
-                for (key, val) in response_headers.iter() {
-                    header
-                        .insert_header(key.clone(), val.clone())
-                        .map_err(|e| {
-                            error!(
-                                %correlation_id,
-                                log_type = LogTypes::HEALTHCHECK,
-                                "Cannot add request header {}:{:?}, err: {:?}",
-                                key.clone(),
-                                val.clone(),
-                                e
-                            )
-                        })
-                        .unwrap_or_default();
-                }
-
-                let mut response_bytes = vec![];
-                if let Some(body_bytes) = handler_response.body {
-                    header
-                        .insert_header("Content-length", &body_bytes.len().to_string())
-                        .unwrap_or_default();
-                    response_bytes = body_bytes;
-                };
-
-                session.write_response_header_ref(&header, false).await?;
-
-                // Write the response body to the session after setting headers
-                session
-                    .write_response_body(Some(Bytes::from(response_bytes)), true)
-                    .await?;
-
-                return Ok(true);
+                return self.handle_healthcheck(ctx, session).await;
             }
             (RequestPaths::INIT_TUNNEL, "POST") => {
-                if let Some(url) = ctx.param("backend_url") {
-                    if let Some(url) = utils::validate_url(url) {
-                        let socket_addr = utils::get_socket_addrs(&url);
-                        ctx.set(CtxKeys::UPSTREAM_ADDRESS.to_string(), socket_addr);
-                        ctx.set(
-                            CtxKeys::UPSTREAM_SNI.to_string(),
-                            url.domain().unwrap_or_default().to_string(),
-                        );
-                    } else {
-                        error_response_bytes = ErrorResponse {
-                            error: "Invalid backend_url".to_string(),
-                        }.to_bytes();
-                    }
-                } else {
-                    error_response_bytes = ErrorResponse {
-                        error: "backend_url is a required param".to_string(),
-                    }.to_bytes();
-                }
+                self.request_filter_init_tunnel(ctx)
             }
             (RequestPaths::PROXY, "POST") => {
                 // verify int-fp-jwt token and use it to get upstream address for the next phase (upstream_peer)
-                error_response_bytes = match ctx.get_request_header().get(HeaderKeys::INT_FP_JWT) {
-                    None => ErrorResponse {
-                        error: "Missing int_fp_jwt header".to_string(),
-                    }.to_bytes(),
-                    Some(int_fp_jwt) => match self.handler.verify_int_fp_jwt(int_fp_jwt.as_str()) {
-                        Ok(session) => {
-                            debug!(%correlation_id, "IntFPSession: {:?}", session);
-                            ctx.set(
-                                CtxKeys::BACKEND_AUTH_CLIENT_ID.to_string(),
-                                session.client_id,
-                            );
-
-                            if let Some(url) = utils::validate_url(&session.rp_base_url) {
-                                let socket_addr = utils::get_socket_addrs(&url);
-                                ctx.set(CtxKeys::UPSTREAM_ADDRESS.to_string(), socket_addr);
-                                ctx.set(
-                                    CtxKeys::UPSTREAM_SNI.to_string(),
-                                    url.domain().unwrap_or_default().to_string(),
-                                );
-                                vec![]
-                            } else {
-                                ErrorResponse {
-                                    error: "Invalid backend_url".to_string(),
-                                }.to_bytes()
-                            }
-                        }
-                        Err(err) => {
-                            error!(
-                                %correlation_id,
-                                log_type = LogTypes::HANDLE_CLIENT_REQUEST,
-                                "Error verifying int_fp_jwt: {}", err
-                            );
-                            ErrorResponse { error: err }.to_bytes()
-                        }
-                    },
-                }
+                self.request_filter_proxy(ctx)
             }
             _ => {
                 ctx.response.status = StatusCode::NOT_FOUND;
@@ -306,7 +378,7 @@ impl ProxyHttp for ForwardProxy {
                 session.set_keepalive(None);
                 return Ok(true);
             }
-        }
+        };
 
         if error_response_bytes.len() > 0 {
             ctx.response.status = StatusCode::BAD_REQUEST;
@@ -333,6 +405,8 @@ impl ProxyHttp for ForwardProxy {
     where
         Self::CTX: Send + Sync,
     {
+        // Read the request body in chunks and store it in the context until we receive the end_of_stream signal.
+        // Once we receive end_of_stream, we know we have the full request body and can process it accordingly.
         if let Some(b) = body {
             ctx.extend_request_body(b.to_vec());
             // drop the body
@@ -500,6 +574,8 @@ impl ProxyHttp for ForwardProxy {
     where
         Self::CTX: Send + Sync,
     {
+        // Read the response body in chunks and store it in the context until we receive the end_of_stream signal.
+        // Once we receive end_of_stream, we know we have the full response body and can process it accordingly.
         if let Some(b) = body {
             ctx.extend_response_body(b.to_vec());
             // drop the body
@@ -509,7 +585,6 @@ impl ProxyHttp for ForwardProxy {
         if end_of_stream {
             let correlation_id = ctx.get_correlation_id();
 
-            // This is the last chunk, we can process the data now
             debug!(
                 %correlation_id,
                 log_type = LogTypes::HANDLE_UPSTREAM_RESPONSE,
@@ -601,14 +676,14 @@ impl ProxyHttp for ForwardProxy {
 
         info!(
             %correlation_id,
-            log_type=LogTypes::ACCESS_LOG_RESULT,
+            log_type=LogTypes::ACCESS_LOG,
+            status=status,
             request_summary=session.request_summary(),
             origin = ctx.request.header.get("origin"),
             referer = ctx.request.header.get("referer"),
-            status=status,
-            latency_ms=ctx.get_latency_ms(), // todo: is it necessary?
+            user_agent = ctx.request.header.get("User-Agent"),
+            latency_ms=ctx.get_latency_ms(),
             response_body_size=ctx.get_response_body().len(),
-            user_agent=ctx.request.header.get("User-Agent"),
             error=?e,
         );
     }

@@ -65,12 +65,21 @@ impl<T> Router<T> {
         }
     }
 
-    fn get_handlers(&self, method: &Method, path: &str) -> Option<&Box<[APIHandler<T>]>> {
+    /// Retrieves the handlers associated with the specified HTTP method and path.
+    ///
+    /// # Arguments
+    /// * `method` - The HTTP method for which to retrieve handlers (e.g., GET, POST).
+    /// * `path` - The request path for which to retrieve handlers.
+    ///
+    /// # Returns
+    /// An `Option` containing a reference to the array of handlers if found, or `None` if no handlers
+    /// are registered for the specified method and path.
+    fn get_handlers(&self, method: &Method, path: &str) -> Option<&[APIHandler<T>]> {
         match *method {
-            Method::POST => self.posts.get(path),
-            Method::GET => self.gets.get(path),
-            Method::PUT => self.puts.get(path),
-            Method::DELETE => self.deletes.get(path),
+            Method::POST => self.posts.get(path).map(|b| b.as_ref()),
+            Method::GET => self.gets.get(path).map(|b| b.as_ref()),
+            Method::PUT => self.puts.get(path).map(|b| b.as_ref()),
+            Method::DELETE => self.deletes.get(path).map(|b| b.as_ref()),
             _ => None,
         }
     }
