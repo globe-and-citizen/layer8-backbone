@@ -33,6 +33,20 @@ impl ForwardProxy {
         }
     }
 
+    /// Sets CORS (Cross-Origin Resource Sharing) response headers.
+    /// This function is responsible for:
+    /// - Adding Access-Control-Allow-Credentials header based on config
+    /// - Setting Access-Control-Allow-Methods to allow common HTTP methods
+    /// - Setting Access-Control-Max-Age to 24 hours (86400 seconds)
+    /// - Setting Access-Control-Allow-Origin header if the origin is in the allowlist
+    ///
+    /// # Arguments
+    /// * `ctx` - The request context for retrieving the origin from the request headers
+    /// * `response` - The response header to add CORS headers to
+    ///
+    /// # Returns
+    /// * `Ok(())` - Successfully added all CORS headers
+    /// * `Err(Error)` - If an error occurred while inserting headers
     pub fn set_response_header(&self, ctx: &Layer8Context, response: &mut ResponseHeader) -> pingora::Result<()> {
         response.insert_header("Access-Control-Allow-Credentials", self.config.cors_allow_credentials.to_string())?;
         response.insert_header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")?;
@@ -86,7 +100,6 @@ impl ForwardProxy {
 
     /// Handles healthcheck requests.
     /// This function is responsible for:
-    /// - Retrieving the correlation ID from the context
     /// - Calling the handler to process the healthcheck request
     /// - Building a response header with the appropriate status code
     /// - Adding response headers from the handler response
@@ -134,9 +147,29 @@ impl ForwardProxy {
         Ok(true)
     }
 
+    /// Validates and processes init-tunnel requests.
+    /// This function is responsible for:
+    /// - Extracting and validating the `backend_url` query parameter
+    /// - Resolving the backend URL to socket addresses (may resolve to multiple IPs)
+    /// - Setting upstream connection details (address and SNI) in the context for next phase (upstream_peer)
+    /// - Returning an empty response on success or a serialized error response on failure
+    ///
+    /// # Arguments
+    /// * `ctx` - The request context for storing upstream address and SNI information
+    ///
+    /// # Returns
+    /// * `Vec<u8>` - Empty vector on successful validation, or serialized error response if validation fails
+    ///
+    /// # Error Cases
+    /// * `"backend_url is a required param"` - If the `backend_url` query parameter is missing
+    /// * `"Invalid backend_url"` - If the URL is invalid or cannot be resolved to socket addresses
+    ///
+    /// # Flow
+    /// 1. Extract `backend_url` query parameter
+    /// 2. Validate URL format and resolve to socket addresses
+    /// 3. Store resolved addresses and SNI in context for upstream_peer phase
+    /// 4. Return empty Vec on success, or error response bytes on failure
     fn request_filter_init_tunnel(&self, ctx: &mut Layer8Context) -> Vec<u8> {
-        // For init-tunnel request, we expect the body to contain the backend_url in JSON format like {"backend_url": "https://example.com"}
-        // The handler will validate the backend_url and set the UPSTREAM_ADDRESS and UPSTREAM_SNI in the context for the next phase (upstream_peer)
         if let Some(url) = ctx.param("backend_url") {
             if let Some(url) = utils::validate_url(url) {
                 let socket_addr = utils::get_socket_addrs(&url);
@@ -158,9 +191,38 @@ impl ForwardProxy {
         }
     }
 
+    /// Validates and processes proxy requests.
+    /// This function is responsible for:
+    /// - Extracting and validating the `int_fp_jwt` header from the request
+    /// - Verifying the JWT token to obtain session information
+    /// - Extracting the backend URL (rp_base_url) from the verified session
+    /// - Resolving the backend URL to socket addresses
+    /// - Setting upstream connection details (address and SNI) in the context for next phase (upstream_peer)
+    /// - Storing client authentication information for later logging and tracking
+    /// - Returning an empty response on success or a serialized error response on failure
+    ///
+    /// # Arguments
+    /// * `ctx` - The request context for storing upstream address, SNI, and client authentication information
+    ///
+    /// # Returns
+    /// * `Vec<u8>` - Empty vector on successful validation, or serialized error response if validation fails
+    ///
+    /// # Error Cases
+    /// * `"Missing int_fp_jwt header"` - If the `int_fp_jwt` header is missing from the request
+    /// * `"Invalid backend_url"` - If the URL from the session is invalid or cannot be resolved to socket addresses
+    /// * Custom JWT verification errors - If the JWT token is invalid, expired, or verification fails
+    ///
+    /// # Flow
+    /// 1. Extract int_fp_jwt header from request
+    /// 2. Verify JWT token and extract session data (includes rp_base_url and client_id)
+    /// 3. Store client_id in context for statistics tracking
+    /// 4. Validate and resolve rp_base_url to socket addresses
+    /// 5. Store addresses and SNI in context for upstream_peer phase
+    /// 6. Return empty Vec on success, or error response bytes on failure
     fn request_filter_proxy(&self, ctx: &mut Layer8Context) -> Vec<u8> {
         let correlation_id = ctx.get_correlation_id();
-        // For proxy request, we expect the int-fp-jwt token in the header, and we will use it to get the upstream address for the next phase (upstream_peer)
+        // For proxy request, we expect the int-fp-jwt token in the header, and we will use it to
+        // get the upstream address for the next phase (upstream_peer)
         match ctx.get_request_header().get(HeaderKeys::INT_FP_JWT) {
             None => ErrorResponse {
                 error: "Missing int_fp_jwt header".to_string(),
@@ -173,6 +235,10 @@ impl ForwardProxy {
                         session.client_id,
                     );
 
+                    // `rp_base_url` should be validated before being saved in the session,
+                    // but we call it again to get the parsed URL object for extracting socket
+                    // addresses and SNI because the function is relatively simple and lightweight.
+                    // If the URL is invalid, we handle error anyway.
                     if let Some(url) = utils::validate_url(&session.rp_base_url) {
                         let socket_addr = utils::get_socket_addrs(&url);
                         ctx.set(CtxKeys::UPSTREAM_ADDRESS.to_string(), socket_addr);
@@ -200,8 +266,33 @@ impl ForwardProxy {
     }
 }
 
-/// To see the order of execution and how the request is processed, refer to the documentation
-/// see https://github.com/cloudflare/pingora/blob/main/docs/user_guide/phase.md
+/// Implementation of the Pingora ProxyHttp trait for the ForwardProxy.
+///
+/// This trait implementation defines the complete HTTP request/response processing pipeline,
+/// including request filtering, upstream connection management, header modifications, response
+/// filtering, logging, and error handling.
+///
+/// # Request Processing Pipeline
+/// The following methods are executed in order during request processing:
+/// 1. `request_filter()` - Initial request validation and routing
+/// 2. `request_body_filter()` - Request body processing (chunked)
+/// 3. `upstream_peer()` - Upstream connection establishment with mTLS
+/// 4. `upstream_request_filter()` - Upstream request header modification
+/// 5. `response_filter()` - Upstream response header modification
+/// 6. `response_body_filter()` - Response body processing (chunked)
+/// 7. `logging()` - Request/response logging and statistics
+///
+/// # Error Handling
+/// - `fail_to_connect()` - Handles upstream connection failures with retry logic
+///
+/// # Security Features
+/// - mTLS (mutual TLS) authentication with upstream servers
+/// - JWT token verification for proxy requests
+/// - CORS header validation and enforcement
+/// - Certificate pinning and hostname verification
+///
+/// # See Also
+/// - [Pingora Phases Documentation](https://github.com/cloudflare/pingora/blob/main/docs/user_guide/phase.md)
 #[async_trait]
 impl ProxyHttp for ForwardProxy {
     type CTX = Layer8Context;
@@ -210,40 +301,38 @@ impl ProxyHttp for ForwardProxy {
         Layer8Context::default()
     }
 
-    /// This function is responsible for establishing the connection details to the upstream server.
-    /// It performs the following operations:
-    /// - Retrieves the upstream address and SNI (Server Name Indication) from the context
-    /// - Attempts to create an HttpPeer for each available socket address
-    /// - Configures mTLS (mutual TLS) by setting up client certificates and peer verification options
-    /// - Returns the configured HttpPeer wrapped in a Box for the upstream connection
+    /// Manages upstream connection with mTLS.
     ///
-    /// # Arguments
-    /// * `session` - The current session (unused in this implementation)
-    /// * `ctx` - The request context containing upstream address and SNI information
+    /// This performs step 4 of mTLS handshake (client certificate presentation).
+    /// The peer verification and certificate validation are handled by TLSCredentials.
     ///
-    /// # Returns
-    /// * `Ok(Box<HttpPeer>)` - A successfully configured peer ready for upstream connection
-    /// * `Err(Error)` - A ConnectError if no valid peer could be created for any address
+    /// # Security & TLS Handshake
+    /// The mTLS process is a 7-step mutual authentication mechanism:
+    /// 1. Client connects to server
+    /// 2. Server presents its TLS certificate
+    /// 3. Client verifies the server's certificate
+    /// 4. Client presents its TLS certificate (handled in this method)
+    /// 5. Server verifies the client's certificate
+    /// 6. Server grants access
+    /// 7. Client and server exchange information over encrypted TLS connection
     ///
-    /// # mTLS Flow
-    /// This function implements step 4 of the mTLS handshake where the client (forward proxy)
-    /// presents its TLS certificate to the upstream server.
+    /// # Failover & Retry Logic
+    /// When a DNS name resolves to multiple socket addresses:
+    /// - Attempts to create HttpPeer for each address in sequence
+    /// - On panic during peer creation, removes that address and tries the next one
+    /// - Returns ConnectError if all addresses fail
+    /// - Failed addresses are logged and removed from the address list
+    ///
+    /// # See Also
+    /// - [Pingora Phases](https://github.com/cloudflare/pingora/blob/main/docs/user_guide/phase.md)
+    ///
+    /// # Errors
+    /// Returns `ConnectError` if no valid peer could be created for any address
     async fn upstream_peer(
         &self,
         _session: &mut Session,
         ctx: &mut Self::CTX,
     ) -> pingora::Result<Box<HttpPeer>> {
-        // mTLS Steps:
-        // 1. Client connects to server
-        // 2. Server presents its TLS certificate
-        // 3. Client verifies the server's certificate
-        // 4. Client presents its TLS certificate
-        // 5. Server verifies the client's certificate
-        // 6. Server grants access
-        // 7. Client and server exchange information over encrypted TLS connection
-        //
-        // Code below is for step 4(this is a client to RP), presenting the client's TLS certificate.
-
         let correlation_id = ctx.get_correlation_id();
 
         let addrs = ctx
@@ -309,14 +398,17 @@ impl ProxyHttp for ForwardProxy {
         };
 
         if self.config.tls.enable_tls {
-            // Providing Peer Options
+            // Configure mTLS peer options
             let mut peer_options = PeerOptions::new();
             {
-                peer_options.verify_cert = true; // Verify the server's certificate
+                // Step 3 of mTLS: Verify the server's certificate against CA
+                peer_options.verify_cert = true;
                 peer_options.ca = Some(Arc::new(Box::new([self.tls_credentials.ca_cert.clone()])));
-                peer_options.verify_hostname = true; // Whether to check if upstream server cert's Host matches the SNI
+                // Verify that upstream server's certificate hostname matches the SNI
+                peer_options.verify_hostname = true;
             }
 
+            // Step 4 of mTLS: Present client certificate and key to upstream server
             peer.client_cert_key = Some(self.tls_credentials.cert_key.load_full());
             peer.options = peer_options;
         }
@@ -329,10 +421,18 @@ impl ProxyHttp for ForwardProxy {
     /// - Updating the context with session information
     /// - Handling CORS preflight requests (OPTIONS method)
     /// - Routing requests to appropriate handlers based on path and method
-    /// - Processing healthcheck requests
-    /// - Processing init-tunnel requests with backend URL validation
-    /// - Processing proxy requests with JWT token verification
+    /// - Processing healthcheck requests (GET /healthcheck)
+    /// - Processing init-tunnel requests (POST /init-tunnel) with backend URL validation
+    /// - Processing proxy requests (POST /proxy) with JWT token verification
     /// - Returning error responses for invalid requests
+    /// - Returning 404 for unmatched routes
+    ///
+    /// # Request Routing
+    /// * `OPTIONS /any-path` → CORS preflight handling
+    /// * `GET /healthcheck` → Health check response
+    /// * `POST /init-tunnel` → Backend URL validation
+    /// * `POST /proxy` → JWT verification
+    /// * Anything else → 404 Not Found
     ///
     /// # Arguments
     /// * `session` - The current HTTP session
@@ -342,6 +442,9 @@ impl ProxyHttp for ForwardProxy {
     /// * `Ok(true)` - If the request was fully handled (response already sent)
     /// * `Ok(false)` - If the request should continue to upstream processing
     /// * `Err(Error)` - If an error occurred during processing
+    ///
+    /// # Error Handling
+    /// If request validation fails, returns HTTP 400 with error message JSON
     async fn request_filter(
         &self,
         session: &mut Session,
@@ -368,7 +471,6 @@ impl ProxyHttp for ForwardProxy {
                 self.request_filter_init_tunnel(ctx)
             }
             (RequestPaths::PROXY, "POST") => {
-                // verify int-fp-jwt token and use it to get upstream address for the next phase (upstream_peer)
                 self.request_filter_proxy(ctx)
             }
             _ => {
@@ -395,6 +497,22 @@ impl ProxyHttp for ForwardProxy {
         Ok(false)
     }
 
+    /// Processes the request body in chunks and handles init-tunnel request processing.
+    /// This function is responsible for:
+    /// - Accumulating the request body in chunks until end_of_stream is received
+    /// - For `init-tunnel` requests: delegating to the handler for processing and transformation
+    /// - For other requests: passing through the request body unchanged
+    /// - Clearing individual chunks after storing them to free memory
+    ///
+    /// # Arguments
+    /// * `session` - The current HTTP session
+    /// * `body` - The current chunk of the request body (mutable)
+    /// * `end_of_stream` - Boolean indicating if this is the final chunk
+    /// * `ctx` - The request context for storing and retrieving body data
+    ///
+    /// # Returns
+    /// * `Ok(())` - Successfully processed the request body chunk
+    /// * `Err(Error)` - If an error occurred during init-tunnel handling
     async fn request_body_filter(
         &self,
         session: &mut Session,
@@ -416,15 +534,6 @@ impl ProxyHttp for ForwardProxy {
         if end_of_stream {
             let correlation_id = ctx.get_correlation_id();
 
-            debug!(
-                %correlation_id,
-                log_type = LogTypes::HANDLE_CLIENT_REQUEST,
-                request_summary = session.request_summary(),
-                "Request Body Received: {} bytes.",
-                &ctx.get_request_body().len()
-            );
-
-            // This is the last chunk, we can process the data now
             if session.req_header().uri.path() != RequestPaths::INIT_TUNNEL {
                 info!(
                     %correlation_id,
@@ -458,12 +567,7 @@ impl ProxyHttp for ForwardProxy {
                 "Handle init-tunnel Request response with status: {}",
                 handler_response.status,
             );
-            debug!(
-                %correlation_id,
-                request_summary = session.request_summary(),
-                "Handle init-tunnel response body: {}",
-                utils::bytes_to_string(&handler_response.body.as_ref().unwrap_or(&vec![]))
-            );
+
             let fp_req_body = handler_response.body.as_ref().unwrap_or(&vec![]).clone();
 
             *body = Some(Bytes::copy_from_slice(fp_req_body.as_slice()));
@@ -472,6 +576,34 @@ impl ProxyHttp for ForwardProxy {
         Ok(())
     }
 
+    /// Modifies upstream request headers based on the request path and token information.
+    /// This function is responsible for:
+    /// - For proxy requests: extracting the int_fp_jwt token, verifying it, and replacing it with fp_rp_jwt header
+    /// - Removing the int_fp_jwt header from upstream requests (internal token)
+    /// - Setting Transfer-Encoding to chunked for requests with a body (for streaming support)
+    /// - Adding correlation ID header to all upstream requests (for request tracing)
+    ///
+    /// # JWT Token Flow
+    /// The forward proxy uses two different JWT tokens:
+    /// - `int_fp_jwt`: Internal token received from client (contains session and reverse proxy info)
+    /// - `fp_rp_jwt`: Token sent to reverse proxy (derived from int_fp_jwt session)
+    ///
+    /// # Header Transformations
+    /// 1. Extract `int_fp_jwt` from request headers (if proxy request)
+    /// 2. Verify JWT and retrieve session containing `fp_rp_jwt`
+    /// 3. Insert `fp_rp_jwt` into upstream request headers
+    /// 4. Remove `int_fp_jwt` from upstream headers (internal only)
+    /// 5. Set `Transfer-Encoding: chunked` if body is present
+    /// 6. Add `x-correlation-id` for distributed tracing
+    ///
+    /// # Arguments
+    /// * `session` - The current HTTP session
+    /// * `upstream_request` - The upstream request header to be modified
+    /// * `ctx` - The request context for retrieving client information and tokens
+    ///
+    /// # Returns
+    /// * `Ok(())` - Successfully processed the upstream request headers
+    /// * `Err(Error)` - If JWT token verification fails or header manipulation fails
     async fn upstream_request_filter(
         &self,
         session: &mut Session,
@@ -539,6 +671,19 @@ impl ProxyHttp for ForwardProxy {
         Ok(())
     }
 
+    /// Modifies upstream response headers based on the request context.
+    /// This function is responsible for:
+    /// - Setting CORS response headers (origin, credentials, methods, max age)
+    /// - Removing content-length header and setting Transfer-Encoding to chunked for non-empty responses
+    ///
+    /// # Arguments
+    /// * `session` - The current HTTP session (unused in this implementation)
+    /// * `upstream_response` - The upstream response header to be modified
+    /// * `ctx` - The request context for retrieving CORS configuration
+    ///
+    /// # Returns
+    /// * `Ok(())` - Successfully processed the upstream response headers
+    /// * `Err(Error)` - If header manipulation fails
     async fn response_filter(
         &self,
         _session: &mut Session,
@@ -564,6 +709,22 @@ impl ProxyHttp for ForwardProxy {
         Ok(())
     }
 
+    /// Processes the upstream response body in chunks and handles init-tunnel response transformation.
+    /// This function is responsible for:
+    /// - Accumulating the response body in chunks until end_of_stream is received
+    /// - For init-tunnel requests: delegating to the handler for processing and transformation
+    /// - For other requests: passing through the response body unchanged
+    /// - Clearing individual chunks after storing them to free memory
+    ///
+    /// # Arguments
+    /// * `session` - The current HTTP session
+    /// * `body` - The current chunk of the response body (mutable)
+    /// * `end_of_stream` - Boolean indicating if this is the final chunk
+    /// * `ctx` - The request context for storing and retrieving response body data
+    ///
+    /// # Returns
+    /// * `Ok(None)` - Successfully processed the response body chunk
+    /// * `Err(Error)` - If an error occurred during init-tunnel response handling
     fn response_body_filter(
         &self,
         session: &mut Session,
@@ -584,14 +745,6 @@ impl ProxyHttp for ForwardProxy {
 
         if end_of_stream {
             let correlation_id = ctx.get_correlation_id();
-
-            debug!(
-                %correlation_id,
-                log_type = LogTypes::HANDLE_UPSTREAM_RESPONSE,
-                request_summary = session.request_summary(),
-                "Response Body Received: {} bytes.",
-                &ctx.get_response_body().len(),
-            );
 
             if session.req_header().uri.path() != RequestPaths::INIT_TUNNEL {
                 info!(
@@ -639,6 +792,28 @@ impl ProxyHttp for ForwardProxy {
         Ok(None)
     }
 
+    /// Logs request and response information along with updating client usage statistics.
+    /// This function is responsible for:
+    /// - Extracting the response status code from the context or session
+    /// - Recording client usage statistics for POST requests to proxy and init-tunnel endpoints
+    /// - Spawning an async task to update statistics without blocking the response
+    /// - Logging comprehensive access information including status, headers, latency, and errors
+    ///
+    /// # Arguments
+    /// * `session` - The current HTTP session containing request and response information
+    /// * `e` - Optional error that occurred during request processing
+    /// * `ctx` - The request context for retrieving correlation ID, body sizes, and latency
+    ///
+    /// # Returns
+    /// * No return value; logs are written asynchronously
+    ///
+    /// # Logged Information
+    /// * Correlation ID - Unique request identifier
+    /// * Status code - HTTP response status
+    /// * Request summary - Method, path, and version
+    /// * Request headers - Origin, referer, and user-agent
+    /// * Performance metrics - Latency in milliseconds and response body size
+    /// * Error details - Any errors that occurred during processing
     async fn logging(&self, session: &mut Session, e: Option<&Error>, ctx: &mut Self::CTX)
     where
         Self::CTX: Send + Sync,
@@ -650,6 +825,7 @@ impl ProxyHttp for ForwardProxy {
             status = session.response_written().unwrap().status.as_u16();
         }
 
+        // Update client usage statistics
         if session.req_header().method.as_str() == "POST"
             && (session.req_header().uri.path() == RequestPaths::PROXY
             || session.req_header().uri.path() == RequestPaths::INIT_TUNNEL)
@@ -688,6 +864,31 @@ impl ProxyHttp for ForwardProxy {
         );
     }
 
+    /// Logs connection failures to upstream servers and manages retry logic.
+    /// This function is responsible for:
+    /// - Detecting connection failures (timeout, refused, or generic connection errors)
+    /// - Removing failed socket addresses from the upstream address list
+    /// - Setting retry flag to attempt connection with the next available address
+    /// - Logging detailed error information including the failed address and retry status
+    ///
+    /// # Arguments
+    /// * `_session` - The current HTTP session (unused in this implementation)
+    /// * `peer` - The HttpPeer that failed to connect
+    /// * `ctx` - The request context for retrieving and updating upstream addresses
+    /// * `e` - The error that occurred during the connection attempt
+    ///
+    /// # Returns
+    /// * `Box<Error>` - The original error with retry flag set if another address is available
+    ///
+    /// # See Also:
+    /// - [Pingora Failover Handling](https://github.com/cloudflare/pingora/blob/main/docs/user_guide/failover.md)
+    ///
+    /// # Retry Logic
+    /// When a connection error occurs:
+    /// 1. Checks if the error is a timeout, refused, or generic connection error
+    /// 2. Extracts the next address from the comma-separated address list
+    /// 3. Sets retry=true to trigger upstream_peer() to be called again with the next address
+    /// 4. Logs the failure with peer address, error details, and retry status
     fn fail_to_connect(
         &self,
         _session: &mut Session,

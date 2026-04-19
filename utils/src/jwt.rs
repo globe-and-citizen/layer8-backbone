@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use jsonwebtoken::{DecodingKey, Validation, errors::Error as JwtError, TokenData};
+use jsonwebtoken::errors::ErrorKind;
 
 /// JWT (JSON Web Token) claims structure.
 ///
@@ -153,12 +154,58 @@ pub fn create_jwt_token(claims: JWTClaims, jwt_secret: &[u8]) -> String {
     ).unwrap()
 }
 
+
+/// Validates input token signature and expiration.
+///
+/// This function decodes the provided JWT token using the given secret key and performs
+/// expiration time validation. If the token is expired, an `ExpiredSignature` error is returned.
+///
+/// # Arguments
+///
+/// * `token` - The JWT token string to verify
+/// * `jwt_secret` - A reference to the secret key used to verify the token signature
+///
+/// # Returns
+///
+/// Returns `Ok(TokenData<JWTClaims>)` if the token is valid and not expired,
+/// or `Err(JwtError)` if the token is invalid, tampered with, or expired.
+///
+/// # Example
+///
+/// ```ignore
+/// let secret = b"my_secret_key".to_vec();
+/// let token = "eyJ0eXAiOiJKV1QiLCJhbGc...";
+///
+/// match verify_jwt_token(token, &secret) {
+///     Ok(token_data) => println!("Token is valid: {:?}", token_data.claims),
+///     Err(e) => println!("Token verification failed: {}", e),
+/// }
+/// ```
 pub fn verify_jwt_token(token: &str, jwt_secret: &Vec<u8>) -> Result<TokenData<JWTClaims>, JwtError> {
-    jsonwebtoken::decode::<JWTClaims>(
+    match jsonwebtoken::decode::<JWTClaims>(
         token,
         &DecodingKey::from_secret(jwt_secret.as_slice()),
         &Validation::default(),
-    )
+    ) {
+        Ok(token_data) => {
+            if is_token_expired(&token_data.claims) {
+                return Err(jsonwebtoken::errors::Error::from(ErrorKind::ExpiredSignature));
+            }
+
+            Ok(token_data)
+        },
+        Err(err) => Err(err),
+    }
+}
+
+fn is_token_expired(claims: &JWTClaims) -> bool {
+    match claims.exp {
+        Some(exp_time) => {
+            let now = chrono::Utc::now().timestamp();
+            now > exp_time
+        },
+        None => false,
+    }
 }
 
 

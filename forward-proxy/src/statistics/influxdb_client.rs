@@ -7,12 +7,26 @@ use influxdb2::models::DataPoint;
 use pingora::http::StatusCode;
 use std::error::Error;
 
+/// A client for writing statistics to InfluxDB.
+///
+/// Manages the connection to InfluxDB and provides methods for updating
+/// various metrics related to proxy requests (total requests, successful responses,
+/// bytes transferred, initiated tunnels).
 pub struct InfluxDBClient {
     client: Client,
     bucket: String,
 }
 
 impl InfluxDBClient {
+    /// Creates a new instance of InfluxDBClient.
+    ///
+    /// # Arguments
+    /// * `config` - InfluxDB configuration containing URL, organization, token, and bucket
+    ///
+    /// # Example
+    /// ```ignore
+    /// let client = InfluxDBClient::new(&config);
+    /// ```
     pub fn new(config: &InfluxDBConfig) -> Self {
         let influxdb_client = Client::new(
             &config.influxdb_url,
@@ -25,6 +39,20 @@ impl InfluxDBClient {
         }
     }
 
+    /// Updates statistics for a request.
+    ///
+    /// Increments the total request counter, and depending on the response status
+    /// and request path, updates additional metrics (bytes, success count, tunnel initiations).
+    ///
+    /// # Arguments
+    /// * `client_id` - unique identifier of the client
+    /// * `request_path` - request path (PROXY or INIT\_TUNNEL)
+    /// * `total_byte_transferred` - number of bytes transferred
+    /// * `response_status` - HTTP response status code
+    ///
+    /// # Returns
+    /// * `Ok(())` if the update was successful
+    /// * `Err` if an error occurred while writing to InfluxDB
     pub async fn update_statistics(
         &self,
         client_id: String,
@@ -50,6 +78,19 @@ impl InfluxDBClient {
         Ok(())
     }
 
+    /// Updates a counter metric in InfluxDB.
+    ///
+    /// Creates a data point with the specified metric, tags it with client\_id,
+    /// and writes it to the InfluxDB bucket.
+    ///
+    /// # Arguments
+    /// * `measurement` - name of the metric in InfluxDB
+    /// * `client_id` - client identifier (used as a tag)
+    /// * `value` - counter value to record
+    ///
+    /// # Returns
+    /// * `Ok(())` if the write was successful
+    /// * `Err` if an error occurred while building or writing the data point
     async fn update_counter(
         &self,
         measurement: &str,
@@ -81,6 +122,11 @@ impl InfluxDBClient {
         Ok(())
     }
 
+    /// Adds transferred bytes to the total bytes counter.
+    ///
+    /// # Arguments
+    /// * `client_id` - client identifier
+    /// * `bytes_size` - number of bytes transferred
     async fn add_total_byte_transferred(
         &self,
         client_id: &str,
@@ -94,6 +140,10 @@ impl InfluxDBClient {
         .await
     }
 
+    /// Increments the tunnel initiated counter by 1.
+    ///
+    /// # Arguments
+    /// * `client_id` - client identifier
     async fn increase_total_tunnel_initiated(
         &self,
         client_id: &str,
@@ -102,6 +152,10 @@ impl InfluxDBClient {
             .await
     }
 
+    /// Increments the total request counter by 1.
+    ///
+    /// # Arguments
+    /// * `client_id` - client identifier
     async fn increase_total_request(
         &self,
         client_id: &str,
@@ -110,6 +164,10 @@ impl InfluxDBClient {
             .await
     }
 
+    /// Increments the successful response counter by 1.
+    ///
+    /// # Arguments
+    /// * `client_id` - client identifier
     async fn increase_total_success(
         &self,
         client_id: &str,
