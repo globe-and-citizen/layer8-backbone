@@ -9,6 +9,21 @@ use pingora_router::router::Router;
 use crate::config::ProxyConfig;
 use crate::handler::common::consts::LogTypes;
 
+/// Reverse proxy server for routing and processing HTTP requests.
+///
+/// # Type Parameters
+/// * `T` — data type for the router
+///
+/// # Fields
+/// * `config` — proxy server configuration
+/// * `router` — router for request handling
+///
+/// # Examples
+/// ```ignore
+/// let config = ProxyConfig::default();
+/// let router = Router::new();
+/// let proxy = ReverseProxy::new(config, router);
+/// ```
 pub struct ReverseProxy<T> {
     config: ProxyConfig,
     router: Router<T>,
@@ -22,6 +37,21 @@ impl<T> ReverseProxy<T> {
         }
     }
 
+    /// Sets response headers for the proxy session.
+    ///
+    /// This method constructs and writes response headers to the client session, including:
+    /// - CORS headers based on configuration and request origin
+    /// - Common headers (Content-Type, Access-Control headers)
+    /// - Custom headers from the context response
+    ///
+    /// # Arguments
+    /// * `session` — the client session to write headers to
+    /// * `ctx` — the Layer8 context containing request/response data
+    /// * `response_status` — the HTTP status code for the response
+    ///
+    /// # Returns
+    /// * `Ok(())` on successful header write
+    /// * `Err(pingora::Error)` if header building or writing fails
     async fn set_headers(
         &self,
         session: &mut Session,
@@ -88,6 +118,9 @@ impl<T: Sync> ProxyHttp for ReverseProxy<T> {
         Layer8Context::default()
     }
 
+    /// This method is required by the `ProxyHttp` trait but is not invoked in the current
+    /// implementation, as all request handling is completed in `request_filter` before
+    /// upstream communication occurs.
     async fn upstream_peer(
         &self,
         _session: &mut Session,
@@ -98,24 +131,29 @@ impl<T: Sync> ProxyHttp for ReverseProxy<T> {
         Ok(peer)
     }
 
-    /// Handle request/response data by creating a new request to BE and respond to FP
+    /// Handle incoming HTTP requests by routing and generating responses.
+    ///
+    /// This method processes incoming HTTP requests by:
+    /// 1. Updating the context with session data and reading the complete request body
+    /// 2. Routing the request to the appropriate handler via the router
+    /// 3. Handling 404 responses by writing a default NOT_FOUND header
+    /// 4. Processing the handler response (status, body, cookies)
+    /// 5. Setting response headers including CORS headers
+    /// 6. Writing the response body back to the client
+    ///
+    /// # Arguments
+    /// * `session` — the client session containing request/response data
+    /// * `ctx` — the Layer8 context for storing request/response state
+    ///
+    /// # Returns
+    /// * `Ok(true)` on successful request processing (request fully handled)
+    /// * `Err(pingora::Error)` if any step fails (context update, routing, header/body write)
     async fn request_filter(&self, session: &mut Session, ctx: &mut Self::CTX) -> pingora::Result<bool>
     where
         Self::CTX: Send + Sync,
     {
         // create Context
         ctx.update(session).await?;
-        let correlation_id = ctx.set_correlation_id();
-
-        info!(
-            %correlation_id,
-            log_type=LogTypes::ACCESS_LOG,
-            request_summary = session.request_summary(),
-            origin = ctx.request.header.get("origin"),
-            referer = ctx.request.header.get("referer"),
-            user_agent = ctx.request.header.get("User-Agent"),
-        );
-
         ctx.read_request_body(session).await?;
 
         let handler_response = self.router.call_handler(ctx).await;
@@ -144,6 +182,24 @@ impl<T: Sync> ProxyHttp for ReverseProxy<T> {
         Ok(true)
     }
 
+    /// Log details about the completed request/response transaction.
+    ///
+    /// This method captures comprehensive information about the HTTP request lifecycle including:
+    /// - Correlation ID for request tracing
+    /// - Request summary (method, path, protocol)
+    /// - Response status code (from context or session if error occurred)
+    /// - Request headers (origin, referer, user-agent)
+    /// - Response body size
+    /// - Request latency in milliseconds
+    /// - Any errors that occurred during processing
+    ///
+    /// # Arguments
+    /// * `session` — the client session containing request/response data
+    /// * `e` — optional error that occurred during request processing
+    /// * `ctx` — the Layer8 context with request/response state and metrics
+    ///
+    /// # Note
+    /// This method is called after request processing completes, regardless of success or failure.
     async fn logging(
         &self,
         session: &mut Session,
@@ -158,12 +214,12 @@ impl<T: Sync> ProxyHttp for ReverseProxy<T> {
 
         info!(
             %correlation_id,
-            log_type=LogTypes::ACCESS_LOG_RESULT,
-            request_summary=session.request_summary(),
+            log_type=LogTypes::ACCESS_LOG,
+            status=status,
+            request_summary = session.request_summary(),
             origin = ctx.request.header.get("origin"),
             referer = ctx.request.header.get("referer"),
-            status=status,
-            latency_ms=ctx.get_latency_ms(), // todo: is it necessary?
+            latency_ms=ctx.get_latency_ms(),
             response_body_size=ctx.get_response_body().len(),
             user_agent=ctx.request.header.get("User-Agent"),
             error=?e,

@@ -43,6 +43,16 @@ impl ReverseHandler {
         }
     }
 
+    /// Retrieves the nTor shared secret for a given session ID.
+    ///
+    /// # Arguments
+    ///
+    /// * `session_id` - The session identifier to look up in the shared secrets storage.
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(Vec<u8>)` containing the shared secret if found, or `Err(APIHandlerResponse)`
+    /// with HTTP 401 Unauthorized status if the session ID is invalid or expired.
     fn get_ntor_shared_secret(&self, session_id: String) -> Result<Vec<u8>, APIHandlerResponse> {
         let shared_secret = NTOR_SHARED_SECRETS.with(|memory| {
             let guard = memory.lock().unwrap();
@@ -61,6 +71,30 @@ impl ReverseHandler {
         }
     }
 
+    /// Handles the initialization of an encrypted tunnel with nTor protocol.
+    ///
+    /// This method processes tunnel initialization requests by:
+    /// 1. Validating the request body and extracting the client's public key
+    /// 2. Initializing an nTor server instance with configured server ID and static secret
+    /// 3. Creating an nTor session from the client's public key
+    /// 4. Generating session ID and JWT tokens for internal and frontend use
+    /// 5. Storing the shared secret by sessionID in thread-local storage for later proxy requests
+    /// 6. Returning the server's public key, ntor t_b_hash, and JWT tokens to the client
+    ///
+    /// # Arguments
+    ///
+    /// * `ctx` - A mutable reference to the Layer8Context containing the HTTP request data.
+    ///
+    /// # Returns
+    ///
+    /// Returns an `APIHandlerResponse` with:
+    /// - `StatusCode::OK` (200) and encrypted tunnel initialization response on success
+    /// - `StatusCode::BAD_REQUEST` (400) if the public key length is invalid or request validation fails
+    /// - Other error status codes if request body validation fails
+    ///
+    /// # Errors
+    ///
+    /// This function may return error responses from request body validation or invalid public key length.
     pub async fn handle_init_tunnel(&self, ctx: &mut Layer8Context) -> APIHandlerResponse {
         let correlation_id = ctx.get_correlation_id();
 
@@ -73,26 +107,19 @@ impl ReverseHandler {
             Err(res) => return res
         };
 
-        // todo I think there are prettier ways to use nTor since we are free to modify the nTor crate, but I'm lazy
+        // initialize NTorServer object with configured server ID and static secret
         let mut ntor_server = NTorServer::new_with_secret(
             self.config.ntor_server_id.clone(),
             self.ntor_static_secret,
         );
 
+        // create nTor session from client's public key
         let init_session_response = {
-            if request_body.public_key.len() != 32 {
-                return APIHandlerResponse {
-                    status: StatusCode::BAD_REQUEST,
-                    body: Some("Invalid public key length".as_bytes().to_vec()),
-                    cookies: None,
-                };
-            }
-
-            // Client initializes session with the server
             let init_session_msg = InitSessionMessage::from(request_body.public_key);
             ntor_server.accept_init_session_request(&init_session_msg)
         };
 
+        // generate new sessionID
         let ntor_session_id = new_uuid();
 
         let int_rp_jwt = {
@@ -113,13 +140,14 @@ impl ReverseHandler {
             fp_rp_jwt,
         };
 
-        // InitTunnelHandler::send_result_to_be(self.config.backend_url.clone(), true).await;
         info!(
             %correlation_id,
             log_type=LogTypes::HANDLE_INIT_TUNNEL_REQUEST,
             "Save new nTor session: {}",
             ntor_session_id
         );
+
+        // store shared secret by sessionID in thread-local storage for later proxy requests
         NTOR_SHARED_SECRETS.with(|memory| {
             let mut guard: MutexGuard<HashMap<String, Vec<u8>>> = memory.lock().unwrap();
             guard.insert(ntor_session_id, ntor_server.get_shared_secret().unwrap_or_default());
@@ -132,6 +160,31 @@ impl ReverseHandler {
         }
     }
 
+    /// Handles proxy requests with nTor encryption/decryption.
+    ///
+    /// This method processes encrypted proxy requests from clients by:
+    /// 1. Validating the request headers and extracting the nTor session ID from JWT
+    /// 2. Retrieving the shared secret associated with the session
+    /// 3. Validating and decrypting the request body using nTor
+    /// 4. Reconstructing and forwarding the user request to the backend
+    /// 5. Encrypting the backend response and returning it to the client
+    ///
+    /// # Arguments
+    ///
+    /// * `ctx` - A mutable reference to the Layer8Context containing the HTTP request data.
+    ///
+    /// # Returns
+    ///
+    /// Returns an `APIHandlerResponse` with:
+    /// - `StatusCode::OK` (200) and encrypted response body on success
+    /// - `StatusCode::UNAUTHORIZED` (401) if the JWT is invalid or session ID not found
+    /// - `StatusCode::BAD_REQUEST` (400) if request validation fails
+    /// - Other error status codes if decryption, backend communication, or encryption fails
+    ///
+    /// # Errors
+    ///
+    /// This function may return error responses from header validation, secret retrieval,
+    /// request body validation, decryption operations, backend request processing, or encryption failures.
     pub async fn handle_proxy_request(&self, ctx: &mut Layer8Context) -> APIHandlerResponse {
         let correlation_id = ctx.get_correlation_id();
 
@@ -197,6 +250,23 @@ impl ReverseHandler {
         }
     }
 
+    /// Handles health check requests for the reverse proxy.
+    ///
+    /// This method processes health check requests and returns appropriate responses based on
+    /// optional error parameters. It supports both success and error scenarios for monitoring
+    /// and diagnostics purposes.
+    ///
+    /// # Arguments
+    ///
+    /// * `ctx` - A mutable reference to the Layer8Context containing the HTTP request data.
+    ///
+    /// # Returns
+    ///
+    /// Returns an `APIHandlerResponse` with:
+    /// - `StatusCode::IM_A_TEAPOT` (418) and error details if the `error=true` query parameter is present
+    /// - `StatusCode::OK` (200) and success details otherwise
+    ///
+    /// Both responses include appropriate response headers (`x-rp-healthcheck-error` or `x-rp-healthcheck-success`).
     pub async fn handle_healthcheck(&self, ctx: &mut Layer8Context) -> APIHandlerResponse {
         if let Some(error) = ctx.param("error") {
             if error == "true" {

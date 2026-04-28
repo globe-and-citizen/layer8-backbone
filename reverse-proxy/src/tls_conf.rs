@@ -11,21 +11,41 @@ use tracing::{error, info};
 use utils::cert::TLSCredentials;
 use crate::handler::common::consts::LogTypes;
 
+/// TLS configuration for the reverse-proxy server side.
+///
+/// Used in the TLS accept callback to:
+/// - set SNI/hostname;
+/// - provide the current server certificate and private key;
+/// - configure client certificate verification.
 pub struct TLSServerConfig {
+    /// Expected host name (SNI) set on the TLS session.
     pub host_name: String,
+    /// Atomically updated server TLS credentials (leaf/key/intermediates/CA).
     pub tls_credentials: Arc<TLSCredentials>,
 }
 
+/// impl TlsAccept for TLSServerConfig means TLSServerConfig provides the server-side TLS accept behavior required by Pingora.
+///
+/// In this file, that implementation defines certificate_callback, which runs during handshake to:
+/// - set SNI/hostname on the TLS session,
+/// - load and apply the current server key/certificate chain,
+/// - install custom client certificate verification logic.
 #[async_trait::async_trait]
 impl TlsAccept for TLSServerConfig {
+    /// TLS accept callback invoked during the TLS handshake.
+    ///
+    /// Performs the following steps:
+    /// - Sets the expected hostname (SNI) on the TLS session;
+    /// - Loads the current server TLS credentials (private key, leaf certificate, intermediate chain);
+    /// - Installs a custom client certificate verification callback using the configured CA.
+    ///
+    /// # Panics
+    /// Panics if any of the TLS configuration steps fail (via `unwrap()`), logging the error beforehand.
     async fn certificate_callback(&self, ssl: &mut TlsRef) {
         // set hostname
         ssl.set_hostname(&self.host_name)
             .inspect_err(|e| {
-                error!(
-                log_type = LogTypes::TLS_HANDSHAKE,
-                "Failed to set hostname: {}", e
-            );
+                error!(log_type = LogTypes::TLS_HANDSHAKE, "Failed to set hostname: {}", e);
             })
             .unwrap();
 
@@ -35,20 +55,14 @@ impl TlsAccept for TLSServerConfig {
         // set private key
         ssl.set_private_key(&cert_key.key())
             .inspect_err(|e| {
-                error!(
-                log_type = LogTypes::TLS_HANDSHAKE,
-                "Failed to set server private key: {}", e
-            );
+                error!(log_type = LogTypes::TLS_HANDSHAKE, "Failed to set server private key: {}", e);
             })
             .unwrap();
 
         // leaf certificate
         ssl.set_certificate(&cert_key.leaf())
             .inspect_err(|e| {
-                error!(
-                log_type = LogTypes::TLS_HANDSHAKE,
-                "Failed to set server certificate: {}", e
-            );
+                error!(log_type = LogTypes::TLS_HANDSHAKE, "Failed to set server certificate: {}", e);
             })
             .unwrap();
 
@@ -56,10 +70,7 @@ impl TlsAccept for TLSServerConfig {
         for cert in cert_key.intermediates() {
             ssl.add_chain_cert(cert)
                 .inspect_err(|e| {
-                    error!(
-                    log_type = LogTypes::TLS_HANDSHAKE,
-                    "Failed to add chain certificate: {}", e
-                );
+                    error!(log_type = LogTypes::TLS_HANDSHAKE, "Failed to add chain certificate: {}", e);
                 })
                 .unwrap();
         }
@@ -81,6 +92,16 @@ impl TLSServerConfig {
         })
     }
 
+    /// Verifies the client certificate against the configured CA certificate.
+    ///
+    /// This function:
+    /// - retrieves the peer (client) certificate from the TLS session;
+    /// - builds an in-memory trust store containing the provided CA certificate;
+    /// - initializes an X\.509 verification context;
+    /// - verifies the client certificate using the peer-provided chain (if present).
+    ///
+    /// Returns `Ok(())` when verification succeeds, otherwise returns
+    /// `SslVerifyError` mapped to an appropriate TLS alert.
     fn verify_client_file(
         ca_cert: &X509,
         ssl: &mut TlsRef,
@@ -116,25 +137,16 @@ impl TLSServerConfig {
             ctx.init(&store, &client_cert, &empty_chain, |c| c.verify_cert())
         }
             .map_err(|_| {
-                error!(
-            log_type=LogTypes::TLS_HANDSHAKE,
-            "Certificate verification process failed"
-        );
+                error!(log_type=LogTypes::TLS_HANDSHAKE, "Certificate verification process failed");
                 SslVerifyError::Invalid(SslAlert::BAD_CERTIFICATE)
             })?;
 
         if !verified {
-            error!(
-            log_type=LogTypes::TLS_HANDSHAKE,
-            "Client certificate verification failed"
-        );
+            error!(log_type=LogTypes::TLS_HANDSHAKE, "Client certificate verification failed");
             return Err(SslVerifyError::Invalid(SslAlert::BAD_CERTIFICATE));
         }
 
-        info!(
-        log_type=LogTypes::TLS_HANDSHAKE,
-        "Client certificate verification succeeded"
-    );
+        info!(log_type=LogTypes::TLS_HANDSHAKE, "Client certificate verification succeeded");
 
         Ok(())
     }

@@ -10,6 +10,17 @@ pub(crate) struct InitTunnelHandler {}
 impl DefaultHandlerTrait for InitTunnelHandler {}
 
 impl InitTunnelHandler {
+    /// Validates the request body for initializing an encrypted tunnel.
+    ///
+    /// # Arguments
+    ///
+    /// * `ctx` - The layer 8 context containing the request data
+    /// * `_backend_url` - The backend URL (currently unused)
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(InitEncryptedTunnelRequest)` if the body is valid,
+    /// or `Err(APIHandlerResponse)` with a BAD_REQUEST status if parsing fails or the public key length is invalid.
     pub(crate) async fn validate_request_body(
         ctx: &mut Layer8Context,
         _backend_url: String,
@@ -20,7 +31,16 @@ impl InitTunnelHandler {
             ErrorResponse
         >(&ctx.get_request_body())
         {
-            Ok(res) => Ok(res),
+            Ok(res) => {
+                if res.public_key.len() != 32 {
+                    return Err(APIHandlerResponse {
+                        status: StatusCode::BAD_REQUEST,
+                        body: Some("Invalid public key length".as_bytes().to_vec()),
+                        cookies: None,
+                    });
+                }
+                Ok(res)
+            }
             Err(err) => {
                 let body = match err {
                     None => None,

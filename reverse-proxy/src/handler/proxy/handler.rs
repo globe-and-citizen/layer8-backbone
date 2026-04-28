@@ -18,11 +18,25 @@ pub struct ProxyHandler {}
 impl DefaultHandlerTrait for ProxyHandler {}
 
 impl ProxyHandler {
-
+    /// Validates a JWT token from the request headers.
+    ///
+    /// This function retrieves a JWT token from the specified header and verifies its authenticity
+    /// using the provided secret key.
+    ///
+    /// # Arguments
+    ///
+    /// * `ctx` - The Layer8 context containing request headers
+    /// * `header_key` - The name of the header containing the JWT token
+    /// * `jwt_secret` - The secret key used to verify the JWT token
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(JWTClaims)` - The verified JWT claims extracted from the token
+    /// * `Err(APIHandlerResponse)` - An error response if the header is missing, empty, or token verification fails
     fn validate_jwt_token(
         ctx: &mut Layer8Context,
         header_key: &str,
-        jwt_secret: &Vec<u8>
+        jwt_secret: &Vec<u8>,
     ) -> Result<JWTClaims, APIHandlerResponse> {
         match ctx.get_request_header().get(header_key) {
             None => {
@@ -33,7 +47,7 @@ impl ProxyHandler {
                         error: format!("Missing {} header", header_key.to_string()),
                     }.to_bytes()),
                 })
-            },
+            }
             Some(token) => {
                 if token.is_empty() {
                     return Err(APIHandlerResponse {
@@ -63,19 +77,32 @@ impl ProxyHandler {
                                 error: err.to_string(),
                             }.to_bytes()),
                         })
-                    },
+                    }
                 }
             }
         }
     }
 
-    /// Validates the request headers and get ntor_session_id in return.
+    /// Validates the request headers and extracts the `ntor_session_id` from JWT claims.
+    ///
+    /// This function verifies two JWT tokens from the request headers:
+    /// - `FP_RP_JWT`: Frontend-proxy JWT token (validation only)
+    /// - `INT_RP_JWT_KEY`: Internal reverse-proxy JWT token (contains `ntor_session_id` in claims)
+    ///
+    /// # Arguments
+    ///
+    /// * `ctx` - The Layer8 context containing request headers
+    /// * `jwt_secret` - The secret key used to verify JWT tokens
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(String)` - The ntor_session_id extracted from INT_RP_JWT_KEY claims
+    /// * `Err(APIHandlerResponse)` - An error response if token validation fails or ntor_session_id is missing
     pub(crate) fn validate_request_headers(
         ctx: &mut Layer8Context,
         jwt_secret: &Vec<u8>,
     ) -> Result<String, APIHandlerResponse>
     {
-        // verify fp_rp_jwt header
         match ProxyHandler::validate_jwt_token(ctx, HeaderKeys::FP_RP_JWT, jwt_secret) {
             Ok(_claims) => {
                 // todo!() nothing to validate at the moment
@@ -83,7 +110,7 @@ impl ProxyHandler {
             Err(err) => return Err(err)
         }
 
-        match ProxyHandler::validate_jwt_token(ctx, HeaderKeys::INT_RP_JWT_KEY, jwt_secret) {
+        match ProxyHandler::validate_jwt_token(ctx, HeaderKeys::INT_RP_JWT, jwt_secret) {
             Ok(claims) => {
                 // extract ntor_session_id from claims
                 match claims.ntor_session_id {
@@ -101,6 +128,19 @@ impl ProxyHandler {
         }
     }
 
+    /// Validates and deserializes the request body from bincode format.
+    ///
+    /// This function expects the request body to be encoded in bincode format
+    /// and deserializes it into an `EncryptedMessage` structure.
+    ///
+    /// # Arguments
+    ///
+    /// * `ctx` - The Layer8 context containing the request body to validate
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(EncryptedMessage)` - The deserialized encrypted message from the request body
+    /// * `Err(APIHandlerResponse)` - An error response if deserialization fails
     pub(crate) fn validate_request_body(
         ctx: &mut Layer8Context
     ) -> Result<EncryptedMessage, APIHandlerResponse>
@@ -123,14 +163,29 @@ impl ProxyHandler {
                     body: Some(
                         ErrorResponse {
                             error: format!("Error parsing request body: {}", err),
-                        }
-                        .to_bytes(),
+                        }.to_bytes(),
                     ),
                 })
             }
         }
     }
 
+    /// Decrypts the request body using nTor encryption.
+    ///
+    /// This function takes an encrypted message and decrypts it using the nTor server
+    /// with the provided shared secret. The decrypted data is then parsed into an
+    /// `L8RequestObject`.
+    ///
+    /// # Arguments
+    ///
+    /// * `request_body` - The encrypted message containing nonce and encrypted data
+    /// * `ntor_server_id` - The nTor server identifier for decryption
+    /// * `shared_secret` - The shared secret key used for decryption
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(L8RequestObject)` - The decrypted and parsed request object
+    /// * `Err(APIHandlerResponse)` - An error response if decryption or parsing fails
     pub(crate) fn decrypt_request_body(
         request_body: EncryptedMessage,
         ntor_server_id: String,
@@ -171,10 +226,26 @@ impl ProxyHandler {
         Ok(wrapped_request)
     }
 
+    /// Reconstructs the user request and sends it to the backend origin server.
+    ///
+    /// This function takes the decrypted request object, rebuilds it with proper headers
+    /// (including cookies from the original context), and forwards it to the backend URL.
+    /// It then processes the backend response and returns it as an `L8ResponseObject`.
+    ///
+    /// # Arguments
+    ///
+    /// * `ctx` - The Layer8 context containing the original request and correlation ID
+    /// * `backend_url` - The base URL of the backend origin server
+    /// * `wrapped_request` - The decrypted request object containing method, URI, headers, and body
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(L8ResponseObject)` - The response from the backend including status, headers, and body
+    /// * `Err(APIHandlerResponse)` - An error response if the backend request fails
     pub(crate) async fn rebuild_user_request(
         ctx: &Layer8Context,
         backend_url: String,
-        wrapped_request: L8RequestObject
+        wrapped_request: L8RequestObject,
     ) -> Result<L8ResponseObject, APIHandlerResponse>
     {
         let correlation_id = ctx.get_correlation_id();
@@ -266,6 +337,22 @@ impl ProxyHandler {
         }
     }
 
+    /// Encrypts the response body using nTor encryption.
+    ///
+    /// This function takes a response object and encrypts it using the nTor server
+    /// with the provided shared secret. The encrypted data is returned as an
+    /// `EncryptedMessage` containing the nonce and encrypted payload.
+    ///
+    /// # Arguments
+    ///
+    /// * `response_body` - The response object to be encrypted
+    /// * `ntor_server_id` - The nTor server identifier for encryption
+    /// * `shared_secret` - The shared secret key used for encryption
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(EncryptedMessage)` - The encrypted message with nonce and encrypted data
+    /// * `Err(APIHandlerResponse)` - An error response if encryption fails
     pub(crate) fn encrypt_response_body(
         response_body: L8ResponseObject,
         ntor_server_id: String,
