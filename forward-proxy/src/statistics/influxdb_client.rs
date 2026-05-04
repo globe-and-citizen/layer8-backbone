@@ -1,11 +1,20 @@
-use crate::config::InfluxDBConfig;
-use crate::handler::consts::RequestPaths;
-use crate::statistics::InfluxDBMeasurements;
 use futures::stream;
 use influxdb2::Client;
 use influxdb2::models::DataPoint;
 use pingora::http::StatusCode;
 use std::error::Error;
+use crate::config::InfluxDBConfig;
+use crate::handler::consts::RequestPaths;
+use crate::statistics::StatisticsWriter;
+
+struct InfluxDBMeasurements;
+
+impl InfluxDBMeasurements {
+    const TOTAL_BYTE_TRANSFERRED: &'static str = "total_byte_transferred";
+    const TOTAL_TUNNEL_INITIATED: &'static str = "total_tunnel_initiated";
+    const TOTAL_SUCCESS: &'static str = "total_success";
+    const TOTAL_REQUEST: &'static str = "total_request";
+}
 
 /// A client for writing statistics to InfluxDB.
 ///
@@ -37,45 +46,6 @@ impl InfluxDBClient {
             client: influxdb_client,
             bucket: config.influxdb_bucket.clone(),
         }
-    }
-
-    /// Updates statistics for a request.
-    ///
-    /// Increments the total request counter, and depending on the response status
-    /// and request path, updates additional metrics (bytes, success count, tunnel initiations).
-    ///
-    /// # Arguments
-    /// * `client_id` - unique identifier of the client
-    /// * `request_path` - request path (PROXY or INIT\_TUNNEL)
-    /// * `total_byte_transferred` - number of bytes transferred
-    /// * `response_status` - HTTP response status code
-    ///
-    /// # Returns
-    /// * `Ok(())` if the update was successful
-    /// * `Err` if an error occurred while writing to InfluxDB
-    pub async fn update_statistics(
-        &self,
-        client_id: String,
-        request_path: String,
-        total_byte_transferred: i64,
-        response_status: u16,
-    ) -> Result<(), Box<dyn Error + Sync + Send>> {
-        self.increase_total_request(&client_id).await?;
-
-        if response_status == StatusCode::OK {
-            return match request_path.as_str() {
-                RequestPaths::PROXY => {
-                    self.add_total_byte_transferred(&client_id, total_byte_transferred)
-                        .await?;
-
-                    self.increase_total_success(&client_id).await
-                }
-                RequestPaths::INIT_TUNNEL => self.increase_total_tunnel_initiated(&client_id).await,
-                _ => Ok(()),
-            };
-        }
-
-        Ok(())
     }
 
     /// Updates a counter metric in InfluxDB.
@@ -174,5 +144,47 @@ impl InfluxDBClient {
     ) -> Result<(), Box<dyn Error + Sync + Send>> {
         self.update_counter(InfluxDBMeasurements::TOTAL_SUCCESS, client_id, 1)
             .await
+    }
+}
+
+#[async_trait::async_trait]
+impl StatisticsWriter for InfluxDBClient {
+    /// Updates statistics for a request.
+    ///
+    /// Increments the total request counter, and depending on the response status
+    /// and request path, updates additional metrics (bytes, success count, tunnel initiations).
+    ///
+    /// # Arguments
+    /// * `client_id` - unique identifier of the client
+    /// * `request_path` - request path (PROXY or INIT\_TUNNEL)
+    /// * `total_byte_transferred` - number of bytes transferred
+    /// * `response_status` - HTTP response status code
+    ///
+    /// # Returns
+    /// * `Ok(())` if the update was successful
+    /// * `Err` if an error occurred while writing to InfluxDB
+    async fn update_statistics(
+        &self,
+        client_id: String,
+        request_path: String,
+        total_byte_transferred: i64,
+        response_status: u16,
+    ) -> Result<(), Box<dyn Error + Sync + Send>> {
+        self.increase_total_request(&client_id).await?;
+
+        if response_status == StatusCode::OK {
+            return match request_path.as_str() {
+                RequestPaths::PROXY => {
+                    self.add_total_byte_transferred(&client_id, total_byte_transferred)
+                        .await?;
+
+                    self.increase_total_success(&client_id).await
+                }
+                RequestPaths::INIT_TUNNEL => self.increase_total_tunnel_initiated(&client_id).await,
+                _ => Ok(()),
+            };
+        }
+
+        Ok(())
     }
 }

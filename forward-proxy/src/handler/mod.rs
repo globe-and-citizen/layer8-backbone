@@ -197,62 +197,24 @@ impl ForwardHandler {
         ctx: &mut Layer8Context,
     ) -> Result<NTorServerCertificate, APIHandlerResponse> {
         let correlation_id = ctx.get_correlation_id();
-        let client = Client::new();
+        let auth_res = fetch_auth_server_certificate(
+            correlation_id.clone(),
+            self.config.auth_get_certificate_url.clone(),
+            self.config.auth_access_token.clone(),
+            backend_url.clone(),
+        ).await?;
 
-        let request_path = format!(
-            "{}{}",
-            self.config.auth_get_certificate_url,
-            backend_url
-        );
-        let res = client.get(&request_path)
-            .header("Authorization", self.config.auth_access_token.clone())
-            .send()
-            .await
-            // unable to connect
+        // save `client_id` to ctx for later use
+        ctx.set(consts::CtxKeys::BACKEND_AUTH_CLIENT_ID.to_string(), auth_res.client_id.clone());
+
+        let pub_key = utils::cert::extract_x509_pem(auth_res.cert.clone())
             .map_err(|e| {
-                let response_body = ErrorResponse {
-                    error: format!("Failed to connect to layer8: {}", e)
-                };
-
-                APIHandlerResponse {
-                    status: StatusCode::INTERNAL_SERVER_ERROR,
-                    cookies: None,
-                    body: Some(response_body.to_bytes()),
-                }
-            })?;
-
-        // connected but request failed
-        if !res.status().is_success() {
-            let response_body = ErrorResponse {
-                error: format!("Failed to get public key from layer8, status code: {}", res.status().as_u16()),
-            };
-            error!(
-                %correlation_id,
-                log_type=LogTypes::AUTHENTICATION_SERVER,
-                "Failed to get ntor certificate for {request_path}: {response_body:?}"
-            );
-
-            ctx.insert_response_header("Connection", "close"); // Ensure connection closes???
-
-            Err(APIHandlerResponse {
-                status: StatusCode::BAD_REQUEST,
-                cookies: None,
-                body: Some(response_body.to_bytes()),
-            })
-        } else {
-            #[derive(Deserialize, Debug)]
-            struct AuthServerResponse {
-                pub cert: String,
-                pub client_id: String,
-            }
-
-            let auth_res: AuthServerResponse = res.json().await.map_err(|err| {
                 error!(
-                    %correlation_id,
-                    log_type=LogTypes::AUTHENTICATION_SERVER,
-                    "Failed to parse authentication server response: {:?}",
-                    err
-                );
+                        %correlation_id,
+                        log_type=LogTypes::AUTHENTICATION_SERVER,
+                        "Failed to parse x509 certificate: {:?}",
+                        e
+                    );
                 APIHandlerResponse {
                     status: StatusCode::INTERNAL_SERVER_ERROR,
                     cookies: None,
@@ -260,37 +222,18 @@ impl ForwardHandler {
                 }
             })?;
 
-            // save `client_id` to ctx for later use
-            ctx.set(consts::CtxKeys::BACKEND_AUTH_CLIENT_ID.to_string(), auth_res.client_id.clone());
+        debug!(%correlation_id, "AuthenticationServer response: {:?}", auth_res);
+        info!(
+            %correlation_id,
+            log_type=LogTypes::AUTHENTICATION_SERVER,
+            "Obtained ntor credentials for backend_url: {}",
+            backend_url
+        );
 
-            let pub_key = utils::cert::extract_x509_pem(auth_res.cert.clone())
-                .map_err(|e| {
-                    error!(
-                        %correlation_id,
-                        log_type=LogTypes::AUTHENTICATION_SERVER,
-                        "Failed to parse x509 certificate: {:?}",
-                        e
-                    );
-                    APIHandlerResponse {
-                        status: StatusCode::INTERNAL_SERVER_ERROR,
-                        cookies: None,
-                        body: None,
-                    }
-                })?;
-
-            debug!(%correlation_id, "AuthenticationServer response: {:?}", auth_res);
-            info!(
-                %correlation_id,
-                log_type=LogTypes::AUTHENTICATION_SERVER,
-                "Obtained ntor credentials for backend_url: {}",
-                backend_url
-            );
-
-            Ok(NTorServerCertificate {
-                server_id: backend_url, // todo I still prefer taking the server_id value from certificate's subject
-                public_key: pub_key,
-            })
-        }
+        Ok(NTorServerCertificate {
+            server_id: backend_url, // todo I still prefer taking the server_id value from certificate's subject
+            public_key: pub_key,
+        })
     }
 
     /// Verify `int_fp_jwt` token and retrieve the associated session.
@@ -598,5 +541,78 @@ impl ForwardHandler {
             cookies: None,
             body: Some(response_bytes),
         }
+    }
+}
+
+
+#[derive(Deserialize, Debug)]
+struct AuthServerResponse {
+    pub cert: String,
+    pub client_id: String,
+}
+
+async fn fetch_auth_server_certificate(
+    correlation_id: String,
+    auth_get_certificate_url: String,
+    auth_access_token: String,
+    backend_url: String,
+) -> Result<AuthServerResponse, APIHandlerResponse> {
+    let client = Client::new();
+
+    let request_path = format!(
+        "{}{}",
+        auth_get_certificate_url,
+        backend_url
+    );
+    let res = client.get(&request_path)
+        .header("Authorization", auth_access_token.clone())
+        .send()
+        .await
+        // unable to connect
+        .map_err(|e| {
+            let response_body = ErrorResponse {
+                error: format!("Failed to connect to layer8: {}", e)
+            };
+
+            APIHandlerResponse {
+                status: StatusCode::INTERNAL_SERVER_ERROR,
+                cookies: None,
+                body: Some(response_body.to_bytes()),
+            }
+        })?;
+
+    // connected but request failed
+    if !res.status().is_success() {
+        let response_body = ErrorResponse {
+            error: format!("Failed to get public key from layer8, status code: {}", res.status().as_u16()),
+        };
+        error!(
+                %correlation_id,
+                log_type=LogTypes::AUTHENTICATION_SERVER,
+                "Failed to get ntor certificate for {request_path}: {response_body:?}"
+            );
+
+        // ctx.insert_response_header("Connection", "close"); // Ensure connection closes???
+
+        Err(APIHandlerResponse {
+            status: StatusCode::BAD_REQUEST,
+            cookies: None,
+            body: Some(response_body.to_bytes()),
+        })
+    } else {
+        let auth_res: AuthServerResponse = res.json().await.map_err(|err| {
+            error!(
+                    %correlation_id,
+                    log_type=LogTypes::AUTHENTICATION_SERVER,
+                    "Failed to parse authentication server response: {:?}",
+                    err
+                );
+            APIHandlerResponse {
+                status: StatusCode::INTERNAL_SERVER_ERROR,
+                cookies: None,
+                body: None,
+            }
+        })?;
+        Ok(auth_res)
     }
 }

@@ -10,6 +10,7 @@ use std::sync::Arc;
 use crate::config::FPConfig;
 use tracing::{info, debug};
 use utils::cert::{watch_tls, TLSCredentials};
+use crate::statistics::influxdb_client::InfluxDBClient;
 use crate::statistics::Statistics;
 
 fn load_config() -> FPConfig {
@@ -39,7 +40,8 @@ fn main() {
 
     // Initialize the async runtime
     let rt = Runtime::new().unwrap();
-    rt.block_on(Statistics::init_influxdb_client(&config.influxdb));
+    let influxdb_client = InfluxDBClient::new(&config.influxdb);
+    rt.block_on(Statistics::init_statistics_writer(Box::new(influxdb_client)));
 
     let _logger_guard = utils::log::init_logger(
         config.log.log_level.clone(),
