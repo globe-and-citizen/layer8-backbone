@@ -19,9 +19,7 @@ impl ResponseBodyTrait for ErrorResponse {
 pub struct InitTunnelResponseFromRP { // this struct should match ReverseProxy's Response
     pub public_key: Vec<u8>,
     pub t_b_hash: Vec<u8>,
-    #[serde(rename = "jwt1")] // a little bit of obfuscation
     pub int_rp_jwt: String,
-    #[serde(rename = "jwt2")]
     pub fp_rp_jwt: String,
 }
 
@@ -31,11 +29,9 @@ impl ResponseBodyTrait for InitTunnelResponseFromRP {}
 pub struct InitTunnelResponseToINT { // this struct should match Interceptor's expected Response
     pub ephemeral_public_key: Vec<u8>,
     pub t_b_hash: Vec<u8>,
-    #[serde(rename = "jwt1")]
     pub int_rp_jwt: String,
-    #[serde(rename = "jwt2")]
     pub int_fp_jwt: String,
-    #[serde(rename = "public_key")]
+    #[serde(rename = "static_public_key")]
     pub ntor_static_public_key: Vec<u8>,
     #[serde(rename = "server_id")]
     pub ntor_server_id: String
