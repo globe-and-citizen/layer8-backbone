@@ -3,6 +3,7 @@ use forward_proxy::statistics::StatisticsWriter;
 
 pub struct MockStatisticsWriter;
 
+#[async_trait::async_trait]
 impl StatisticsWriter for MockStatisticsWriter {
     async fn update_statistics(
         &self,

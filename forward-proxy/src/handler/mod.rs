@@ -147,6 +147,11 @@ impl ForwardHandler {
         }
     }
 
+    pub fn set_session(&self, int_fp_jwt: &str, session: IntFPSession) -> Option<IntFPSession> {
+        let mut jwts = self.jwts_storage.lock().unwrap();
+        jwts.insert(int_fp_jwt.to_string(), session)
+    }
+
     /// Fetches the NTor server certificate from the authentication server.
     ///
     /// Sends a GET request to the configured auth server with the provided `backend_url`
@@ -489,8 +494,7 @@ impl ForwardHandler {
                     fp_rp_jwt: res_from_rp.fp_rp_jwt,
                 };
 
-                let mut jwts = self.jwts_storage.lock().unwrap();
-                jwts.insert(int_fp_jwt.clone(), int_fp_session);
+                self.set_session(&int_fp_jwt, int_fp_session.clone());
 
                 let res_to_int = InitTunnelResponseToINT {
                     ephemeral_public_key: res_from_rp.public_key,
@@ -543,7 +547,6 @@ impl ForwardHandler {
         }
     }
 }
-
 
 #[derive(Deserialize, Debug)]
 struct AuthServerResponse {
@@ -602,17 +605,18 @@ async fn fetch_auth_server_certificate(
     } else {
         let auth_res: AuthServerResponse = res.json().await.map_err(|err| {
             error!(
-                    %correlation_id,
-                    log_type=LogTypes::AUTHENTICATION_SERVER,
-                    "Failed to parse authentication server response: {:?}",
-                    err
-                );
+                %correlation_id,
+                log_type=LogTypes::AUTHENTICATION_SERVER,
+                "Failed to parse authentication server response: {:?}",
+                err
+            );
             APIHandlerResponse {
                 status: StatusCode::INTERNAL_SERVER_ERROR,
                 cookies: None,
                 body: None,
             }
         })?;
+
         Ok(auth_res)
     }
 }

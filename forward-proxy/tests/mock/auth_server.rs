@@ -1,68 +1,74 @@
-use axum::{
-    extract::Query,
-    http::StatusCode,
-    response::IntoResponse,
-    routing::get,
-    Json, Router,
-};
-use serde_json::json;
 use std::net::SocketAddr;
 
-const BACKEND_URL: &str = "http://valid-backend";
-const VALID_TOKEN: &str = "Bearer valid-token";
-const CERTIFICATE_RESPONSE: &str = "-----BEGIN CERTIFICATE-----\nMIIC...\n-----END CERTIFICATE-----";
-const CLIENT_ID: &str = "test-client-123";
+use axum::{
+    extract::Query,
+    http::{header::AUTHORIZATION, HeaderMap, StatusCode},
+    response::Json,
+    routing::get,
+    Router,
+};
+use serde::{Deserialize, Serialize};
+use crate::mock;
+use crate::mock::data::{AUTH_ACCESS_TOKEN, AUTH_NTOR_CERT_API_PATH, AUTH_SERVER_PORT, BACKEND_URL};
 
-
-async fn start_mock_auth_server() {
+pub(crate) async fn start_mock_auth_server() {
     let app = Router::new()
-        .route("/ntor/certificate/:backend_url", get(get_certificate));
+        .route(AUTH_NTOR_CERT_API_PATH, get(get_certificate));
 
-    let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
+    let addr = SocketAddr::from(([127, 0, 0, 1], AUTH_SERVER_PORT));
+
     println!("Mock auth server listening on {}", addr);
 
-    axum::Server::bind(&addr)
-        .serve(app.into_make_service())
-        .await
-        .unwrap();
+    // Run server in background
+    tokio::spawn(async move {
+        axum::Server::bind(&addr)
+            .serve(app.into_make_service())
+            .await
+            .unwrap();
+    });
+}
+
+#[derive(Serialize, Debug)]
+struct AuthServerResponse {
+    cert: String,
+    client_id: String,
+}
+
+#[derive(Deserialize, Debug)]
+struct CertificateQuery {
+    backend_url: String,
 }
 
 async fn get_certificate(
-    headers: axum::http::HeaderMap,
-    Query(params): Query<std::collections::HashMap<String, String>>,
-) -> Result<impl IntoResponse, (StatusCode, String)> {
-    // Validate Authorization header
+    headers: HeaderMap,
+    Query(params): Query<CertificateQuery>,
+) -> Result<Json<AuthServerResponse>, (StatusCode, String)> {
     let auth_header = headers
-        .get("authorization")
+        .get(AUTHORIZATION)
         .and_then(|v| v.to_str().ok())
-        .ok_or_else(|| (StatusCode::UNAUTHORIZED, "Missing Authorization header".to_string()))?;
+        .ok_or_else(|| {
+            (
+                StatusCode::UNAUTHORIZED,
+                "Missing Authorization header".to_string(),
+            )
+        })?;
 
-    if auth_header.is_empty() {
-        return Err((StatusCode::UNAUTHORIZED, "Authorization header cannot be empty".to_string()));
+    if auth_header != AUTH_ACCESS_TOKEN {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            "Invalid authorization token".to_string(),
+        ));
     }
 
-    if auth_header != VALID_TOKEN {
-        return Err((StatusCode::UNAUTHORIZED, "Invalid token".to_string()));
+    if params.backend_url != BACKEND_URL {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Invalid backend_url".to_string(),
+        ));
     }
 
-    // Validate required query parameters
-    let backend_url = params
-        .get("backend_url")
-        .ok_or_else(|| (StatusCode::BAD_REQUEST, "Missing backend_url parameter".to_string()))?;
-
-    if backend_url.is_empty() {
-        return Err((StatusCode::BAD_REQUEST, "backend_url cannot be empty".to_string()));
-    }
-
-    if backend_url != BACKEND_URL {
-        return Err((StatusCode::BAD_REQUEST, "Invalid backend_url".to_string()));
-    }
-
-    Ok((
-        StatusCode::OK,
-        Json(json!({
-            "cert": CERTIFICATE_RESPONSE,
-            "client_id": CLIENT_ID,
-        })),
-    ))
+    Ok(Json(AuthServerResponse {
+        cert: mock::data::MOCK_NTOR_CERTIFICATE.to_string(),
+        client_id: mock::data::MOCK_AUTH_CLIENT_ID.to_string(),
+    }))
 }
