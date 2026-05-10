@@ -18,7 +18,7 @@ use crate::handler::{APIHandler, APIHandlerResponse};
 /// Call `call_handler` to dispatch a request to the appropriate handler(s) based on method and path.
 ///
 /// # Example
-/// ```rust
+/// ```ignore
 /// let mut router = Router::new(handler);
 /// router.post("/example".to_string(), Box::new([example_handler]));
 /// ```

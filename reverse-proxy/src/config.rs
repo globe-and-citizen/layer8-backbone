@@ -1,7 +1,7 @@
 use serde::Deserialize;
 use utils::cert::TLSConfig;
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Clone, Default)]
 pub struct RPConfig {
     #[serde(flatten)]
     pub log: LogConfig,
@@ -13,8 +13,8 @@ pub struct RPConfig {
     pub handler: HandlerConfig
 }
 
-#[derive(Debug, Deserialize, Clone)]
-pub(super) struct LogConfig {
+#[derive(Debug, Deserialize, Clone, Default)]
+pub struct LogConfig {
     pub log_level: String,
     /// default to "json" if not "plain"
     pub log_format: String,
@@ -24,15 +24,15 @@ pub(super) struct LogConfig {
     pub log_filename: String,
 }
 
-#[derive(Debug, Deserialize, Clone)]
-pub(super) struct ServerConfig {
+#[derive(Debug, Deserialize, Clone, Default)]
+pub struct ServerConfig {
     pub listen_address: String,
     #[serde(deserialize_with = "utils::deserializer::string_to_number")]
     pub listen_port: u16
 }
 
-#[derive(Debug, Deserialize, Clone)]
-pub(super) struct HandlerConfig {
+#[derive(Debug, Deserialize, Clone, Default)]
+pub struct HandlerConfig {
     pub ntor_server_id: String,
     #[serde(deserialize_with = "utils::deserializer::string_to_u8_32")]
     pub ntor_static_secret: [u8; 32],
@@ -43,7 +43,7 @@ pub(super) struct HandlerConfig {
     pub backend_url: String,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Clone, Default)]
 pub struct ProxyConfig {
     #[serde(flatten)]
     pub tls: TLSConfig,

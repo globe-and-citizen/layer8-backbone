@@ -5,7 +5,7 @@ use crate::handler::common::types::ErrorResponse;
 use crate::handler::init_tunnel::{InitEncryptedTunnelRequest};
 
 /// Struct containing only associated methods (no instance methods or fields)
-pub(crate) struct InitTunnelHandler {}
+pub struct InitTunnelHandler {}
 
 impl DefaultHandlerTrait for InitTunnelHandler {}
 
@@ -21,9 +21,8 @@ impl InitTunnelHandler {
     ///
     /// Returns `Ok(InitEncryptedTunnelRequest)` if the body is valid,
     /// or `Err(APIHandlerResponse)` with a BAD_REQUEST status if parsing fails or the public key length is invalid.
-    pub(crate) async fn validate_request_body(
+    pub async fn validate_request_body(
         ctx: &mut Layer8Context,
-        _backend_url: String,
     ) -> Result<InitEncryptedTunnelRequest, APIHandlerResponse>
     {
         match InitTunnelHandler::parse_request_body::<

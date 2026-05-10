@@ -25,7 +25,7 @@ pub const MOCK_PROXY_RESPONSE_NONCE: [u8; 12] = [12, 11, 10, 9, 8, 7, 6, 5, 4, 3
 pub const MOCK_PROXY_RESPONSE_DATA: &[u8] = b"Hello, this is a test message from the backend to the client through the forward proxy.";
 
 #[derive(bincode::Encode, bincode::Decode, Debug)]
-pub struct EncryptedMessage {
+pub struct EncryptedMessage { // this struct is defined in ntor crate, but we redefine it here to avoid adding ntor as a dependency in forward-proxy
     pub nonce: [u8; 12],
     pub data: Vec<u8>
 }

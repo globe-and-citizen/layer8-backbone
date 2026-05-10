@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-use std::sync::{Mutex, MutexGuard};
 use ntor::common::{InitSessionMessage, NTorParty};
 use ntor::server::NTorServer;
 use pingora::http::StatusCode;
@@ -15,15 +13,11 @@ use crate::config::{HandlerConfig, RPConfig};
 use crate::handler::common::consts::LogTypes;
 use crate::handler::healthcheck::{RpHealthcheckError, RpHealthcheckSuccess};
 
-pub(crate) mod common;
-mod init_tunnel;
-mod proxy;
+pub mod common;
+pub mod init_tunnel;
+pub mod proxy;
+pub use init_tunnel::InMemorySecretsStorage;
 mod healthcheck;
-
-thread_local! {
-    // <session_id, shared_secret>
-    static NTOR_SHARED_SECRETS: Mutex<HashMap<String, Vec<u8>>> = Mutex::new(HashMap::new());
-}
 
 pub struct ReverseHandler {
     config: HandlerConfig,
@@ -53,11 +47,8 @@ impl ReverseHandler {
     ///
     /// Returns `Ok(Vec<u8>)` containing the shared secret if found, or `Err(APIHandlerResponse)`
     /// with HTTP 401 Unauthorized status if the session ID is invalid or expired.
-    fn get_ntor_shared_secret(&self, session_id: String) -> Result<Vec<u8>, APIHandlerResponse> {
-        let shared_secret = NTOR_SHARED_SECRETS.with(|memory| {
-            let guard = memory.lock().unwrap();
-            guard.get(&session_id).cloned()
-        });
+    pub fn get_ntor_shared_secret(&self, session_id: String) -> Result<Vec<u8>, APIHandlerResponse> {
+        let shared_secret = InMemorySecretsStorage::get(session_id);
 
         match shared_secret {
             Some(secret) => Ok(secret.clone()),
@@ -99,10 +90,7 @@ impl ReverseHandler {
         let correlation_id = ctx.get_correlation_id();
 
         // validate request body
-        let request_body = match InitTunnelHandler::validate_request_body(
-            ctx,
-            self.config.backend_url.clone(),
-        ).await {
+        let request_body = match InitTunnelHandler::validate_request_body(ctx).await {
             Ok(res) => res,
             Err(res) => return res
         };
@@ -147,11 +135,7 @@ impl ReverseHandler {
             ntor_session_id
         );
 
-        // store shared secret by sessionID in thread-local storage for later proxy requests
-        NTOR_SHARED_SECRETS.with(|memory| {
-            let mut guard: MutexGuard<HashMap<String, Vec<u8>>> = memory.lock().unwrap();
-            guard.insert(ntor_session_id, ntor_server.get_shared_secret().unwrap_or_default());
-        });
+        InMemorySecretsStorage::insert(ntor_session_id, ntor_server.get_shared_secret().unwrap_or_default());
 
         APIHandlerResponse {
             status: StatusCode::OK,
@@ -200,7 +184,7 @@ impl ReverseHandler {
         };
 
         // validate request body
-        let request_body = match ProxyHandler::validate_request_body(ctx) {
+        let request_body = match ProxyHandler::parse_request_body(ctx) {
             Ok(res) => res,
             Err(res) => return res,
         };

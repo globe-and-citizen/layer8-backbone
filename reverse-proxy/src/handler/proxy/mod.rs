@@ -1,10 +1,11 @@
 pub(crate) mod handler;
+pub use handler::ProxyHandler; // Re-export the handler for easier access
 
 use std::collections::HashMap;
 use pingora_router::handler::{RequestBodyTrait, ResponseBodyTrait};
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct L8RequestObject {
     pub method: String,
     pub uri: String,
@@ -13,7 +14,7 @@ pub struct L8RequestObject {
 }
 impl RequestBodyTrait for L8RequestObject {}
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct L8ResponseObject {
     pub status: u16,
     pub status_text: String,
