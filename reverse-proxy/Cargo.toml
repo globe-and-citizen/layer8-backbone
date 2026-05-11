@@ -28,3 +28,4 @@ envy = "0.4.2"
 hex = "0.4.3"
 tracing = "0.1.41"
 bincode = "2.0.1"
+axum = { version = "0.6.18", features = ["json"] }

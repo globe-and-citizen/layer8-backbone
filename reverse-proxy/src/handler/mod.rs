@@ -214,6 +214,7 @@ impl ReverseHandler {
             Err(res) => return res,
         };
 
+        // get cookies from backend response if exist to set in the response to client
         let cookies: Option<String> = wrapped_response.headers.get("set-cookie")
             .and_then(|v| v.as_str().map(|s| s.to_string()));
 
