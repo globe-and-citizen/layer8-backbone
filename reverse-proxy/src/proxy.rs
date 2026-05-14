@@ -3,7 +3,7 @@ use pingora::proxy::Session;
 use pingora::http::{ResponseHeader, StatusCode};
 use async_trait::async_trait;
 use bytes::Bytes;
-use tracing::{info};
+use tracing::{debug, info};
 use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
 use pingora_router::router::Router;
 use crate::config::ProxyConfig;
@@ -59,6 +59,7 @@ impl<T> ReverseProxy<T> {
         response_status: StatusCode,
     ) -> pingora::Result<()> {
         let mut header = ResponseHeader::build(response_status, None)?;
+        ctx.response.status = response_status; // store status in context for logging
 
         let response_header = ctx.get_response_header().clone();
         for (key, val) in response_header.iter() {
@@ -100,7 +101,7 @@ impl<T> ReverseProxy<T> {
         }
 
         let correlation_id = ctx.get_correlation_id();
-        info!(
+        debug!(
             %correlation_id,
             log_type=LogTypes::HANDLE_BACKEND_RESPONSE,
             "Response Headers: {:?}",
@@ -175,6 +176,7 @@ impl<T: Sync> ProxyHttp for ReverseProxy<T> {
             ctx.insert_response_header("Set-Cookie", &cookies);
         }
         self.set_headers(session, ctx, handler_response.status).await?;
+        ctx.set_response_body(response_bytes.clone()); // store response body in context for logging
 
         // Write the response body to the session after setting headers
         session.write_response_body(Some(Bytes::from(response_bytes)), true).await?;
@@ -219,7 +221,7 @@ impl<T: Sync> ProxyHttp for ReverseProxy<T> {
             request_summary = session.request_summary(),
             origin = ctx.request.header.get("origin"),
             referer = ctx.request.header.get("referer"),
-            latency_ms=ctx.get_latency_ms(),
+            latency_micros=ctx.get_latency().as_micros() as i64,
             response_body_size=ctx.get_response_body().len(),
             user_agent=ctx.request.header.get("User-Agent"),
             error=?e,

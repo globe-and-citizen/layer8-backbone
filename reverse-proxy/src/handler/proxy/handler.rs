@@ -182,11 +182,11 @@ impl ProxyHandler {
     pub fn decrypt_request_body(
         request_body: EncryptedMessage,
         ntor_server_id: String,
-        shared_secret: Vec<u8>,
+        shared_secret: &[u8],
     ) -> Result<L8RequestObject, APIHandlerResponse>
     {
         let mut ntor_server = NTorServer::new(ntor_server_id);
-        ntor_server.set_shared_secret(shared_secret.clone());
+        ntor_server.set_shared_secret(shared_secret.to_vec());
 
         // Decrypt the request body using nTor shared secret
         let decrypted_data = ntor_server
@@ -362,11 +362,11 @@ impl ProxyHandler {
     pub fn encrypt_response_body(
         response_body: L8ResponseObject,
         ntor_server_id: String,
-        shared_secret: Vec<u8>,
+        shared_secret: &[u8],
     ) -> Result<EncryptedMessage, APIHandlerResponse>
     {
         let mut ntor_server = NTorServer::new(ntor_server_id);
-        ntor_server.set_shared_secret(shared_secret);
+        ntor_server.set_shared_secret(shared_secret.to_vec());
 
         let data = response_body.to_bytes();
 

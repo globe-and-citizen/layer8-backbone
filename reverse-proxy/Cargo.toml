@@ -29,3 +29,27 @@ hex = "0.4.3"
 tracing = "0.1.41"
 bincode = "2.0.1"
 axum = { version = "0.6.18", features = ["json"] }
+dashmap = "6.1.0"
+secrecy = "0.8"
+zeroize = "1.8.1"
+
+[[test]]
+name = "unit_test_handler"
+path = "tests/unit_test/handler.rs"
+
+[[test]]
+name = "unit_test_proxy"
+path = "tests/unit_test/proxy.rs"
+
+[[test]]
+name = "unit_test_init_tunnel"
+path = "tests/unit_test/init_tunnel.rs"
+
+[[test]]
+name = "integration_test_init_tunnel"
+path = "tests/integration_test/init_tunnel.rs"
+
+[[test]]
+name = "integration_test_proxy"
+path = "tests/integration_test/proxy.rs"
+

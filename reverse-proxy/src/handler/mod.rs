@@ -1,7 +1,7 @@
 use ntor::common::{InitSessionMessage, NTorParty};
 use ntor::server::NTorServer;
 use pingora::http::StatusCode;
-use tracing::{info};
+use tracing::{error, info};
 use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
 use pingora_router::handler::{APIHandlerResponse, ResponseBodyTrait};
 use init_tunnel::handler::InitTunnelHandler;
@@ -17,6 +17,8 @@ pub mod common;
 pub mod init_tunnel;
 pub mod proxy;
 pub use init_tunnel::InMemorySecretsStorage;
+use crate::handler::common::types::ErrorResponse;
+
 mod healthcheck;
 
 pub struct ReverseHandler {
@@ -47,15 +49,17 @@ impl ReverseHandler {
     ///
     /// Returns `Ok(Vec<u8>)` containing the shared secret if found, or `Err(APIHandlerResponse)`
     /// with HTTP 401 Unauthorized status if the session ID is invalid or expired.
-    pub fn get_ntor_shared_secret(&self, session_id: String) -> Result<Vec<u8>, APIHandlerResponse> {
-        let shared_secret = InMemorySecretsStorage::get(session_id);
+    pub fn get_ntor_shared_secret(&self, session_id: &str) -> Result<Vec<u8>, APIHandlerResponse> {
+        let shared_secret = InMemorySecretsStorage::get(&session_id);
 
         match shared_secret {
-            Some(secret) => Ok(secret.clone()),
+            Some(secret) => Ok(secret),
             None => {
                 Err(APIHandlerResponse {
                     status: StatusCode::UNAUTHORIZED,
-                    body: Some("Invalid or expired nTor session ID".as_bytes().to_vec()),
+                    body: Some(ErrorResponse {
+                        error: "Invalid or expired nTor session ID".to_string(),
+                    }.to_bytes()),
                     cookies: None,
                 })
             }
@@ -175,34 +179,60 @@ impl ReverseHandler {
         // validate request headers (nTor session ID)
         let session_id = match ProxyHandler::validate_request_headers(ctx, &self.jwt_secret) {
             Ok(session_id) => session_id,
-            Err(res) => return res,
+            Err(res) => {
+                error!(
+                    %correlation_id,
+                    log_type=LogTypes::HANDLE_PROXY_REQUEST,
+                    "Failed to validate request headers: {:?}",
+                    ErrorResponse::from_bytes(res.body.clone().unwrap_or_default()).unwrap_or_default()
+                );
+                return res
+            },
         };
 
-        let shared_secret = match self.get_ntor_shared_secret(session_id) {
+        let shared_secret = match self.get_ntor_shared_secret(&session_id) {
             Ok(secret) => secret,
-            Err(res) => return res,
+            Err(res) => {
+                error!(
+                    %correlation_id,
+                    log_type=LogTypes::HANDLE_PROXY_REQUEST,
+                    "Failed to retrieve nTor shared secret: {}",
+                    ErrorResponse::from_bytes(res.body.clone().unwrap_or_default()).unwrap_or_default().error
+                );
+                return res
+            },
         };
 
         // validate request body
         let request_body = match ProxyHandler::parse_request_body(ctx) {
             Ok(res) => res,
-            Err(res) => return res,
+            Err(res) => {
+                error!(
+                    %correlation_id,
+                    log_type=LogTypes::HANDLE_PROXY_REQUEST,
+                    "Failed to parse request body: {}",
+                    ErrorResponse::from_bytes(res.body.clone().unwrap_or_default()).unwrap_or_default().error
+                );
+                return res
+            },
         };
 
         let wrapped_request = match ProxyHandler::decrypt_request_body(
             request_body,
             self.config.ntor_server_id.clone(),
-            shared_secret.clone(),
+            &shared_secret,
         ) {
             Ok(req) => req,
-            Err(res) => return res,
+            Err(res) => {
+                error!(
+                    %correlation_id,
+                    log_type=LogTypes::HANDLE_PROXY_REQUEST,
+                    "Failed to decrypt request body: {}",
+                    ErrorResponse::from_bytes(res.body.clone().unwrap_or_default()).unwrap_or_default().error
+                );
+                return res
+            },
         };
-
-        info!(
-            %correlation_id,
-            log_type=LogTypes::HANDLE_INIT_TUNNEL_REQUEST,
-            "Decrypted request body and forward to backend",
-        );
 
         // reconstruct user request
         let wrapped_response = match ProxyHandler::rebuild_user_request(
@@ -211,7 +241,15 @@ impl ReverseHandler {
             wrapped_request,
         ).await {
             Ok(res) => res,
-            Err(res) => return res,
+            Err(res) => {
+                error!(
+                    %correlation_id,
+                    log_type=LogTypes::HANDLE_PROXY_REQUEST,
+                    "Failed to process backend request: {}",
+                    ErrorResponse::from_bytes(res.body.clone().unwrap_or_default()).unwrap_or_default().error
+                );
+                return res
+            },
         };
 
         // get cookies from backend response if exist to set in the response to client
@@ -221,7 +259,7 @@ impl ReverseHandler {
         match ProxyHandler::encrypt_response_body(
             wrapped_response,
             self.config.ntor_server_id.clone(),
-            shared_secret,
+            &shared_secret,
         ) {
             Ok(encrypted_message) => {
                 let body = utils::type_to_bincode(&encrypted_message);
@@ -231,7 +269,15 @@ impl ReverseHandler {
                     body: Some(body),
                 }
             }
-            Err(res) => res
+            Err(res) => {
+                error!(
+                    %correlation_id,
+                    log_type=LogTypes::HANDLE_PROXY_REQUEST,
+                    "Failed to encrypt response body: {}",
+                    ErrorResponse::from_bytes(res.body.clone().unwrap_or_default()).unwrap_or_default().error
+                );
+                res
+            },
         }
     }
 

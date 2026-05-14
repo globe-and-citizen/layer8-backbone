@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use pingora_router::handler::ResponseBodyTrait;
 use serde_json::Error;
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct ErrorResponse {
     pub error: String
 }

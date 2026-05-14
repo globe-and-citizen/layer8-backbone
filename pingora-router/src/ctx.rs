@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::time::Instant;
+use std::time::{Instant, Duration};
 use pingora::http::{Method, RequestHeader, StatusCode};
 use pingora::proxy::Session;
 use crate::utils::get_request_body;
@@ -233,8 +233,8 @@ impl Layer8ContextTrait for Layer8Context {
             .clone()
     }
 
-    fn get_latency_ms(&self) -> i64 {
-        self.latency_start.elapsed().as_millis() as i64
+    fn get_latency(&self) -> Duration {
+        self.latency_start.elapsed()
     }
 }
 
@@ -264,7 +264,7 @@ pub trait Layer8ContextTrait {
     fn set_request_summary(&mut self, summary: Layer8ContextRequestSummary);
     fn set_correlation_id(&mut self) -> String;
     fn get_correlation_id(&self) -> String;
-    fn get_latency_ms(&self) -> i64;
+    fn get_latency(&self) -> Duration;
 }
 
 /// `Layer8Header` is a type alias for a map of HTTP header key-value pairs used
