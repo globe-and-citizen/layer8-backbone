@@ -1,7 +1,5 @@
 #[cfg(test)]
 mod test_init_tunnel_handler {
-    use pingora_router::ctx::{Layer8ContextTrait};
-
     mod test_validate_request_body {
         use pingora::http::StatusCode;
         use serde_json::json;

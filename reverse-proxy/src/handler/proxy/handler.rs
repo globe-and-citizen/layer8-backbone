@@ -141,8 +141,8 @@ impl ProxyHandler {
     {
         let correlation_id = ctx.get_correlation_id();
 
-        match utils::bincode_to_type(ctx.get_request_body().as_slice()) {
-            Ok(res) => Ok(res),
+        match EncryptedMessage::from_bytes(&ctx.get_request_body()) {
+            Ok(res) => Ok(*res),
             Err(err) => {
                 error!(
                     %correlation_id,

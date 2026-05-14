@@ -1,9 +1,14 @@
+#[path = "../mock/mod.rs"]
+mod mock;
+
 #[cfg(test)]
 mod test_handler {
     mod test_get_ntor_shared_secret {
         use pingora::http::StatusCode;
+        use pingora_router::handler::ResponseBodyTrait;
         use reverse_proxy::config::{HandlerConfig, ServerConfig};
         use reverse_proxy::handler::{InMemorySecretsStorage, ReverseHandler};
+        use reverse_proxy::handler::common::types::ErrorResponse;
 
         fn create_test_handler() -> ReverseHandler {
             let handler_config = HandlerConfig {
@@ -41,15 +46,19 @@ mod test_handler {
         #[test]
         fn test_get_ntor_shared_secret_invalid_session() {
             let handler = create_test_handler();
-            let result = handler.get_ntor_shared_secret("invalid_session_id".to_string());
+            let result = handler.get_ntor_shared_secret("invalid_session_id");
 
             assert!(result.is_err());
             let err_response = result.unwrap_err();
             assert_eq!(err_response.status, StatusCode::UNAUTHORIZED);
             assert_eq!(err_response.cookies, None);
+
+            // parse body as ErrorResponse and check error message
             assert!(err_response.body.is_some());
-            let body = err_response.body.unwrap();
-            assert_eq!(body, "Invalid or expired nTor session ID".as_bytes().to_vec());
+
+            let body = ErrorResponse::from_bytes(err_response.body.unwrap()).expect("Response body should be a valid ErrorResponse");
+
+            assert_eq!(body.error, "Invalid or expired nTor session ID".to_string());
         }
 
         #[test]
@@ -59,7 +68,7 @@ mod test_handler {
             let secret = vec![1, 2, 3, 4, 5];
 
             InMemorySecretsStorage::insert(session_id.clone(), secret.clone());
-            let result = handler.get_ntor_shared_secret(session_id);
+            let result = handler.get_ntor_shared_secret(&session_id);
 
             assert!(result.is_ok());
             assert_eq!(result.unwrap(), secret);
@@ -141,7 +150,7 @@ mod test_handler {
             assert!(session_id.is_some());
 
             // Verify shared secret is stored in InMemorySecretsStorage with correct session ID
-            let shared_secret = InMemorySecretsStorage::get(session_id.unwrap()).expect("Shared secret not found in storage for valid session ID");
+            let shared_secret = InMemorySecretsStorage::get(&session_id.unwrap()).expect("Shared secret not found in storage for valid session ID");
             assert_eq!(shared_secret.len(), 16);
         }
 
@@ -230,12 +239,6 @@ mod test_handler {
     }
 
     mod test_handle_proxy_request {
-        use std::net::SocketAddr;
-        use axum::http::header::SET_COOKIE;
-        use axum::http::{HeaderMap, HeaderValue};
-        use axum::{Json, Router};
-        use axum::response::IntoResponse;
-        use axum::routing::{get};
         use ntor::common::EncryptedMessage;
         use pingora::http::StatusCode;
         use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
@@ -244,38 +247,13 @@ mod test_handler {
         use reverse_proxy::handler::{InMemorySecretsStorage, ReverseHandler};
         use reverse_proxy::handler::common::types::ErrorResponse;
         use utils::jwt::JWTClaims;
-
-        const MOCK_BACKEND_URL: &str = "http://localhost:3004";
-        const MOCK_BACKEND_PORT: u16 = 3004;
-        pub const VALID_JWT_SECRET: &[u8] = b"test_valid_jwt_secret";
-        pub const INVALID_JWT_SECRET: &[u8] = b"test_invalid_jwt_secret";
-        const MOCK_SESSION_ID_1: &str = "d92db61d-e8d8-4f91-9ab4-b9fa9c53e65c";
-        const MOCK_SESSION_ID_2: &str = "a3f5c8e7-1b2c-4d6e-9f8a-0b1c2d3e4f5g";
-        const MOCK_SHARED_SECRET_1: [u8; 16] = [245, 239, 74, 167, 84, 191, 140, 194, 16, 59, 154, 244, 108, 221, 148, 85];
-        const MOCK_SHARED_SECRET_2: [u8; 16] = [226, 186, 202, 159, 51, 31, 151, 34, 174, 233, 128, 164, 202, 226, 146, 91];
-        // api GET /me
-        const MOCK_PROXY_REQUEST_BODY_1: [u8; 80] = [159, 207, 157, 116, 32, 92, 248, 78, 122, 253, 236, 125, 67, 223, 157, 30, 30, 45, 49, 165, 234, 211, 72, 242, 252, 31, 128, 60, 245, 158, 182, 126, 117, 152, 232, 172, 52, 155, 246, 122, 86, 89, 78, 162, 110, 171, 73, 84, 127, 41, 195, 46, 85, 31, 71, 121, 234, 63, 27, 236, 43, 190, 186, 124, 94, 212, 238, 13, 254, 32, 147, 59, 239, 30, 176, 138, 54, 167, 161, 132];
-        // api GET /profile/test
-        const MOCK_PROXY_REQUEST_BODY_2: [u8; 90] = [210, 33, 207, 169, 246, 8, 233, 118, 37, 197, 180, 162, 77, 165, 168, 70, 128, 112, 244, 122, 187, 27, 188, 245, 126, 167, 152, 194, 233, 6, 37, 95, 101, 101, 247, 243, 37, 221, 51, 101, 23, 95, 2, 28, 123, 161, 251, 79, 193, 18, 75, 19, 204, 130, 106, 149, 30, 170, 91, 8, 218, 17, 212, 12, 130, 29, 187, 109, 187, 30, 42, 25, 187, 152, 171, 75, 78, 99, 74, 47, 61, 196, 224, 108, 107, 217, 220, 32, 187, 70];
-        const INT_RP_JWT_HEADER: &str = "int_rp_jwt";
-        const FP_RP_JWT_HEADER: &str = "fp_rp_jwt";
-
-        fn create_int_rp_jwt_1(secret: &[u8], expiry_hrs: i64) -> String {
-            let mut claims = JWTClaims::new(Some(expiry_hrs));
-            claims.ntor_session_id = Some(MOCK_SESSION_ID_1.to_string());
-            utils::jwt::create_jwt_token(claims, secret)
-        }
-
-        fn create_int_rp_jwt_2(secret: &[u8], expiry_hrs: i64) -> String {
-            let mut claims = JWTClaims::new(Some(expiry_hrs));
-            claims.ntor_session_id = Some(MOCK_SESSION_ID_2.to_string());
-            utils::jwt::create_jwt_token(claims, secret)
-        }
-
-        fn create_fp_rp_jwt(secret: &[u8], expiry_hrs: i64) -> String {
-            let claims = JWTClaims::new(Some(expiry_hrs));
-            utils::jwt::create_jwt_token(claims, secret)
-        }
+        use crate::mock;
+        use crate::mock::data::{
+            create_fp_rp_jwt, create_int_rp_jwt_1, create_int_rp_jwt_2,
+            FP_RP_JWT_HEADER, INT_RP_JWT_HEADER, INVALID_JWT_SECRET, MOCK_BACKEND_URL,
+            MOCK_PROXY_REQUEST_BODY_1, MOCK_PROXY_REQUEST_BODY_2, MOCK_SESSION_ID_1,
+            MOCK_SESSION_ID_2, MOCK_SHARED_SECRET_1, MOCK_SHARED_SECRET_2, VALID_JWT_SECRET
+        };
 
         pub fn create_test_handler() -> ReverseHandler {
             let mut config = RPConfig::default();
@@ -284,62 +262,9 @@ mod test_handler {
             ReverseHandler::new(config)
         }
 
-        #[derive(Debug, serde::Deserialize)]
-        struct RequestBody;
-
-        #[derive(Debug, serde::Serialize)]
-        struct ResponseBody {
-            success: bool,
-        }
-
-        async fn test_api_get_me(_headers: HeaderMap) -> impl IntoResponse {
-            let mut response_headers = HeaderMap::new();
-
-            response_headers.insert(
-                SET_COOKIE,
-                HeaderValue::from_static(
-                    "session_id=abc123; HttpOnly; Path=/"
-                ),
-            );
-
-            (
-                axum::http::StatusCode::OK,
-                response_headers,
-                Json(ResponseBody {
-                    success: true,
-                }),
-            )
-        }
-
-        async fn test_api_get_profile(_headers: HeaderMap) -> impl IntoResponse {
-            (
-                axum::http::StatusCode::OK,
-                Json(ResponseBody {
-                    success: true,
-                }),
-            )
-        }
-
-        fn run_mock_be() {
-            let mut app = Router::new();
-            app = app.route("/me", get(test_api_get_me));
-            app = app.route("/profile/test", get(test_api_get_profile));
-
-            let addr = SocketAddr::from(([127, 0, 0, 1], MOCK_BACKEND_PORT));
-            println!("Mock upstream server listening on {:?}", addr.clone());
-
-            // Run server in background
-            tokio::spawn(async move {
-                axum::Server::bind(&addr)
-                    .serve(app.into_make_service())
-                    .await
-                    .unwrap();
-            });
-        }
-
         #[tokio::test]
         async fn test_success() {
-            run_mock_be();
+            mock::backend::run_mock_be();
             let handler = create_test_handler();
             InMemorySecretsStorage::insert(MOCK_SESSION_ID_1.to_string(), MOCK_SHARED_SECRET_1.to_vec());
             InMemorySecretsStorage::insert(MOCK_SESSION_ID_2.to_string(), MOCK_SHARED_SECRET_2.to_vec());
@@ -395,7 +320,7 @@ mod test_handler {
             // running the mock backend is not necessary for this test since we are testing JWT
             // validation before any backend call, but to be fair to the test, we want to have the
             // backend running to ensure any failures are due to JWT validation and not backend connectivity issues
-            run_mock_be();
+            mock::backend::run_mock_be();
             let handler = create_test_handler();
             InMemorySecretsStorage::insert(MOCK_SESSION_ID_1.to_string(), MOCK_SHARED_SECRET_1.to_vec());
 
@@ -522,7 +447,7 @@ mod test_handler {
 
         #[tokio::test]
         async fn test_invalid_body() {
-            run_mock_be();
+            mock::backend::run_mock_be();
             let handler = create_test_handler();
             InMemorySecretsStorage::insert(MOCK_SESSION_ID_1.to_string(), MOCK_SHARED_SECRET_1.to_vec());
 

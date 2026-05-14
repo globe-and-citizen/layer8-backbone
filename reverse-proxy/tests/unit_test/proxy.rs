@@ -1,3 +1,6 @@
+#[path = "../mock/mod.rs"]
+mod mock;
+
 #[cfg(test)]
 mod test_proxy_handler {
     use utils::jwt::JWTClaims;
@@ -227,7 +230,7 @@ mod test_proxy_handler {
                 let result = ProxyHandler::decrypt_request_body(
                     encrypted_msg.clone(),
                     ntor_server_id,
-                    MOCK_SHARED_SECRET.to_vec(),
+                    &MOCK_SHARED_SECRET,
                 );
 
                 assert!(result.is_ok());
@@ -263,7 +266,7 @@ mod test_proxy_handler {
                 let result = ProxyHandler::decrypt_request_body(
                     encrypted_msg,
                     ntor_server_id,
-                    shared_secret,
+                    &shared_secret,
                 );
 
                 assert!(result.is_err());
@@ -309,7 +312,7 @@ mod test_proxy_handler {
                 let result = ProxyHandler::encrypt_response_body(
                     response_body.clone(),
                     MOCK_NTOR_SERVER_ID.to_string(),
-                    MOCK_SHARED_SECRET.to_vec(),
+                    &MOCK_SHARED_SECRET,
                 );
 
                 assert!(result.is_ok());
@@ -335,67 +338,18 @@ mod test_proxy_handler {
 
     mod test_rebuild_user_request {
         use std::collections::HashMap;
-        use std::net::SocketAddr;
         use pingora_router::ctx::{Layer8Context, Layer8ContextRequestSummary, Layer8ContextTrait};
         use reverse_proxy::handler::proxy::{L8RequestObject, ProxyHandler};
-        use axum::{Router, routing::post, Json};
-        use axum::http::{HeaderMap, HeaderValue, StatusCode};
-        use axum::http::header::SET_COOKIE;
-
-        #[derive(Debug, serde::Deserialize)]
-        struct RequestBody {
-            key: String,
-        }
-
-        #[derive(Debug, serde::Serialize)]
-        struct ResponseBody {
-            success: bool,
-        }
-
-        async fn handle_test_api(
-            Json(payload): Json<RequestBody>,
-        ) -> (StatusCode, HeaderMap, Json<ResponseBody>) {
-            println!("Received request with payload: {:?}", payload);
-
-            let response = ResponseBody {
-                success: payload.key == "value",
-            };
-
-            let mut headers = HeaderMap::new();
-            headers.insert(
-                SET_COOKIE,
-                HeaderValue::from_static(
-                    "session_id=abc123; HttpOnly; Path=/; Max-Age=3600"
-                ),
-            );
-
-            (StatusCode::OK, headers, Json(response))
-        }
-
-        fn run_mock_be() {
-            let mut app = Router::new();
-            app = app.route("/test/api", post(handle_test_api));
-
-            let addr = SocketAddr::from(([127, 0, 0, 1], 3003));
-            println!("Mock upstream server listening on {:?}", addr.clone());
-
-            // Run server in background
-            tokio::spawn(async move {
-                axum::Server::bind(&addr)
-                    .serve(app.into_make_service())
-                    .await
-                    .unwrap();
-            });
-        }
+        use crate::mock;
 
         #[tokio::test]
         async fn test_rebuild_user_request() {
-            run_mock_be();
+            mock::backend::run_mock_be();
 
             let summary = Layer8ContextRequestSummary {
                 method: "POST".parse().unwrap(),
                 scheme: "http".to_string(),
-                host: "localhost:3003".to_string(),
+                host: format!("localhost:{}", mock::data::MOCK_BACKEND_PORT),
                 path: "/test/api".to_string(),
                 params: Default::default(),
             };
@@ -411,7 +365,7 @@ mod test_proxy_handler {
             };
 
             let result =
-                ProxyHandler::rebuild_user_request(&mut ctx, "http://localhost:3003".to_string(), l8_request).await;
+                ProxyHandler::rebuild_user_request(&mut ctx, mock::data::MOCK_BACKEND_URL.to_string(), l8_request).await;
             assert!(result.is_ok());
 
             let l8_response = result.unwrap();
