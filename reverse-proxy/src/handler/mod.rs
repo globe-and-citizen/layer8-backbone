@@ -49,19 +49,13 @@ impl ReverseHandler {
     ///
     /// Returns `Ok(Vec<u8>)` containing the shared secret if found, or `Err(APIHandlerResponse)`
     /// with HTTP 401 Unauthorized status if the session ID is invalid or expired.
-    pub fn get_ntor_shared_secret(&self, session_id: &str) -> Result<Vec<u8>, APIHandlerResponse> {
+    pub fn get_ntor_shared_secret(&self, session_id: &str) -> Result<Vec<u8>, String> {
         let shared_secret = InMemorySecretsStorage::get(&session_id);
 
         match shared_secret {
             Some(secret) => Ok(secret),
             None => {
-                Err(APIHandlerResponse {
-                    status: StatusCode::UNAUTHORIZED,
-                    body: Some(ErrorResponse {
-                        error: "Invalid or expired nTor session ID".to_string(),
-                    }.to_bytes()),
-                    cookies: None,
-                })
+                Err("Session ID not found".to_string())
             }
         }
     }
@@ -179,28 +173,40 @@ impl ReverseHandler {
         // validate request headers (nTor session ID)
         let session_id = match ProxyHandler::validate_request_headers(ctx, &self.jwt_secret) {
             Ok(session_id) => session_id,
-            Err(res) => {
+            Err(err) => {
                 error!(
                     %correlation_id,
                     log_type=LogTypes::HANDLE_PROXY_REQUEST,
-                    "Failed to validate request headers: {:?}",
-                    ErrorResponse::from_bytes(res.body.clone().unwrap_or_default()).unwrap_or_default()
+                    "Failed to validate request headers: {}",
+                    err
                 );
-                return res
+                return APIHandlerResponse {
+                    status: StatusCode::UNAUTHORIZED,
+                    cookies: None,
+                    body: Some(ErrorResponse {
+                        error: "Failed to validate request headers".to_string()
+                    }.to_bytes()),
+                }
             },
         };
 
         let shared_secret = match self.get_ntor_shared_secret(&session_id) {
             Ok(secret) => secret,
-            Err(res) => {
+            Err(err) => {
                 error!(
                     %correlation_id,
                     log_type=LogTypes::HANDLE_PROXY_REQUEST,
                     "Failed to retrieve nTor shared secret: {}",
-                    ErrorResponse::from_bytes(res.body.clone().unwrap_or_default()).unwrap_or_default().error
+                    err
                 );
-                return res
-            },
+                return APIHandlerResponse {
+                    status: StatusCode::UNAUTHORIZED,
+                    cookies: None,
+                    body: Some(ErrorResponse {
+                        error: err,
+                    }.to_bytes()),
+                }
+            }
         };
 
         // validate request body
@@ -211,12 +217,19 @@ impl ReverseHandler {
                     %correlation_id,
                     log_type=LogTypes::HANDLE_PROXY_REQUEST,
                     "Failed to parse request body: {}",
-                    ErrorResponse::from_bytes(res.body.clone().unwrap_or_default()).unwrap_or_default().error
+                    res
                 );
-                return res
+                return APIHandlerResponse {
+                    status: StatusCode::BAD_REQUEST,
+                    cookies: None,
+                    body: Some(ErrorResponse {
+                        error: "Failed to parse request body".to_string(),
+                    }.to_bytes()),
+                }
             },
         };
 
+        // decrypt request body using nTor shared secret
         let wrapped_request = match ProxyHandler::decrypt_request_body(
             request_body,
             self.config.ntor_server_id.clone(),
@@ -228,14 +241,20 @@ impl ReverseHandler {
                     %correlation_id,
                     log_type=LogTypes::HANDLE_PROXY_REQUEST,
                     "Failed to decrypt request body: {}",
-                    ErrorResponse::from_bytes(res.body.clone().unwrap_or_default()).unwrap_or_default().error
+                    res
                 );
-                return res
+                return APIHandlerResponse {
+                    status: StatusCode::BAD_REQUEST,
+                    cookies: None,
+                    body: Some(ErrorResponse {
+                        error: "Failed to decrypt request body".to_string(),
+                    }.to_bytes()),
+                }
             },
         };
 
         // reconstruct user request
-        let wrapped_response = match ProxyHandler::rebuild_user_request(
+        let (response, origin_url) = match ProxyHandler::rebuild_user_request(
             ctx,
             self.config.backend_url.clone(),
             wrapped_request,
@@ -246,16 +265,26 @@ impl ReverseHandler {
                     %correlation_id,
                     log_type=LogTypes::HANDLE_PROXY_REQUEST,
                     "Failed to process backend request: {}",
-                    ErrorResponse::from_bytes(res.body.clone().unwrap_or_default()).unwrap_or_default().error
+                    res
                 );
-                return res
-            },
+                return APIHandlerResponse {
+                    status: StatusCode::INTERNAL_SERVER_ERROR,
+                    cookies: None,
+                    body: Some(ErrorResponse {
+                        error: "Failed to process backend request".to_string(),
+                    }.to_bytes()),
+                }
+            }
         };
+
+        // wrap backend response into L8ResponseObject
+        let wrapped_response = ProxyHandler::wrap_backend_response(ctx, response, &origin_url).await;
 
         // get cookies from backend response if exist to set in the response to client
         let cookies: Option<String> = wrapped_response.headers.get("set-cookie")
             .and_then(|v| v.as_str().map(|s| s.to_string()));
 
+        // encrypt backend response using nTor shared secret and return to client
         match ProxyHandler::encrypt_response_body(
             wrapped_response,
             self.config.ntor_server_id.clone(),
@@ -268,15 +297,21 @@ impl ReverseHandler {
                     body: Some(encrypted_message.to_bytes()),
                 }
             }
-            Err(res) => {
+            Err(err) => {
                 error!(
                     %correlation_id,
                     log_type=LogTypes::HANDLE_PROXY_REQUEST,
                     "Failed to encrypt response body: {}",
-                    ErrorResponse::from_bytes(res.body.clone().unwrap_or_default()).unwrap_or_default().error
+                    err
                 );
-                res
-            },
+                APIHandlerResponse {
+                    status: StatusCode::INTERNAL_SERVER_ERROR,
+                    cookies: None,
+                    body: Some(ErrorResponse {
+                        error: "Failed to encrypt response body".to_string(),
+                    }.to_bytes()),
+                }
+            }
         }
     }
 

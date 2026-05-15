@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue';
-import {getToken, interceptorFetch} from '@/utils.js';
+import {getAuthUsername, interceptorFetch} from '@/utils.js';
 import { getCurrentInstance } from 'vue';
 const { appContext } = getCurrentInstance();
 const backend_url = appContext.config.globalProperties.$backend_url;
@@ -33,16 +33,9 @@ const uploadImage = async () => {
         return;
     }
 
-    const token = getToken('jwt');
-    if (!token) {
-        errorMessage.value = 'You need to be logged in to upload a profile picture';
-        return;
-    }
-
     try {
         isLoading.value = true;
-        const payload = JSON.parse(atob(token.split('.')[1]));
-        const username = payload.username;
+        const username = getAuthUsername()
 
         const formData = new FormData();
         formData.append('profile_pic', selectedFile.value);

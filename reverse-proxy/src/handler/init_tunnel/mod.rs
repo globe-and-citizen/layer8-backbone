@@ -36,9 +36,7 @@ use std::{
     sync::LazyLock,
 };
 
-static NTOR_SHARED_SECRETS: LazyLock<
-    DashMap<String, SecretVec<u8>>
-> = LazyLock::new(DashMap::new);
+static NTOR_SHARED_SECRETS: LazyLock<DashMap<String, SecretVec<u8>>> = LazyLock::new(DashMap::new);
 
 pub struct InMemorySecretsStorage;
 

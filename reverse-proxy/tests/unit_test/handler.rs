@@ -50,15 +50,7 @@ mod test_handler {
 
             assert!(result.is_err());
             let err_response = result.unwrap_err();
-            assert_eq!(err_response.status, StatusCode::UNAUTHORIZED);
-            assert_eq!(err_response.cookies, None);
-
-            // parse body as ErrorResponse and check error message
-            assert!(err_response.body.is_some());
-
-            let body = ErrorResponse::from_bytes(err_response.body.unwrap()).expect("Response body should be a valid ErrorResponse");
-
-            assert_eq!(body.error, "Invalid or expired nTor session ID".to_string());
+            assert_eq!(err_response, "Session ID not found".to_string());
         }
 
         #[test]
@@ -501,11 +493,11 @@ mod test_handler {
                 data: String, // should be Vec<u8>
             }
 
-            const EXPECTED_PARSING_ERR_STR: &str = "Error parsing request body: ";
-            const EXPECTED_DECRYPTION_ERR_STR: &str = "Decryption failed: ";
+            const EXPECTED_PARSING_ERR_STR: &str = "Failed to parse request body";
+            const EXPECTED_DECRYPTION_ERR_STR: &str = "Failed to decrypt request body";
 
             let cases = vec![
-                ("Empty body", vec![], "Error parsing request body: "),
+                ("Empty body", vec![], EXPECTED_PARSING_ERR_STR),
                 (
                     "Body that is not valid bincode",
                     b"not a valid bincode".to_vec(),
@@ -591,7 +583,7 @@ mod test_handler {
 
                 let response_body = response.body.expect("Response body should be present");
                 let err_response = ErrorResponse::from_bytes(response_body).expect("Response body should be a valid ErrorResponse");
-                assert!(err_response.error.contains(expected_err_str));
+                assert!(err_response.error.contains(expected_err_str), "Error message should contain the expected substring. Actual error message: {}", err_response.error);
             }
         }
     }

@@ -34,9 +34,7 @@ mod test_proxy_handler {
     }
 
     mod test_validate_jwt_token {
-        use serde_json::json;
         use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
-        use pingora_router::handler::ResponseBodyTrait;
         use reverse_proxy::handler::proxy::ProxyHandler;
         use crate::test_proxy_handler::{create_int_rp_jwt, VALID_JWT_SECRET};
 
@@ -46,9 +44,9 @@ mod test_proxy_handler {
             let invalid_jwt_secret = utils::new_uuid().into_bytes();
 
             let header_key = "int_rp_jwt"; // or any header key since the function takes it as a parameter
-            let err_from_dependency = Some(json!({"error": "dependent on jsonwebtoken::decode"}).to_string().into_bytes());
-            let missing_header_err_body = Some(json!({"error": "Missing int_rp_jwt header"}).to_string().into_bytes());
-            let empty_header_err_body = Some(json!({"error": "Empty int_rp_jwt header"}).to_string().into_bytes());
+            let err_from_dependency = Some("dependent on jsonwebtoken::decode");
+            let missing_header_err_body = Some("Missing int_rp_jwt header");
+            let empty_header_err_body = Some("Empty int_rp_jwt header");
 
             let valid_token = create_int_rp_jwt(VALID_JWT_SECRET, 24).1;
             let invalid_secret_token = create_int_rp_jwt(&invalid_jwt_secret, 24).1;
@@ -80,7 +78,7 @@ mod test_proxy_handler {
                 match result.unwrap_err() {
                     err_response => {
                         if err_body != err_from_dependency.clone() {
-                            assert_eq!(err_response.to_bytes(), err_body.unwrap());
+                            assert_eq!(err_response, err_body.unwrap());
                         }
                     }
                 }
@@ -156,7 +154,6 @@ mod test_proxy_handler {
     }
 
     mod test_parse_request_body {
-        use pingora::http::StatusCode;
         use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
         use reverse_proxy::handler::proxy::ProxyHandler;
         use crate::test_proxy_handler::MOCK_PROXY_REQUEST_BODY;
@@ -196,16 +193,12 @@ mod test_proxy_handler {
                 let result = ProxyHandler::parse_request_body(&mut ctx);
 
                 assert!(result.is_err(), "Expected error but got success");
-                let err = result.unwrap_err();
-                assert_eq!(err.status, StatusCode::BAD_REQUEST);
             }
         }
     }
 
     mod test_decrypt_request_body {
         use ntor::common::EncryptedMessage;
-        use pingora_router::handler::ResponseBodyTrait;
-        use reverse_proxy::handler::common::types::ErrorResponse;
         use reverse_proxy::handler::proxy::ProxyHandler;
         use crate::test_proxy_handler::{MOCK_ENCRYPTED_MESSAGE_DATA, MOCK_ENCRYPTED_MESSAGE_NONCE,
                                         MOCK_NTOR_SERVER_ID, MOCK_SHARED_SECRET};
@@ -270,11 +263,6 @@ mod test_proxy_handler {
                 );
 
                 assert!(result.is_err());
-                let err = result.unwrap_err();
-                assert_eq!(err.status, pingora::http::StatusCode::BAD_REQUEST);
-                assert!(err.body.is_some(), "Error response body should be present");
-                let err_response = ErrorResponse::from_bytes(err.body.unwrap()).expect("Failed to deserialize error response");
-                assert!(err_response.error.contains("Decryption failed:"))
             }
         }
     }
@@ -368,7 +356,10 @@ mod test_proxy_handler {
                 ProxyHandler::rebuild_user_request(&mut ctx, mock::data::MOCK_BACKEND_URL.to_string(), l8_request).await;
             assert!(result.is_ok());
 
-            let l8_response = result.unwrap();
+            let (response, url) = result.unwrap();
+
+            let l8_response = ProxyHandler::wrap_backend_response(&ctx, response, &url).await;
+
             assert_eq!(l8_response.status, 200);
 
             assert!(l8_response.headers.contains_key("set-cookie"), "Response headers should contain 'set-cookie'");
