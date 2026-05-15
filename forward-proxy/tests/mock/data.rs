@@ -1,10 +1,10 @@
 pub const AUTH_SERVER_PORT: u16 = 3000;
-pub(crate) const FORWARD_PROXY_PORT: u16 = 6391;
+pub const FORWARD_PROXY_PORT: u16 = 6391;
 pub const BACKEND_SERVER_PORT: u16 = 6393;
-pub(crate) const BACKEND_URL: &str = "http://localhost:6393";
+pub const BACKEND_URL: &str = "http://localhost:6393";
 pub const AUTH_ACCESS_TOKEN: &str = "Bearer valid-token";
 pub const AUTH_NTOR_CERT_API_PATH: &str = "/ntor/certificate"; // ?backend_url=
-pub(crate) const INIT_TUNNEL_API_PATH: &str = "/init-tunnel"; // ?backend_url=
+pub const INIT_TUNNEL_API_PATH: &str = "/init-tunnel"; // ?backend_url=
 pub const PROXY_API_PATH: &str = "/proxy";
 
 

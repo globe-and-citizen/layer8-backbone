@@ -7,7 +7,7 @@ mod backend;
 pub mod data;
 mod forward_proxy;
 
-pub(crate) async fn init() {
+pub async fn init() {
     // Start the mock authentication server
     auth_server::start_mock_auth_server().await;
 

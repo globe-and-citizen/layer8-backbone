@@ -858,7 +858,7 @@ impl ProxyHttp for ForwardProxy {
             origin = ctx.request.header.get("origin"),
             referer = ctx.request.header.get("referer"),
             user_agent = ctx.request.header.get("User-Agent"),
-            latency_ms=ctx.get_latency_ms(),
+            latency_micro=ctx.get_latency().as_micros(),
             response_body_size=ctx.get_response_body().len(),
             error=?e,
         );
