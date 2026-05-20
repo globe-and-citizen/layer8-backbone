@@ -365,14 +365,13 @@ code {
           : 'default'
     });
   </script>
-<h1 id="layer-8-project-and-technical-overview">Layer 8: Project and Technical Overview.</h1>
+<h1 id="layer8-project-and-technical-overview">Layer8: Project and Technical Overview.</h1>
 <h2 id="document-outline--scope">Document Outline &amp; Scope</h2>
-<p>This document is divided into XXX primary sections: a Project Overview as well as 4 large subsections representing the primary subcomponents of the system plus appendices.</p>
-<p>A technical reader can jump to sections for reference. Interested parties can read the overview section alone to gain an understanding of the system at a high level selectively reading subsequent sections for further detail as necessary.</p>
+<p>Layer8 documentation is divided into 6 primary sections: a Project Overview as well as 4 large subsections representing the primary subcomponents of the system plus appendices. Each primary section is then divided further into subsections. A technical reader can jump to sections &amp; subsections for reference. Interested parties can read the overview section alone to gain an understanding of the system at a high level and selectively read subsequent sections for further detail as necessary.</p>
 <h3 id="primary-table-of-contents"><em>Primary Table of Contents</em></h3>
 <ul>
-<li><a href="#">1. Overview</a></li>
-<li><a href="#">2. Authentication Server</a></li>
+<li><a href="#">1. Layer8 Sysm Overview</a></li>
+<li><a href="#">2. Authentication Server </a></li>
 <li><a href="#">3. Interceptor</a></li>
 <li><a href="#">4. Forward Proxy</a></li>
 <li><a href="#">5. Reverse Proxy</a></li>
@@ -380,42 +379,42 @@ code {
 </ul>
 <h3 id="overview-table-of-contents"><em>Overview Table of Contents</em></h3>
 <ul>
-<li><a href="#">1. Overview</a>
+<li><a href="#document-outline--scope">1. Overview</a>
 <ul>
-<li><a href="#">1.1 Purpose Statement and vision</a></li>
-<li><a href="#">1.2 System overview of the three layers</a>
+<li><a href="#11-purpose-statement-and-vision">1.1 Purpose Statement and vision</a></li>
+<li><a href="#12-system-overview-of-the-three-layers">1.2 System overview of the three layers</a>
 <ul>
-<li><a href="#">1.2.1 User Layer</a></li>
-<li><a href="#">1.2.2 Proxy Layer</a></li>
-<li><a href="#">1.2.3 Service Provider Layer</a></li>
+<li><a href="#121-user-layer">1.2.1 User Layer</a></li>
+<li><a href="#122-proxy-layer">1.2.2 Proxy Layer</a></li>
+<li><a href="#123-service-provider-layer">1.2.3 Service Provider Layer</a></li>
 </ul>
 </li>
-<li><a href="#">1.3 Primary Information Flows</a>
+<li><a href="#13-primary-information-flow-sequences">1.3 Primary Information Flows</a>
 <ul>
-<li><a href="#">1.3.1 Tunnel Initiation</a></li>
-<li><a href="#">1.3.2 Standard Proxying</a></li>
-<li><a href="#">1.3.3 OAuth and OIDC Flows</a></li>
+<li><a href="#131-tunnel-initiation">1.3.1 Tunnel Initiation</a></li>
+<li><a href="#132-standard-proxying">1.3.2 Standard Proxying</a></li>
+<li><a href="#133-oauth-and-oidc-flows">1.3.3 OAuth and OIDC Flows</a></li>
 </ul>
 </li>
-<li><a href="#">1.4. Usecases</a></li>
+<li><a href="#14-usecases">1.4. Usecases</a></li>
 </ul>
 </li>
 </ul>
 <h3 id="11-purpose-statement-and-vision">1.1 Purpose Statement and Vision</h3>
-<p>Layer8 is a system designed to anonymize the web traffic between a frontend Single Page Application and a backend Service Provider (SP) thereby obscuring the user’s IP and other identifying information. The following specification describes an MVP implementation composed of several components that, together, separate a user’s identity (i.e., IP address) from their content choices online. The project name, “Layer8”, refers to the idea of adding an “eighth anonymization layer” to the Internet which is, according to the OSI, currently built on seven layers. How can a tiny start-up ever realistically accomplish such a task? In reality, Layer8 uses several mature web technologies and protocols in order to accomplish end-to-end encryption in the browser (WASM, OAuth, ECDH, etc.). It is, in fact, the giants of the web that have added an “eighth layer” to the internet. G&amp;C is merely using it to accomplish anonymous E2E encryption in the browser.</p>
+<p>Layer8 is a system designed to anonymize the web traffic between a frontend Single Page Application and a backend Service Provider (SP) thereby obscuring the user’s IP and other identifying information. The following documentation describes an MVP implementation composed of several components that together separate a user’s identity (i.e., IP address) from their content choices online. The project name, “Layer8”, refers to the idea of adding an “eighth anonymization layer” to the Internet which is, according to the OSI, currently built on seven layers. How can a tiny start-up ever realistically accomplish such a task? In reality, Layer8 uses several mature web technologies and protocols in order to accomplish end-to-end encryption in the browser (WASM, OAuth, ECDH, etc.) It is, in fact, the giants of the web that have added an “eighth layer” to the internet. G&amp;C is merely using it to accomplish anonymous E2E encryption in the browser.</p>
 <p>In it's simplest representation Layer8 acts as simple VPN obscuring traffic.
 <img src="diagrams/L8_Max_Overview.png" alt="Layer8 System" width="600" style="max-width:100%;height:auto;" /></p>
-<p><em>Figure 1: Layer8 at it's most basic abstraction.</em></p>
-<p>The vision is of a DAO (or alternatively decentralized organization) to maintain a content delivery network of SPAs and distributed network of forward proxies that together form an anonymization platform enabling anonymity by default and self-sovereign identity. Though ambitious, applications like Signal &amp; WhatsAPP demonstrate that centralization of a public key infrastructure can enable E2E anonymized encryption.</p>
-<p>Customers: any service provider that needs to, wants to, offer their user's anonymization by default. Usecases are found in Section 1.4 of this overview.</p>
+<p><em>Figure 1: Layer8 at it's most basic abstraction: an in browser VPN on by default.</em></p>
+<p>The vision is of a DAO (or alternatively decentralized organization) to maintain a content delivery network of SPAs plus a distributed network of forward proxies that together form an anonymization platform enabling anonymity by default and building out part of the infrastructure necessary for self-sovereign identity on the internet. Though ambitious, successful applications like Signal &amp; WhatsAPP demonstrate that centralization of a public key infrastructure can enable E2E anonymized encryption at a global scale.</p>
+<p>Customers: any Service Provider that needs to, wants to, offer their user's anonymization by default. Usecases are found in Section 1.4 of this overview.</p>
 <h2 id="basic-mechanism">Basic Mechanism</h2>
-<p>Layer8 is, fundamentally just a virtual private network provider that runs within the browser using Web Assembly in order to achieve its runtime efficiency. Ultimately. It provides a simple encapsulation / encryption service that wraps a user's of network traffic.</p>
+<p>Layer8 is, fundamentally just a VPN that runs within the browser by default. It uses Web Assembly in order to achieve its runtime efficiency. Ultimately, it provides a simple encapsulation / encryption service that wraps a user's of network traffic.</p>
 <img src="diagrams/request_response_encapsulation.png" alt="Layer8 System" width="600" style="max-width:100%;height:auto;" />
-<p><em>Figure 2: Layer8 works by encapsulating and encrypting RESTapi request from a single page application.</em></p>
+<p><em>Figure 2: Layer8 works by encapsulating and encrypting REST API request from a single page application. The greyed out boxes above are encrypted.</em></p>
 <p>The system is devided into three layers: User Layer, Proxy Layer, and Backend Layer.</p>
 <img src="diagrams/three_layers.png" alt="Layer8 System" width="600" style="max-width:100%;height:auto;" />
 <p><em>Figure 3: The layer8 system is best broken down and understood using three basic layers.</em></p>
-<p>To the Service Provider, the layer8 system should be maximally transparent. Likewise, the frontend developer experience should be such that the Layer8 service can be implemented with an minimal of effort. The initiation of an encrypted tunnel occurs on SPA load and the Fact of proxying requires only swapping the native fetch for the layer 8 fetch function.</p>
+<p>To the Service Provider, the Layer8 system should be maximally transparent. Likewise, the frontend developer experience should be such that the Layer8 service can be implemented with an minimal of effort. The initiation of an encrypted tunnel occurs on SPA load and the act of proxying requires only the swapping of the native fetch for the Layer8 fetch function call.</p>
 <pre class="hljs"><code><div>//file: main.ts
 import { initEncryptedTunnel, ServiceProvider } from &quot;l8-intercept&quot;;
 [...]
@@ -433,13 +432,13 @@ if (import.meta.env.VITE_ENABLE_LAYER8 === 'true') {
 </div></code></pre>
 <p><em>Code Block 1: Initializing the Tunnel.</em></p>
 <pre class="hljs"><code><div>//file: utils.ts
-export async function interceptorFetch(
+export async function InterceptorFetch(
     url: string,
     options: RequestInit = {}
 ): Promise&lt;Response&gt; {
     options.credentials = &quot;include&quot;;
     if (import.meta.env.VITE_ENABLE_LAYER8 === 'true') {
-        return (await interceptorWasm.fetch(url, options)) as Response;
+        return (await InterceptorWasm.fetch(url, options)) as Response;
     } else {
         return (await fetch(url, options)) as Response;
     }
@@ -447,57 +446,99 @@ export async function interceptorFetch(
 </div></code></pre>
 <p><em>Code Block 2: Wrapping the native browser fetch.</em></p>
 <pre class="hljs"><code><div>//file: *.vue
-import {interceptorFetch} from &quot;@/utils.ts&quot;;
+import {InterceptorFetch} from &quot;@/utils.ts&quot;;
 
 function openPoem(id: string) {
     isLoading.value = true;
-    interceptorFetch(`${backend_url}/poems?id=${id}`)
+    InterceptorFetch(`${backend_url}/poems?id=${id}`)
         .then(response =&gt; {...})
         .then(data =&gt; {...})
         .catch(err =&gt; {...})
         .finally(() =&gt; {...});
 }
 </div></code></pre>
-<p><em>Code Block 3: Using the wrapped interceptorWasm.fetch.</em></p>
+<p><em>Code Block 3: Using the wrapped InterceptorWasm.fetch.</em></p>
 <h2 id="user-layer">User Layer</h2>
 <img src="diagrams/user_layer.png" alt="Layer8 System" width="600" style="max-width:100%;height:auto;" />
 <p><em>Figure 4: The user layer is where the user's real identity interacts and is known.</em></p>
-<p>The User layer is entirely contained within the user-agent (i.e., the browser). It's software components are the Service Provider's (SP) single page application (SPA) and the Interceptor. The Interceptor runs entirely within the browser and makes use of WASM to run. The Interceptor is served with the Service Provider's SPA.</p>
-<p>On load, the Interceptor is configured to initiate an encrypted tunnel with the SP's backend using the nTOR protocol (<a href="https://cypherpunks.ca/~iang/pubs/ntor.pdf">reference</a>). This completes a one-way authenticated encrypted tunnel between the user-agent and the Reverse Proxy allowing future messages to be proxied through the Forward Proxy and onto the SP backend transparently. Once initiated, all REST API calls originating from the user-agent are passed through the Interceptor which uses the cryptographic material from the nTOR protocol to encrypt the user's request headers and body in order to envelop it. Specialized Interceptor headers are added to the envelop that will be stripped at the Forward Proxy. The user's content choices are now anonymized from the perspective of the Service Provider. Layer8's CDN will register the user's IP address but none of their content choices. The SP will register content choices but not the user's IP.</p>
-<p>Globe and Citizen is responsible for providing and maintaining the code base for the Interceptor &amp; RP even though instances of these are ultimately deployed and controlled by the user and SP respectively.</p>
+<p>The User layer is entirely contained within the user-agent (i.e., the browser). It's software components are the Service Provider's SPA and the Layer8 Interceptor. The Interceptor runs entirely within the browser and makes use of WASM as its runtime. The Interceptor is served automatically alongside the Service Provider's SPA. Technically, the Intercerptor could also be served independently from a CDN.</p>
+<p>On load, the Interceptor is configured to initiate an encrypted tunnel with the Service Provider's backend using the nTOR protocol (<a href="https://cypherpunks.ca/~iang/pubs/ntor.pdf">original reference paper</a>). This completes a one-way authenticated encrypted tunnel between the user-agent and the Reverse Proxy allowing future messages to be proxied through the Forward Proxy and onto the Service Provider backend transparently. Once initiated, all REST API calls originating from the user-agent are passed through the Interceptor which uses the cryptographic material from the nTOR protocol to encrypt the user's request headers and body in order to envelop it. Specialized Interceptor headers are added to the envelop that will be stripped at the Forward Proxy. The user's content choices are now anonymized from the perspective of the Service Provider.  Layer8's CDN will register the user's IP address but none of their content choices. The Service Provider will register content choices but not the user's IP.</p>
+<p>Globe and Citizen is responsible for providing and maintaining the code base for the Interceptor &amp; Reverse Proxy even though instances of these are ultimately deployed and controlled by the user and Service Provider respectively.</p>
 <h2 id="proxy-layer">Proxy Layer</h2>
 <img src="diagrams/proxy_layer.png" alt="Layer8 System" width="600" style="max-width:100%;height:auto;" />
-<p><em>Figure 5: The proxy layer is where the user's metadata is stored as zk-proofs and the SP's credentials are stored and registered.</em></p>
-<p>The second layer is called the Proxy Layer. This is where Globe &amp; Citizen maintains the infrastructure under its direct control. The second layer, the middle layer, is composed of the Forward Proxy (FP), the Authentication Server (Auth Server), and supporting infrastructure of the CDN.</p>
+<p><em>Figure 5: The proxy layer is where the user's metadata is stored as zk-proofs and the Service Provider's credentials are stored and registered.</em></p>
+<p>The second layer is called the Proxy Layer. This is where Globe &amp; Citizen maintains the infrastructure under its direct control. The second layer, the middle layer, is composed of the Forward Proxy (FP), the Authentication Server  (Auth Server), and supporting infrastructure of the CDN.</p>
 <p>Prior to any interaction between the user and the SP, the Auth Server registers SPs.</p>
+<img src="diagrams/register_client.png" alt="Layer8 System" width="600" style="max-width:100%;height:auto;" />
+<p><em>Figure 6: Service Providers register permisionlessly.</em></p>
+<img src="diagrams/client_portal.png" alt="Layer8 System" width="600" style="max-width:100%;height:auto;" />
+<p><em>Figure 7: Clients are given the necessary sercrets and IDs to configure deployements. Also shown, the Interface to upload the certificate as well as to pay for usage with crypto.</em></p>
+<p>During the initiation of the encrypted tunnel flow , the FP is responsible for retrieving the nTOR Service Provider backend certificate.</p>
 <p>The Auth Server is also responsible for registering users and producing and storing zk-proofs on behalf of the user (e.g., proof the user has a valid email address, phone number, passport, etc).</p>
-<p>During the initiation of the encrypted tunnel flow , the FP is responsible for retrieving the nTOR SP backend certificate.</p>
+<img src="diagrams/user_registration.png" alt="Layer8 System" width="600" style="max-width:100%;height:auto;" />
+<p><em>Figure 8: Users register permisionlessly.</em></p>
+<img src="diagrams/user_ui.png" alt="Layer8 System" width="600" style="max-width:100%;height:auto;" />
+<p><em>Figure 9: Users have the OPTION to verify metadata about themselves which can be selectively released during the OAuth flow.</em></p>
 <p>During the proxy flow, the FP is responsible for stripping the Interceptors Headers, replacing them with dynamically generated and anonymized FP headers and then proxying this information to the backend layer.</p>
-<p>During the OAuth and <code>Login with Layer8</code> flows the middle layer is responsible for authenticating the user and then releasing user approved metadata to the backend service provider.</p>
-<p>The middle layer has the responsibility of receiving encrypted messages from the</p>
+<p>During the OAuth and <code>Login with Layer8</code> flows the proxy layer is responsible for authenticating the user and then releasing user approved metadata to the backend Service Provider.</p>
+<p>The middle layer has the responsibility of receiving encrypted messages from the Interceptor and, obviously, forwarding them onwards.</p>
 <h2 id="backend-layer">Backend Layer</h2>
 <img src="diagrams/backend_layer.png" alt="Layer8 System" width="600" style="max-width:100%;height:auto;" />
-<p><em>Figure 6: The backend layer is built by the SP and is the service that any user would otherwise expect to interact with.</em></p>
-<p>In the third layer is the SP's backend servers as well as the Reverse Proxy (RP). Globe &amp; Citizen maintains the RP code but the SPs will deploy it.</p>
-<p>During the initialize tunnel flow, the RP is responsible for decrypting the user's original request and forwarding it on to the SP backend such that the SP backend receives it as if it had been sent directly from the SPA.</p>
-<p>During the proxy tunnel flow, the RP is responsible for adding those headers necessary to...</p>
-<p>Flows: just show the flows and figure the captions</p>
+<p><em>Figure 10: The backend layer is built by the Service Provider and is the service that any user would otherwise expect to interact with.</em></p>
+<p>The third layer, the backend layer, is the Service Provider's backend servers as well as the Reverse Proxy (RP). Globe &amp; Citizen maintains the Reverse Proxy code but the SPs will deploy it.</p>
+<p>During the initialize tunnel flow, the Reverse Proxy is responsible for decrypting the user's original request and forwarding it on to the Service Provider backend such that the Service Provider backend receives it as if it had been sent directly from the SPA.</p>
 <h2 id="13-primary-information-flow-sequences">1.3 Primary Information Flow Sequences</h2>
-<p>As effectively an in browser VPN, there are two primary information flows sequences: Encrypted Tunnel initiation and the proxying of encrypted traffic.</p>
-<h3 id="131-tunnel-initiation">1.3.1 Tunnel Initiation</h3>
+<p>Making the system work, there are two primary information flows sequences: encrypted tunnel initiation and the proxying of encrypted traffic.</p>
+<h3 id="131-encrypted-tunnel-initiation">1.3.1 Encrypted Tunnel Initiation</h3>
 <img src="diagrams/tunnel_initiation.png" alt="Layer8 System" width="600" style="max-width:100%;height:auto;" />
-<p><em>Figure 7: Encrypted tunnel initiation involves using the nTOR protocol That opens a connection between the interceptor and the Reverse Proxy through the Forward Proxy.</em></p>
-<p>The nTOR protocol is maximally efficient achieving a shared, one way authenticated, cryptographic secret within a single <code>request</code> and <code>response</code> cycle. In this cryptographic scheme, the user remains anonymous but the SP is authenticated. The scheme is dependent on the Layer8 Authentication Server having registered the SP prior and having a copy of the Service Provider's nTOR static key certificate for distribution to users.</p>
+<p><em>Figure 11: Encrypted tunnel initiation involves using the nTOR protocol that opens a connection between the Interceptor and the Reverse Proxy through the Forward Proxy.</em></p>
+<p>The nTOR protocol is maximally efficient achieving a shared, one way authenticated, cryptographic secret within a single <code>request</code> and <code>response</code> cycle. In this cryptographic scheme, the user remains anonymous but the Service Provider is authenticated. The scheme is dependent on the Layer8 Authentication Server having registered the Service Provider prior and having a copy of the Service Provider's nTOR static key certificate for distribution to users (see Firgure 7 above).</p>
+<img src="diagrams/nTOR.png" alt="Layer8 System" width="600" style="max-width:100%;height:auto;" />
+<p><em>Figure 12: The nTOR Protocol mapped. See https://cypherpunks.ca/~iang/pubs/ntor.pdf. It provides one way authentication of the Service Provider authenticating to the user.</em></p>
 <h3 id="132-standard-proxying">1.3.2 Standard Proxying</h3>
 <img src="diagrams/standard_proxying.png" alt="Layer8 System" width="600" style="max-width:100%;height:auto;" />
-<p><em>Figure 8: Once established. Requests can be sent from the Interceptor to the RP were they decrypted and then forwarded to the Service Provider's backend.</em></p>
-<p>Once a connection is established a triad of JSON Web Tokens is used to identify, and maintain, connections between the three layers:</p>
+<p><em>Figure 13: Once established. Requests can be sent from the Interceptor to the Reverse Proxy were they decrypted and then forwarded to the Service Provider's backend.</em></p>
+<p>Once a connection is established a triad of JSON Web Tokens (JWTs) is used to identify, and maintain, connections between the three layers:</p>
 <ul>
-<li><code>int-</code></li>
-<li>``</li>
-<li>``</li>
+<li><code>int_rp_jwt</code>: Interceptor Reverse Proxy JSON Webb Token.</li>
+<li><code>int_fp_jwt</code>: Interceptor Forward Proxy JSON web Token.</li>
+<li><code>fp_rp_jwt</code>: Ford Proxy, Reverse Proxy JSON Webb Token.</li>
 </ul>
+<p>JSON Web Tokens were chosen For their extensibility (JWT payloads can be customized); robust options for securitization (see the myriad of IEEE JWT RFCs); and, scalability (JWT adhere to the principles of RESTful APIs).</p>
 <h3 id="133-oauth-and-oidc-flows">1.3.3 OAuth and OIDC Flows</h3>
+<img src="diagrams/oauth_overview.png" alt="Layer8 System" width="600" style="max-width:100%;height:auto;" />
+<p><em>Figure 14: How the three layers of the system interact during the OAuth flow.</em></p>
+<p>Layer8 makes use of the standard Oauth flow. Novelty is added by the fact that the layer8 Authentication Server  does not store user data directly. Rather, the Authentication Server  stores <em>ZK-proofs</em> of a user's data. By using the Oath flow, users can selectively release information to Service Providers. At the moment, the Authorization servers stores ZK-Proofs and user metadata in a centralized postgres database. Alternatively, if the Authentication Sever made it's proofs accessible to the user, it can act as a certification authority for users thereby enabling Self Sovereign Identity.</p>
+<p>The OAuth flow can be extended to use the Open ID Connect (OIDC) protocol enabling backends to offer &quot;Sign In With Layer8.&quot; In other words, the use of the OIDC protocol allows Layer8 to act as a federated identity provider both authenticating and authorizing users according to the same flow now standard on the Internet already.</p>
+<h2 id="14-usecases">1.4. Usecases</h2>
+<h3 id="141---anonymous-voting">1.4.1 - Anonymous Voting</h3>
+<ul>
+<li>AS A: DAPP developer,</li>
+<li>I WANT TO: offer my users On chain certified anonymous voting.</li>
+<li>WHEN I: program a pop up window that operates as a single page appication,</li>
+<li>I SEE THAT: an encrypted tunnel is automatically opened and all future traffic from this window is E2E encrypted, anonymizing my users and their voting preferences.</li>
+</ul>
+<h3 id="142---chatbot-anonymity">1.4.2 - Chatbot anonymity</h3>
+<ul>
+<li>AS A: User of an online chatbot,</li>
+<li>I WANT TO: know that the content of my conversation is anonymous and E2E such that even the Service Provider of the chat bot doesn't know my true identity.</li>
+<li>WHEN I: Navigate to a Service Provider's website (e.g., online AI lawyer, AI doctor, etc.),</li>
+<li>I SEE THAT: I log in with my Layer8 OIDC credentials reassuring me.</li>
+</ul>
+<h3 id="143---self-sovereign-identity">1.4.3 - Self Sovereign Identity</h3>
+<ul>
+<li>AS A: User of Layer8</li>
+<li>I WANT TO: Prove to a Service Provider that I have a cellphone number and a valid ID stating I'm above age 18 without actually uploading my ID.</li>
+<li>WHEN I: Choose to release my saved metadata zk-proofs to a Service Provider,</li>
+<li>I SEE THAT: The Service Provider accepts my released ZK-Proofs without requiring any further personal identifying information.</li>
+</ul>
+<h3 id="144---confidentiality-protection-and-guarantees">1.4.4 - Confidentiality Protection and Guarantees</h3>
+<ul>
+<li>AS A: Developer of an online media platform,</li>
+<li>I WANT TO: Analyze, parse, and otherwise use usage data on my website without fear of privacy regulation infractions.</li>
+<li>WHEN I: Build on the Layer8 platform,</li>
+<li>I SEE THAT: I can build what feels and appears to be a normal SPA while having the assurances that all of my user's data has been appropriately anonymized and it is impossible for me to release (or leak) there personal identifying information.</li>
+</ul>
 
 </body>
 </html>
