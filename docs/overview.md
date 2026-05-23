@@ -1,10 +1,10 @@
 # Layer8: Project and Technical Overview. 
 
 ## Document Outline & Scope
-Layer8 documentation is divided into 6 primary sections: a Project Overview as well as 4 large subsections representing the primary subcomponents of the system plus appendices. Each primary section is then divided further into subsections. A technical reader can jump to sections & subsections for reference. Interested parties can read the overview section alone to gain an understanding of the system at a high level and selectively read subsequent sections for further detail as necessary.
+Layer8 documentation is divided into 6 primary sections: a Project Overview as well as 5 large subsections representing the primary subcomponents of the system plus appendices. Each primary section is then divided further into subsections. A technical reader can jump to sections & subsections for reference. Interested parties can read the overview section alone to gain an understanding of the system at a high level and selectively read subsequent sections for further detail as necessary.
 
 ### *Primary Table of Contents*
-- [1. Layer8 Sysm Overview](#)
+- [1. Layer8 System Overview](#)
 - [2. Authentication Server ](#)
 - [3. Interceptor](#)
 - [4. Forward Proxy](#)
@@ -46,7 +46,7 @@ Layer8 is, fundamentally just a VPN that runs within the browser by default. It 
 *Figure 2: Layer8 works by encapsulating and encrypting REST API request from a single page application. The greyed out boxes above are encrypted.*
 
 
-The system is devided into three layers: User Layer, Proxy Layer, and Backend Layer.
+The system is divided into three layers: User Layer, Proxy Layer, and Backend Layer.
 
 <img src="diagrams/three_layers.png" alt="Layer8 System" width="600" style="max-width:100%;height:auto;" />
 
@@ -113,7 +113,7 @@ function openPoem(id: string) {
 
 The User layer is entirely contained within the user-agent (i.e., the browser). It's software components are the Service Provider's SPA and the Layer8 Interceptor. The Interceptor runs entirely within the browser and makes use of WASM as its runtime. The Interceptor is served automatically alongside the Service Provider's SPA. Technically, the Intercerptor could also be served independently from a CDN.
 
-On load, the Interceptor is configured to initiate an encrypted tunnel with the Service Provider's backend using the nTOR protocol ([original reference paper](https://cypherpunks.ca/~iang/pubs/ntor.pdf)). This completes a one-way authenticated encrypted tunnel between the user-agent and the Reverse Proxy allowing future messages to be proxied through the Forward Proxy and onto the Service Provider backend transparently. Once initiated, all REST API calls originating from the user-agent are passed through the Interceptor which uses the cryptographic material from the nTOR protocol to encrypt the user's request headers and body in order to envelop it. Specialized Interceptor headers are added to the envelop that will be stripped at the Forward Proxy. The user's content choices are now anonymized from the perspective of the Service Provider.  Layer8's CDN will register the user's IP address but none of their content choices. The Service Provider will register content choices but not the user's IP.
+On load, the Interceptor is configured to initiate an encrypted tunnel with the Service Provider's backend using the nTOR protocol ([reference: https://cypherpunks.ca/~iang/pubs/ntor.pdf](https://cypherpunks.ca/~iang/pubs/ntor.pdf)). This completes a one-way authenticated encrypted tunnel between the user-agent and the Reverse Proxy allowing future messages to be proxied through the Forward Proxy and onto the Service Provider backend transparently. Once initiated, all REST API calls originating from the user-agent are passed through the Interceptor which uses the cryptographic material from the nTOR protocol to encrypt the user's request headers and body in order to envelop it. Specialized Interceptor headers are added to the envelop that will be stripped at the Forward Proxy. The user's content choices are now anonymized from the perspective of the Service Provider.  Layer8's CDN will register the user's IP address but none of their content choices. The Service Provider will register content choices but not the user's IP.
 
 Globe and Citizen is responsible for providing and maintaining the code base for the Interceptor & Reverse Proxy even though instances of these are ultimately deployed and controlled by the user and Service Provider respectively.
 
@@ -124,7 +124,7 @@ Globe and Citizen is responsible for providing and maintaining the code base for
 
 *Figure 5: The proxy layer is where the user's metadata is stored as zk-proofs and the Service Provider's credentials are stored and registered.*
 
-The second layer is called the Proxy Layer. This is where Globe & Citizen maintains the infrastructure under its direct control. The second layer, the middle layer, is composed of the Forward Proxy (FP), the Authentication Server  (Auth Server), and supporting infrastructure of the CDN.
+The second layer is called the Proxy Layer. This is where Globe & Citizen maintains the infrastructure under its direct control. The proxy layer, the middle layer, is composed of the Forward Proxy, the Authentication Server  (Auth Server), and supporting infrastructure of the CDN.
 
 Prior to any interaction between the user and the SP, the Auth Server registers SPs.
 
@@ -136,7 +136,7 @@ Prior to any interaction between the user and the SP, the Auth Server registers 
 
 *Figure 7: Clients are given the necessary sercrets and IDs to configure deployements. Also shown, the Interface to upload the certificate as well as to pay for usage with crypto.*
 
-During the initiation of the encrypted tunnel flow , the FP is responsible for retrieving the nTOR Service Provider backend certificate.
+During the initiation of the encrypted tunnel flow , the Forward Proxy is responsible for retrieving the nTOR Service Provider backend certificate.
 
 The Auth Server is also responsible for registering users and producing and storing zk-proofs on behalf of the user (e.g., proof the user has a valid email address, phone number, passport, etc).
 
@@ -148,7 +148,7 @@ The Auth Server is also responsible for registering users and producing and stor
 
 *Figure 9: Users have the OPTION to verify metadata about themselves which can be selectively released during the OAuth flow.*
 
-During the proxy flow, the FP is responsible for stripping the Interceptors Headers, replacing them with dynamically generated and anonymized FP headers and then proxying this information to the backend layer.
+During the proxy flow, the Forward Proxy is responsible for stripping the Interceptors Headers, replacing them with dynamically generated and anonymized Forward Proxy headers and then proxying this information to the backend layer.
 
 During the OAuth and `Login with Layer8` flows the proxy layer is responsible for authenticating the user and then releasing user approved metadata to the backend Service Provider. 
 
@@ -160,7 +160,7 @@ The middle layer has the responsibility of receiving encrypted messages from the
 
 *Figure 10: The backend layer is built by the Service Provider and is the service that any user would otherwise expect to interact with.*
 
-The third layer, the backend layer, is the Service Provider's backend servers as well as the Reverse Proxy (RP). Globe & Citizen maintains the Reverse Proxy code but the SPs will deploy it.
+The third layer, the backend layer, is the Service Provider's backend servers as well as the Reverse Proxy. Globe & Citizen maintains the Reverse Proxy code but the SPs will deploy it.
 
 During the initialize tunnel flow, the Reverse Proxy is responsible for decrypting the user's original request and forwarding it on to the Service Provider backend such that the Service Provider backend receives it as if it had been sent directly from the SPA.
 
@@ -186,9 +186,9 @@ The nTOR protocol is maximally efficient achieving a shared, one way authenticat
 *Figure 13: Once established. Requests can be sent from the Interceptor to the Reverse Proxy were they decrypted and then forwarded to the Service Provider's backend.*
 
 Once a connection is established a triad of JSON Web Tokens (JWTs) is used to identify, and maintain, connections between the three layers: 
-- `int_rp_jwt`: Interceptor Reverse Proxy JSON Webb Token. 
+- `int_rp_jwt`: Interceptor Reverse Proxy JSON Web Token. 
 - `int_fp_jwt`: Interceptor Forward Proxy JSON web Token.
-- `fp_rp_jwt`: Ford Proxy, Reverse Proxy JSON Webb Token. 
+- `fp_rp_jwt`: Ford Proxy, Reverse Proxy JSON Web Token. 
 
 JSON Web Tokens were chosen For their extensibility (JWT payloads can be customized); robust options for securitization (see the myriad of IEEE JWT RFCs); and, scalability (JWT adhere to the principles of RESTful APIs).
 
@@ -197,7 +197,7 @@ JSON Web Tokens were chosen For their extensibility (JWT payloads can be customi
 
 *Figure 14: How the three layers of the system interact during the OAuth flow.*
 
-Layer8 makes use of the standard Oauth flow. Novelty is added by the fact that the layer8 Authentication Server  does not store user data directly. Rather, the Authentication Server  stores *ZK-proofs* of a user's data. By using the Oath flow, users can selectively release information to Service Providers. At the moment, the Authorization servers stores ZK-Proofs and user metadata in a centralized postgres database. Alternatively, if the Authentication Sever made it's proofs accessible to the user, it can act as a certification authority for users thereby enabling Self Sovereign Identity.
+Layer8 makes use of the standard Oauth flow. Novelty is added by the fact that the layer8 Authentication Server  does not store user data directly. Rather, the Authentication Server  stores *ZK-proofs* of a user's data. By using the Oath flow, users can selectively release information to Service Providers. At the moment, the Authorization servers stores ZK-Proofs and user metadata in a centralized postgres database. Alternatively, IF the Authentication Sever made it's proofs accessible to the user, it can act as a certification authority for users thereby enabling Self Sovereign Identity.
 
 The OAuth flow can be extended to use the Open ID Connect (OIDC) protocol enabling backends to offer "Sign In With Layer8." In other words, the use of the OIDC protocol allows Layer8 to act as a federated identity provider both authenticating and authorizing users according to the same flow now standard on the Internet already.
 
