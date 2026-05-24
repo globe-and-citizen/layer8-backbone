@@ -1,20 +1,22 @@
-use std::sync::Arc;
-use std::thread;
+use crate::mock;
 use futures::FutureExt;
 use once_cell::sync::Lazy;
 use pingora::listeners::tls::TlsSettings;
-use pingora::prelude::{http_proxy_service, Opt, Server};
+use pingora::prelude::{Opt, Server, http_proxy_service};
 use pingora_router::handler::APIHandler;
 use pingora_router::router::Router;
-use reverse_proxy::handler::{ReverseHandler};
+use reverse_proxy::handler::ReverseHandler;
 use reverse_proxy::proxy::ReverseProxy;
 use reverse_proxy::tls_conf::TLSServerConfig;
+use std::sync::Arc;
+use std::thread;
 use utils::cert::TLSCredentials;
-use crate::mock;
 
+#[allow(dead_code)]
 pub static TEST_REVERSE_PROXY: Lazy<TestServer> = Lazy::new(TestServer::start);
 
 pub struct TestServer {
+    #[allow(dead_code)]
     pub handle: thread::JoinHandle<()>,
 }
 
@@ -57,7 +59,7 @@ fn start_reverse_proxy() {
             jwt_virtual_connection_secret: mock::data::VALID_JWT_SECRET.to_vec(),
             jwt_exp_in_hours: 1,
             backend_url: mock::data::MOCK_BACKEND_URL.to_string(),
-        }
+        },
     };
 
     let tls_cred = match TLSCredentials::load(&rp_config.proxy.tls) {
@@ -77,7 +79,8 @@ fn start_reverse_proxy() {
     let mut server = Server::new(Some(Opt {
         conf: std::env::var("SERVER_CONF").ok(),
         ..Default::default()
-    })).expect("Failed to create server");
+    }))
+    .expect("Failed to create server");
     server.bootstrap();
 
     let handle_init_tunnel: APIHandler<Arc<ReverseHandler>> =
@@ -109,17 +112,16 @@ fn start_reverse_proxy() {
         my_proxy.add_tls_with_settings(
             &format!(
                 "{}:{}",
-                rp_config.server.listen_address,
-                rp_config.server.listen_port
+                rp_config.server.listen_address, rp_config.server.listen_port
             ),
             None,
-            TlsSettings::with_callbacks(Box::new(tls_server_config)).expect("Cannot set TlsSettings callbacks")
+            TlsSettings::with_callbacks(Box::new(tls_server_config))
+                .expect("Cannot set TlsSettings callbacks"),
         );
     } else {
         my_proxy.add_tcp(&format!(
             "{}:{}",
-            rp_config.server.listen_address,
-            rp_config.server.listen_port
+            rp_config.server.listen_address, rp_config.server.listen_port
         ));
     }
 

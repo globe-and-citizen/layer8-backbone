@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
 use pingora_router::handler::RequestBodyTrait;
+use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct InitTunnelRequest {

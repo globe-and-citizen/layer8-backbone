@@ -1,5 +1,5 @@
-use std::error::Error;
 use forward_proxy::statistics::StatisticsWriter;
+use std::error::Error;
 
 pub struct MockStatisticsWriter;
 

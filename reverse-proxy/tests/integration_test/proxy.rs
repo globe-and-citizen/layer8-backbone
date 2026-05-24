@@ -3,15 +3,15 @@ mod mock;
 
 #[cfg(test)]
 mod test_proxy_request {
-    use std::collections::HashMap;
+    use crate::mock;
+    use crate::mock::data::{
+        MOCK_SESSION_ID_1, MOCK_SESSION_ID_2, MOCK_SHARED_SECRET_1, MOCK_SHARED_SECRET_2,
+        VALID_JWT_SECRET, create_fp_rp_jwt, create_int_rp_jwt_1, create_int_rp_jwt_2,
+    };
+    use crate::mock::start_mock_services;
     use ntor::common::EncryptedMessage;
     use reverse_proxy::handler::InMemorySecretsStorage;
-    use crate::mock;
-    use crate::mock::start_mock_services;
-    use crate::mock::data::{
-        create_fp_rp_jwt, create_int_rp_jwt_1, create_int_rp_jwt_2,
-        MOCK_SESSION_ID_1, MOCK_SESSION_ID_2, MOCK_SHARED_SECRET_1, MOCK_SHARED_SECRET_2, VALID_JWT_SECRET
-    };
+    use std::collections::HashMap;
 
     #[tokio::test]
     async fn test_success() {
@@ -38,13 +38,10 @@ mod test_proxy_request {
                 "Case 2",
                 mock::data::MOCK_PROXY_REQUEST_BODY_2.to_vec(),
                 valid_int_rp_jwt_2,
-            )
+            ),
         ];
 
-        let request_url = format!(
-            "http://localhost:{}/proxy",
-            mock::data::REVERSE_PROXY_PORT,
-        );
+        let request_url = format!("http://localhost:{}/proxy", mock::data::REVERSE_PROXY_PORT,);
 
         for (case_name, body, int_rp_jwt) in cases {
             println!("Testing {}", case_name);
@@ -61,17 +58,27 @@ mod test_proxy_request {
             println!("Response: {:?}", response);
             assert!(response.is_ok(), "Expected the request to succeed");
             let res = response.unwrap();
-            assert_eq!(res.status(), reqwest::StatusCode::OK, "Expected status code 200 OK");
+            assert_eq!(
+                res.status(),
+                reqwest::StatusCode::OK,
+                "Expected status code 200 OK"
+            );
 
             let response_body = res.bytes().await;
-            assert!(response_body.is_ok(), "Expected to successfully read response body");
+            assert!(
+                response_body.is_ok(),
+                "Expected to successfully read response body"
+            );
             let body_bytes = response_body.unwrap();
-            assert!(!body_bytes.is_empty(), "Expected response body to be non-empty");
+            assert!(
+                !body_bytes.is_empty(),
+                "Expected response body to be non-empty"
+            );
 
-            let res_body = EncryptedMessage::from_bytes(&body_bytes).expect("Response body should be a valid EncryptedMessage");
+            let res_body = EncryptedMessage::from_bytes(&body_bytes)
+                .expect("Response body should be a valid EncryptedMessage");
             assert!(!res_body.nonce.is_empty(), "Nonce should not be empty");
             assert!(!res_body.data.is_empty(), "Ciphertext should not be empty");
         }
     }
 }
-

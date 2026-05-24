@@ -1,11 +1,13 @@
-use std::net::SocketAddr;
-use axum::{Json, Router};
-use axum::http::{HeaderMap, StatusCode};
-use axum::routing::{post};
-use serde::{Deserialize};
-use forward_proxy::handler::types::response::InitTunnelResponseFromRP;
 use crate::mock;
-use crate::mock::data::{EncryptedMessage, BACKEND_SERVER_PORT, INIT_TUNNEL_API_PATH, PROXY_API_PATH};
+use crate::mock::data::{
+    BACKEND_SERVER_PORT, EncryptedMessage, INIT_TUNNEL_API_PATH, PROXY_API_PATH,
+};
+use axum::http::{HeaderMap, StatusCode};
+use axum::routing::post;
+use axum::{Json, Router};
+use forward_proxy::handler::types::response::InitTunnelResponseFromRP;
+use serde::Deserialize;
+use std::net::SocketAddr;
 
 pub(crate) async fn start_mock_backend_server() {
     let mut app = Router::new();
@@ -35,22 +37,28 @@ async fn init_tunnel_handler(
     // if the payload wasn't changed by forward-proxy
     if payload.public_key != mock::data::MOCK_NTOR_CLIENT_PUBLIC_KEY {
         println!("Received invalid public key: {:?}", payload.public_key);
-        return (StatusCode::BAD_REQUEST, Json(InitTunnelResponseFromRP {
-            public_key: vec![],
-            t_b_hash: vec![],
-            int_rp_jwt: String::new(),
-            fp_rp_jwt: String::new(),
-        }));
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(InitTunnelResponseFromRP {
+                public_key: vec![],
+                t_b_hash: vec![],
+                int_rp_jwt: String::new(),
+                fp_rp_jwt: String::new(),
+            }),
+        );
     }
 
     let response = InitTunnelResponseFromRP {
-        public_key: Vec::from(mock::data::MOCK_NTOR_SERVER_EPHEMERAL_PUBLIC_KEY.clone()),
-        t_b_hash: Vec::from(mock::data::MOCK_NTOR_SERVER_T_B_HASH.clone()),
+        public_key: Vec::from(mock::data::MOCK_NTOR_SERVER_EPHEMERAL_PUBLIC_KEY),
+        t_b_hash: Vec::from(mock::data::MOCK_NTOR_SERVER_T_B_HASH),
         int_rp_jwt: mock::data::MOCK_INT_RP_JWT.to_string(),
         fp_rp_jwt: mock::data::MOCK_FP_RP_JWT.to_string(),
     };
 
-    println!("Received valid init tunnel request. Responding with: {:?}", response);
+    println!(
+        "Received valid init tunnel request. Responding with: {:?}",
+        response
+    );
     (StatusCode::OK, Json(response))
 }
 
@@ -68,9 +76,10 @@ async fn proxy_handler(
                 utils::type_to_bincode(&EncryptedMessage {
                     nonce: [0; 12],
                     data: Vec::from(b"Missing int_rp_jwt header"),
-                })
+                }),
             );
-        }).unwrap();
+        })
+        .unwrap();
 
     if int_rp_jwt != mock::data::MOCK_INT_RP_JWT {
         return (
@@ -78,7 +87,7 @@ async fn proxy_handler(
             axum::body::Bytes::from(utils::type_to_bincode(&EncryptedMessage {
                 nonce: [0; 12],
                 data: b"Invalid int_rp_jwt token".to_vec(),
-            }))
+            })),
         );
     }
 
@@ -92,9 +101,10 @@ async fn proxy_handler(
                 axum::body::Bytes::from(utils::type_to_bincode(&EncryptedMessage {
                     nonce: [0; 12],
                     data: b"Missing fp_rp_jwt header".to_vec(),
-                }))
+                })),
             );
-        }).unwrap();
+        })
+        .unwrap();
 
     if fp_rp_jwt != mock::data::MOCK_FP_RP_JWT {
         return (
@@ -102,8 +112,8 @@ async fn proxy_handler(
             axum::body::Bytes::from(utils::type_to_bincode(&EncryptedMessage {
                 nonce: [0; 12],
                 data: b"Invalid fp_rp_jwt token".to_vec(),
-            }))
-        )
+            })),
+        );
     }
 
     // int_fp_jwt should not be included
@@ -113,7 +123,7 @@ async fn proxy_handler(
             axum::body::Bytes::from(utils::type_to_bincode(&EncryptedMessage {
                 nonce: [0; 12],
                 data: b"int_fp_jwt header should not be included".to_vec(),
-            }))
+            })),
         );
     }
 
@@ -126,9 +136,10 @@ async fn proxy_handler(
                 axum::body::Bytes::from(utils::type_to_bincode(&EncryptedMessage {
                     nonce: [0; 12],
                     data: Vec::from(b"Invalid payload format"),
-                }))
+                })),
             );
-        }).unwrap();
+        })
+        .unwrap();
 
     println!("Received proxy request with payload: {:?}", payload_json);
 
@@ -138,7 +149,7 @@ async fn proxy_handler(
             axum::body::Bytes::from(utils::type_to_bincode(&EncryptedMessage {
                 nonce: [0; 12],
                 data: b"Proxy request nonce does not match expected value".to_vec(),
-            }))
+            })),
         );
     }
 
@@ -148,7 +159,7 @@ async fn proxy_handler(
             axum::body::Bytes::from(utils::type_to_bincode(&EncryptedMessage {
                 nonce: [0; 12],
                 data: b"Proxy request data does not match expected value".to_vec(),
-            }))
+            })),
         );
     }
 
@@ -157,9 +168,10 @@ async fn proxy_handler(
         data: mock::data::MOCK_PROXY_RESPONSE_DATA.to_vec(),
     }));
 
-    println!("Received valid proxy request. Responding with: {:?}", response);
+    println!(
+        "Received valid proxy request. Responding with: {:?}",
+        response
+    );
 
     (StatusCode::OK, response)
 }
-
-

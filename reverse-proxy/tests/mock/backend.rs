@@ -1,11 +1,12 @@
-use std::net::SocketAddr;
+use crate::mock::data::MOCK_BACKEND_PORT;
 use axum::http::header::SET_COOKIE;
 use axum::http::{HeaderMap, HeaderValue, StatusCode};
-use axum::{Json, Router};
 use axum::response::IntoResponse;
 use axum::routing::{get, post};
-use crate::mock::data::MOCK_BACKEND_PORT;
+use axum::{Json, Router};
+use std::net::SocketAddr;
 
+#[allow(dead_code)]
 #[derive(Debug, serde::Deserialize)]
 struct RequestBody;
 
@@ -19,26 +20,20 @@ async fn test_api_get_me(_headers: HeaderMap) -> impl IntoResponse {
 
     response_headers.insert(
         SET_COOKIE,
-        HeaderValue::from_static(
-            "session_id=abc123; HttpOnly; Path=/"
-        ),
+        HeaderValue::from_static("session_id=abc123; HttpOnly; Path=/"),
     );
 
     (
         axum::http::StatusCode::OK,
         response_headers,
-        Json(ResponseBody {
-            success: true,
-        }),
+        Json(ResponseBody { success: true }),
     )
 }
 
 async fn test_api_get_profile(_headers: HeaderMap) -> impl IntoResponse {
     (
         axum::http::StatusCode::OK,
-        Json(ResponseBody {
-            success: true,
-        }),
+        Json(ResponseBody { success: true }),
     )
 }
 
@@ -58,9 +53,7 @@ async fn test_api(
     let mut headers = HeaderMap::new();
     headers.insert(
         SET_COOKIE,
-        HeaderValue::from_static(
-            "session_id=abc123; HttpOnly; Path=/; Max-Age=3600"
-        ),
+        HeaderValue::from_static("session_id=abc123; HttpOnly; Path=/; Max-Age=3600"),
     );
 
     (StatusCode::OK, headers, Json(response))

@@ -4,11 +4,10 @@ mod mock;
 #[cfg(test)]
 mod test_handler {
     mod test_get_ntor_shared_secret {
-        use pingora::http::StatusCode;
-        use pingora_router::handler::ResponseBodyTrait;
+
         use reverse_proxy::config::{HandlerConfig, ServerConfig};
+
         use reverse_proxy::handler::{InMemorySecretsStorage, ReverseHandler};
-        use reverse_proxy::handler::common::types::ErrorResponse;
 
         fn create_test_handler() -> ReverseHandler {
             let handler_config = HandlerConfig {
@@ -37,7 +36,10 @@ mod test_handler {
                     log_path: "./logs".to_string(),
                     log_filename: "reverse_proxy.log".to_string(),
                 },
-                server: ServerConfig { listen_address: "".to_string(), listen_port: 0 },
+                server: ServerConfig {
+                    listen_address: "".to_string(),
+                    listen_port: 0,
+                },
             };
 
             ReverseHandler::new(rp_config)
@@ -71,8 +73,12 @@ mod test_handler {
         use pingora::http::StatusCode;
         use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
         use pingora_router::handler::{RequestBodyTrait, ResponseBodyTrait};
-        use reverse_proxy::config::{HandlerConfig, LogConfig, ProxyConfig, RPConfig, ServerConfig};
-        use reverse_proxy::handler::init_tunnel::{InitEncryptedTunnelRequest, InitEncryptedTunnelResponse};
+        use reverse_proxy::config::{
+            HandlerConfig, LogConfig, ProxyConfig, RPConfig, ServerConfig,
+        };
+        use reverse_proxy::handler::init_tunnel::{
+            InitEncryptedTunnelRequest, InitEncryptedTunnelResponse,
+        };
         use reverse_proxy::handler::{InMemorySecretsStorage, ReverseHandler};
         use serde_json::json;
         use utils::cert::TLSConfig;
@@ -85,7 +91,10 @@ mod test_handler {
                     log_path: "".to_string(),
                     log_filename: "".to_string(),
                 },
-                server: ServerConfig { listen_address: "".to_string(), listen_port: 0 },
+                server: ServerConfig {
+                    listen_address: "".to_string(),
+                    listen_port: 0,
+                },
                 proxy: ProxyConfig {
                     tls: TLSConfig {
                         enable_tls: false,
@@ -98,7 +107,10 @@ mod test_handler {
                 },
                 handler: HandlerConfig {
                     ntor_server_id: "test_server_id".to_string(),
-                    ntor_static_secret: <[u8; 32]>::try_from("this is 32-byte nTorStaticSecret".as_bytes()).unwrap(),
+                    ntor_static_secret: <[u8; 32]>::try_from(
+                        "this is 32-byte nTorStaticSecret".as_bytes(),
+                    )
+                    .unwrap(),
                     jwt_virtual_connection_secret: b"test_secret".to_vec(),
                     jwt_exp_in_hours: 24,
                     backend_url: "http://localhost:8080".to_string(),
@@ -122,8 +134,7 @@ mod test_handler {
             assert!(response.body.is_some());
 
             // Verify response body can be parsed into InitEncryptedTunnelResponse
-            let response_body =
-                InitEncryptedTunnelResponse::from_bytes(response.body.unwrap());
+            let response_body = InitEncryptedTunnelResponse::from_bytes(response.body.unwrap());
             assert!(response_body.is_ok());
 
             // Verify response body fields
@@ -137,12 +148,14 @@ mod test_handler {
             let int_rp_jwt = utils::jwt::verify_jwt_token(
                 &response_data.int_rp_jwt,
                 &config.handler.jwt_virtual_connection_secret,
-            ).expect("INT_RP_JWT token verification failed");
+            )
+            .expect("INT_RP_JWT token verification failed");
             let session_id = int_rp_jwt.claims.ntor_session_id;
             assert!(session_id.is_some());
 
             // Verify shared secret is stored in InMemorySecretsStorage with correct session ID
-            let shared_secret = InMemorySecretsStorage::get(&session_id.unwrap()).expect("Shared secret not found in storage for valid session ID");
+            let shared_secret = InMemorySecretsStorage::get(&session_id.unwrap())
+                .expect("Shared secret not found in storage for valid session ID");
             assert_eq!(shared_secret.len(), 16);
         }
 
@@ -156,66 +169,83 @@ mod test_handler {
                     "Invalid public key length, 31 bytes",
                     json!({
                         "public_key": b"a".repeat(31)
-                    }).to_string().into_bytes(),
+                    })
+                    .to_string()
+                    .into_bytes(),
                 ),
                 (
                     "Invalid public key length: 33 bytes",
                     json!({
                         "public_key": b"a".repeat(33)
-                    }).to_string().into_bytes(),
+                    })
+                    .to_string()
+                    .into_bytes(),
                 ),
                 (
                     "Invalid public key length: 0 bytes",
                     json!({
                         "public_key": b"a".repeat(0)
-                    }).to_string().into_bytes(),
+                    })
+                    .to_string()
+                    .into_bytes(),
                 ),
                 (
                     "Invalid public key length: very large byte array",
                     json!({
                         "public_key": b"a".repeat(100000000)
-                    }).to_string().into_bytes(),
+                    })
+                    .to_string()
+                    .into_bytes(),
                 ),
                 (
                     "public_key is not a byte array",
                     json!({
                         "public_key": "not a byte array"
-                    }).to_string().into_bytes(),
+                    })
+                    .to_string()
+                    .into_bytes(),
                 ),
                 (
                     "public_key is a number",
                     json!({
                         "public_key": 12345
-                    }).to_string().into_bytes(),
+                    })
+                    .to_string()
+                    .into_bytes(),
                 ),
                 (
                     "public_key is null",
                     json!({
                         "public_key": null
-                    }).to_string().into_bytes(),
+                    })
+                    .to_string()
+                    .into_bytes(),
                 ),
                 (
                     "public_key is an object",
                     json!({
                         "public_key": {}
-                    }).to_string().into_bytes(),
+                    })
+                    .to_string()
+                    .into_bytes(),
                 ),
                 (
                     "public_key is an array",
                     json!({
                         "public_key": []
-                    }).to_string().into_bytes(),
+                    })
+                    .to_string()
+                    .into_bytes(),
                 ),
                 (
                     "public_key field is missing",
                     json!({
                         "not_public_key": "a".repeat(32)
-                    }).to_string().into_bytes(),
+                    })
+                    .to_string()
+                    .into_bytes(),
                 ),
-                (
-                    "body is not valid JSON",
-                    b"invalid json".to_vec(),
-                )
+                ("body is not valid JSON", b"invalid json".to_vec()),
             ];
 
             for (test_case, body) in cases {
@@ -231,21 +261,21 @@ mod test_handler {
     }
 
     mod test_handle_proxy_request {
+        use crate::mock;
+        use crate::mock::data::{
+            FP_RP_JWT_HEADER, INT_RP_JWT_HEADER, INVALID_JWT_SECRET, MOCK_BACKEND_URL,
+            MOCK_PROXY_REQUEST_BODY_1, MOCK_PROXY_REQUEST_BODY_2, MOCK_SESSION_ID_1,
+            MOCK_SESSION_ID_2, MOCK_SHARED_SECRET_1, MOCK_SHARED_SECRET_2, VALID_JWT_SECRET,
+            create_fp_rp_jwt, create_int_rp_jwt_1, create_int_rp_jwt_2,
+        };
         use ntor::common::EncryptedMessage;
         use pingora::http::StatusCode;
         use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
         use pingora_router::handler::ResponseBodyTrait;
         use reverse_proxy::config::RPConfig;
-        use reverse_proxy::handler::{InMemorySecretsStorage, ReverseHandler};
         use reverse_proxy::handler::common::types::ErrorResponse;
+        use reverse_proxy::handler::{InMemorySecretsStorage, ReverseHandler};
         use utils::jwt::JWTClaims;
-        use crate::mock;
-        use crate::mock::data::{
-            create_fp_rp_jwt, create_int_rp_jwt_1, create_int_rp_jwt_2,
-            FP_RP_JWT_HEADER, INT_RP_JWT_HEADER, INVALID_JWT_SECRET, MOCK_BACKEND_URL,
-            MOCK_PROXY_REQUEST_BODY_1, MOCK_PROXY_REQUEST_BODY_2, MOCK_SESSION_ID_1,
-            MOCK_SESSION_ID_2, MOCK_SHARED_SECRET_1, MOCK_SHARED_SECRET_2, VALID_JWT_SECRET
-        };
 
         pub fn create_test_handler() -> ReverseHandler {
             let mut config = RPConfig::default();
@@ -258,8 +288,14 @@ mod test_handler {
         async fn test_success() {
             mock::backend::run_mock_be();
             let handler = create_test_handler();
-            InMemorySecretsStorage::insert(MOCK_SESSION_ID_1.to_string(), MOCK_SHARED_SECRET_1.to_vec());
-            InMemorySecretsStorage::insert(MOCK_SESSION_ID_2.to_string(), MOCK_SHARED_SECRET_2.to_vec());
+            InMemorySecretsStorage::insert(
+                MOCK_SESSION_ID_1.to_string(),
+                MOCK_SHARED_SECRET_1.to_vec(),
+            );
+            InMemorySecretsStorage::insert(
+                MOCK_SESSION_ID_2.to_string(),
+                MOCK_SHARED_SECRET_2.to_vec(),
+            );
 
             let valid_int_rp_jwt_1 = create_int_rp_jwt_1(VALID_JWT_SECRET, 24);
             let valid_int_rp_jwt_2 = create_int_rp_jwt_2(VALID_JWT_SECRET, 24);
@@ -279,7 +315,7 @@ mod test_handler {
                     (valid_int_rp_jwt_2, valid_fp_rp_jwt.clone()),
                     MOCK_PROXY_REQUEST_BODY_2.to_vec(),
                     None,
-                )
+                ),
             ];
 
             for (test_case, (int_rp_jwt, fp_rp_jwt), request_body, expected_cookie) in cases {
@@ -294,13 +330,23 @@ mod test_handler {
                 assert_eq!(response.status, StatusCode::OK);
 
                 if expected_cookie.is_none() {
-                    assert!(response.cookies.is_none(), "Cookies should NOT be set in the response");
+                    assert!(
+                        response.cookies.is_none(),
+                        "Cookies should NOT be set in the response"
+                    );
                 } else {
-                    assert!(response.cookies.is_some(), "Cookies should be set in the response");
-                    assert_eq!(response.cookies, expected_cookie, "Response should contain the expected Set-Cookie header");
+                    assert!(
+                        response.cookies.is_some(),
+                        "Cookies should be set in the response"
+                    );
+                    assert_eq!(
+                        response.cookies, expected_cookie,
+                        "Response should contain the expected Set-Cookie header"
+                    );
 
                     let response_body = response.body.expect("Response body should be present");
-                    let res_body: EncryptedMessage = utils::bincode_to_type(&response_body).expect("Response body should be a valid EncryptedMessage");
+                    let res_body: EncryptedMessage = utils::bincode_to_type(&response_body)
+                        .expect("Response body should be a valid EncryptedMessage");
                     assert!(!res_body.nonce.is_empty(), "Nonce should not be empty");
                     assert!(!res_body.data.is_empty(), "Ciphertext should not be empty");
                 }
@@ -314,7 +360,10 @@ mod test_handler {
             // backend running to ensure any failures are due to JWT validation and not backend connectivity issues
             mock::backend::run_mock_be();
             let handler = create_test_handler();
-            InMemorySecretsStorage::insert(MOCK_SESSION_ID_1.to_string(), MOCK_SHARED_SECRET_1.to_vec());
+            InMemorySecretsStorage::insert(
+                MOCK_SESSION_ID_1.to_string(),
+                MOCK_SHARED_SECRET_1.to_vec(),
+            );
 
             let valid_int_rp_jwt = create_int_rp_jwt_1(VALID_JWT_SECRET, 24);
             let valid_fp_rp_jwt = create_fp_rp_jwt(VALID_JWT_SECRET, 24);
@@ -331,94 +380,91 @@ mod test_handler {
 
             let cases = {
                 vec![
-                    (
-                        "Empty header",
-                        vec![]
-                    ),
+                    ("Empty header", vec![]),
                     (
                         "Only valid int_rp_jwt",
-                        vec![(INT_RP_JWT_HEADER, valid_int_rp_jwt.clone())]
+                        vec![(INT_RP_JWT_HEADER, valid_int_rp_jwt.clone())],
                     ),
                     (
                         "Only valid fp_rp_jwt",
-                        vec![(FP_RP_JWT_HEADER, valid_fp_rp_jwt.clone())]
+                        vec![(FP_RP_JWT_HEADER, valid_fp_rp_jwt.clone())],
                     ),
                     (
                         "Invalid int_rp_jwt format, valid fp_rp_jwt",
                         vec![
                             (INT_RP_JWT_HEADER, "invalid_format_token".to_string()),
-                            (FP_RP_JWT_HEADER, valid_fp_rp_jwt.clone())
-                        ]
+                            (FP_RP_JWT_HEADER, valid_fp_rp_jwt.clone()),
+                        ],
                     ),
                     (
                         "Invalid fp_rp_jwt format, valid int_rp_jwt",
                         vec![
                             (INT_RP_JWT_HEADER, valid_int_rp_jwt.clone()),
-                            (FP_RP_JWT_HEADER, "invalid_format_token".to_string())
-                        ]
+                            (FP_RP_JWT_HEADER, "invalid_format_token".to_string()),
+                        ],
                     ),
                     (
                         "Valid JWTs but missing session ID in int_rp_jwt, valid fp_rp_jwt",
                         vec![
                             (INT_RP_JWT_HEADER, int_rp_jwt_without_session_id),
-                            (FP_RP_JWT_HEADER, valid_fp_rp_jwt.clone())
-                        ]
+                            (FP_RP_JWT_HEADER, valid_fp_rp_jwt.clone()),
+                        ],
                     ),
                     (
                         "Valid JWTs but invalid session ID in int_rp_jwt, valid fp_rp_jwt",
                         vec![
                             (INT_RP_JWT_HEADER, int_rp_jwt_with_invalid_session_id),
-                            (FP_RP_JWT_HEADER, valid_fp_rp_jwt.clone())
-                        ]
+                            (FP_RP_JWT_HEADER, valid_fp_rp_jwt.clone()),
+                        ],
                     ),
                     (
                         "Expired int_rp_jwt, valid fp_rp_jwt",
                         vec![
                             (INT_RP_JWT_HEADER, expired_int_rp_jwt.clone()),
-                            (FP_RP_JWT_HEADER, valid_fp_rp_jwt.clone())
-                        ]
+                            (FP_RP_JWT_HEADER, valid_fp_rp_jwt.clone()),
+                        ],
                     ),
                     (
                         "Expired fp_rp_jwt",
                         vec![
                             (INT_RP_JWT_HEADER, valid_int_rp_jwt.clone()),
-                            (FP_RP_JWT_HEADER, expired_fp_rp_jwt.clone())
-                        ]
+                            (FP_RP_JWT_HEADER, expired_fp_rp_jwt.clone()),
+                        ],
                     ),
                     (
                         "Invalid signature in int_rp_jwt",
                         vec![
                             (INT_RP_JWT_HEADER, invalid_signature_int_rp_jwt.clone()),
-                            (FP_RP_JWT_HEADER, valid_fp_rp_jwt)
-                        ]
+                            (FP_RP_JWT_HEADER, valid_fp_rp_jwt),
+                        ],
                     ),
                     (
                         "Invalid signature in fp_rp_jwt",
                         vec![
                             (INT_RP_JWT_HEADER, valid_int_rp_jwt),
-                            (FP_RP_JWT_HEADER, invalid_signature_fp_rp_jwt.clone())
-                        ]
+                            (FP_RP_JWT_HEADER, invalid_signature_fp_rp_jwt.clone()),
+                        ],
                     ),
                     (
                         "Both JWTs invalid signature",
                         vec![
                             (INT_RP_JWT_HEADER, invalid_signature_int_rp_jwt),
-                            (FP_RP_JWT_HEADER, invalid_signature_fp_rp_jwt)
-                        ]
+                            (FP_RP_JWT_HEADER, invalid_signature_fp_rp_jwt),
+                        ],
                     ),
                     (
                         "Both JWTs expired",
                         vec![
                             (INT_RP_JWT_HEADER, expired_int_rp_jwt),
-                            (FP_RP_JWT_HEADER, expired_fp_rp_jwt)
-                        ]
+                            (FP_RP_JWT_HEADER, expired_fp_rp_jwt),
+                        ],
                     ),
                     (
                         "Both JWTs invalid format",
                         vec![
                             (INT_RP_JWT_HEADER, "invalid_format_token".to_string()),
-                            (FP_RP_JWT_HEADER, "invalid_format_token".to_string())
-                        ]
+                            (FP_RP_JWT_HEADER, "invalid_format_token".to_string()),
+                        ],
                     ),
                 ]
             };
@@ -441,7 +487,10 @@ mod test_handler {
         async fn test_invalid_body() {
             mock::backend::run_mock_be();
             let handler = create_test_handler();
-            InMemorySecretsStorage::insert(MOCK_SESSION_ID_1.to_string(), MOCK_SHARED_SECRET_1.to_vec());
+            InMemorySecretsStorage::insert(
+                MOCK_SESSION_ID_1.to_string(),
+                MOCK_SHARED_SECRET_1.to_vec(),
+            );
 
             let valid_int_rp_jwt = create_int_rp_jwt_1(VALID_JWT_SECRET, 24);
             let valid_fp_rp_jwt = create_fp_rp_jwt(VALID_JWT_SECRET, 24);
@@ -490,7 +539,7 @@ mod test_handler {
             #[derive(Debug, bincode::Encode, bincode::Decode)]
             struct WrongTypesEncryptedMessage {
                 nonce: String, // should be Vec<u8>
-                data: String, // should be Vec<u8>
+                data: String,  // should be Vec<u8>
             }
 
             const EXPECTED_PARSING_ERR_STR: &str = "Failed to parse request body";
@@ -501,12 +550,12 @@ mod test_handler {
                 (
                     "Body that is not valid bincode",
                     b"not a valid bincode".to_vec(),
-                    EXPECTED_PARSING_ERR_STR
+                    EXPECTED_PARSING_ERR_STR,
                 ),
                 (
                     "Body that is valid bincode but not a valid EncryptedMessage",
                     utils::type_to_bincode(&"just a string, not an EncryptedMessage"),
-                    EXPECTED_PARSING_ERR_STR
+                    EXPECTED_PARSING_ERR_STR,
                 ),
                 (
                     "Body is valid bincode but not a valid EncryptedMessage because nonce is wrong length",
@@ -514,7 +563,7 @@ mod test_handler {
                         nonce: vec![0u8; 10], // should be 12 bytes
                         data: vec![1, 2, 3],
                     }),
-                    EXPECTED_DECRYPTION_ERR_STR
+                    EXPECTED_DECRYPTION_ERR_STR,
                 ),
                 (
                     "Body that is valid bincode but nonce is missing",
@@ -522,7 +571,7 @@ mod test_handler {
                         iv: vec![0u8; 12], // should be nonce field
                         data: vec![1, 2, 3],
                     }),
-                    EXPECTED_DECRYPTION_ERR_STR
+                    EXPECTED_DECRYPTION_ERR_STR,
                 ),
                 (
                     "Body that is valid bincode and data is missing",
@@ -530,7 +579,7 @@ mod test_handler {
                         nonce: vec![0u8; 12],
                         ciphertext: vec![1, 2, 3], // should be data field
                     }),
-                    EXPECTED_DECRYPTION_ERR_STR
+                    EXPECTED_DECRYPTION_ERR_STR,
                 ),
                 (
                     "Body that is valid bincode and valid EncryptedMessage but nonce is not a byte array",
@@ -538,23 +587,23 @@ mod test_handler {
                         nonce: "this should be a byte array".to_string(),
                         data: vec![1, 2, 3],
                     }),
-                    EXPECTED_PARSING_ERR_STR
+                    EXPECTED_PARSING_ERR_STR,
                 ),
                 (
                     "Body that is valid bincode and valid EncryptedMessage but data is not a byte array",
                     utils::type_to_bincode(&WrongTypeDataEncryptedMessage {
                         nonce: vec![0u8; 12],
-                        data: "not a byte array".to_string() // parsing is still valid because of bincode deserialization, but decryption should fail because data is not an encrypted byte array
+                        data: "not a byte array".to_string(), // parsing is still valid because of bincode deserialization, but decryption should fail because data is not an encrypted byte array
                     }),
-                    EXPECTED_DECRYPTION_ERR_STR
+                    EXPECTED_DECRYPTION_ERR_STR,
                 ),
                 (
                     "Body that is valid bincode but has wrong field types",
                     utils::type_to_bincode(&WrongTypesEncryptedMessage {
                         nonce: "this should be a byte array".to_string(),
-                        data: "this should be a byte array".to_string()
+                        data: "this should be a byte array".to_string(),
                     }),
-                    EXPECTED_DECRYPTION_ERR_STR
+                    EXPECTED_DECRYPTION_ERR_STR,
                 ),
                 (
                     "Body that is valid bincode but has extra fields",
@@ -563,12 +612,12 @@ mod test_handler {
                         data: vec![],
                         extra_field: "this should be ignored".to_string(),
                     }),
-                    EXPECTED_PARSING_ERR_STR
+                    EXPECTED_PARSING_ERR_STR,
                 ),
                 (
                     "Body that is valid bincode and valid EncryptedMessage but decryption fails due to ciphertext was signed with different secret",
                     MOCK_PROXY_REQUEST_BODY_2.to_vec(), // we're using shared secret 1 in the test, but this ciphertext was generated with shared secret 2, so decryption should fail
-                    EXPECTED_DECRYPTION_ERR_STR
+                    EXPECTED_DECRYPTION_ERR_STR,
                 ),
                 // add internal server error cases ?
             ];
@@ -582,8 +631,13 @@ mod test_handler {
                 assert_eq!(response.status, StatusCode::BAD_REQUEST);
 
                 let response_body = response.body.expect("Response body should be present");
-                let err_response = ErrorResponse::from_bytes(response_body).expect("Response body should be a valid ErrorResponse");
-                assert!(err_response.error.contains(expected_err_str), "Error message should contain the expected substring. Actual error message: {}", err_response.error);
+                let err_response = ErrorResponse::from_bytes(response_body)
+                    .expect("Response body should be a valid ErrorResponse");
+                assert!(
+                    err_response.error.contains(expected_err_str),
+                    "Error message should contain the expected substring. Actual error message: {}",
+                    err_response.error
+                );
             }
         }
     }

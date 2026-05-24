@@ -1,16 +1,19 @@
-use std::sync::Arc;
-use std::thread;
-use once_cell::sync::Lazy;
-use pingora::prelude::{http_proxy_service, Opt, Server};
+use crate::mock;
+use crate::mock::data::{
+    AUTH_ACCESS_TOKEN, AUTH_NTOR_CERT_API_PATH, AUTH_SERVER_PORT, FORWARD_PROXY_PORT,
+};
 use forward_proxy::handler::{ForwardHandler, IntFPSession};
 use forward_proxy::proxy::ForwardProxy;
+use once_cell::sync::Lazy;
+use pingora::prelude::{Opt, Server, http_proxy_service};
+use std::sync::Arc;
+use std::thread;
 use utils::cert::TLSCredentials;
-use crate::mock;
-use crate::mock::data::{AUTH_ACCESS_TOKEN, AUTH_NTOR_CERT_API_PATH, AUTH_SERVER_PORT, FORWARD_PROXY_PORT};
 
 pub static TEST_FORWARD_PROXY: Lazy<TestServer> = Lazy::new(TestServer::start);
 
 pub struct TestServer {
+    #[allow(dead_code)]
     pub handle: thread::JoinHandle<()>,
 }
 
@@ -43,8 +46,7 @@ fn start_forward_proxy() {
             auth_access_token: AUTH_ACCESS_TOKEN.to_string(),
             auth_get_certificate_url: format!(
                 "http://127.0.0.1:{}{}?backend_url=",
-                AUTH_SERVER_PORT,
-                AUTH_NTOR_CERT_API_PATH
+                AUTH_SERVER_PORT, AUTH_NTOR_CERT_API_PATH
             ),
         },
         log: forward_proxy::config::LogConfig {
@@ -80,26 +82,36 @@ fn start_forward_proxy() {
     let mut server = Server::new(Some(Opt {
         conf: std::env::var("SERVER_CONF").ok(),
         ..Default::default()
-    })).expect("Failed to create server");
+    }))
+    .expect("Failed to create server");
     server.bootstrap();
 
     let fp_handler = ForwardHandler::new(fp_config.handler);
-    fp_handler.set_session(&mock::data::MOCK_INT_FP_JWT, IntFPSession {
-        client_id: mock::data::MOCK_AUTH_CLIENT_ID.to_string(),
-        rp_base_url: mock::data::BACKEND_URL.to_string(),
-        fp_rp_jwt: mock::data::MOCK_FP_RP_JWT.to_string(),
-    });
+    fp_handler.set_session(
+        &mock::data::MOCK_INT_FP_JWT,
+        IntFPSession {
+            client_id: mock::data::MOCK_AUTH_CLIENT_ID.to_string(),
+            rp_base_url: mock::data::BACKEND_URL.to_string(),
+            fp_rp_jwt: mock::data::MOCK_FP_RP_JWT.to_string(),
+        },
+    );
 
     let mut proxy = http_proxy_service(
         &server.configuration,
         ForwardProxy::new(fp_config.proxy, tls_cred, fp_handler),
     );
 
-    proxy.add_tcp(&format!("{}:{}", fp_config.listen_address, fp_config.listen_port));
+    proxy.add_tcp(&format!(
+        "{}:{}",
+        fp_config.listen_address, fp_config.listen_port
+    ));
 
     server.add_service(proxy);
 
-    println!("Starting forward proxy at {}:{}", fp_config.listen_address, fp_config.listen_port);
+    println!(
+        "Starting forward proxy at {}:{}",
+        fp_config.listen_address, fp_config.listen_port
+    );
 
     server.run_forever();
 }

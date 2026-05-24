@@ -1,19 +1,20 @@
 use std::net::SocketAddr;
 
+use crate::mock;
+use crate::mock::data::{
+    AUTH_ACCESS_TOKEN, AUTH_NTOR_CERT_API_PATH, AUTH_SERVER_PORT, BACKEND_URL,
+};
 use axum::{
+    Router,
     extract::Query,
-    http::{header::AUTHORIZATION, HeaderMap, StatusCode},
+    http::{HeaderMap, StatusCode, header::AUTHORIZATION},
     response::Json,
     routing::get,
-    Router,
 };
 use serde::{Deserialize, Serialize};
-use crate::mock;
-use crate::mock::data::{AUTH_ACCESS_TOKEN, AUTH_NTOR_CERT_API_PATH, AUTH_SERVER_PORT, BACKEND_URL};
 
 pub(crate) async fn start_mock_auth_server() {
-    let app = Router::new()
-        .route(AUTH_NTOR_CERT_API_PATH, get(get_certificate));
+    let app = Router::new().route(AUTH_NTOR_CERT_API_PATH, get(get_certificate));
 
     let addr = SocketAddr::from(([127, 0, 0, 1], AUTH_SERVER_PORT));
 
@@ -61,10 +62,7 @@ async fn get_certificate(
     }
 
     if params.backend_url != BACKEND_URL {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            "Invalid backend_url".to_string(),
-        ));
+        return Err((StatusCode::BAD_REQUEST, "Invalid backend_url".to_string()));
     }
 
     Ok(Json(AuthServerResponse {

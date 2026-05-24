@@ -1,4 +1,4 @@
-pub mod statistics;
+pub mod config;
 pub mod handler;
 pub mod proxy;
-pub mod config;
+pub mod statistics;

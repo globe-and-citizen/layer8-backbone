@@ -1,11 +1,11 @@
+use crate::config::InfluxDBConfig;
+use crate::handler::consts::RequestPaths;
+use crate::statistics::StatisticsWriter;
 use futures::stream;
 use influxdb2::Client;
 use influxdb2::models::DataPoint;
 use pingora::http::StatusCode;
 use std::error::Error;
-use crate::config::InfluxDBConfig;
-use crate::handler::consts::RequestPaths;
-use crate::statistics::StatisticsWriter;
 
 struct InfluxDBMeasurements;
 

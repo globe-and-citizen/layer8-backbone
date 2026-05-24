@@ -1,11 +1,11 @@
 pub mod influxdb_client;
 
-use std::error::Error;
+use crate::handler::consts::LogTypes;
 use futures::TryFutureExt;
 use once_cell::sync::Lazy;
+use std::error::Error;
 use tokio::sync::Mutex;
 use tracing::error;
-use crate::handler::consts::LogTypes;
 
 #[async_trait::async_trait]
 pub trait StatisticsWriter: Send + Sync {
@@ -32,7 +32,8 @@ pub trait StatisticsWriter: Send + Sync {
     ) -> Result<(), Box<dyn Error + Sync + Send>>;
 }
 
-static INFLUXDB_CLIENT: Lazy<Mutex<Option<Box<dyn StatisticsWriter>>>> = Lazy::new(|| Mutex::new(None));
+static INFLUXDB_CLIENT: Lazy<Mutex<Option<Box<dyn StatisticsWriter>>>> =
+    Lazy::new(|| Mutex::new(None));
 
 pub struct Statistics;
 

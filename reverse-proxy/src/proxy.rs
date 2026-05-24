@@ -1,13 +1,13 @@
-use pingora::prelude::{HttpPeer, ProxyHttp};
-use pingora::proxy::Session;
-use pingora::http::{ResponseHeader, StatusCode};
-use async_trait::async_trait;
-use bytes::Bytes;
-use tracing::{debug, info};
-use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
-use pingora_router::router::Router;
 use crate::config::ProxyConfig;
 use crate::handler::common::consts::LogTypes;
+use async_trait::async_trait;
+use bytes::Bytes;
+use pingora::http::{ResponseHeader, StatusCode};
+use pingora::prelude::{HttpPeer, ProxyHttp};
+use pingora::proxy::Session;
+use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
+use pingora_router::router::Router;
+use tracing::{debug, info};
 
 /// Reverse proxy server for routing and processing HTTP requests.
 ///
@@ -31,10 +31,7 @@ pub struct ReverseProxy<T> {
 
 impl<T> ReverseProxy<T> {
     pub fn new(config: ProxyConfig, router: Router<T>) -> Self {
-        ReverseProxy {
-            config,
-            router,
-        }
+        ReverseProxy { config, router }
     }
 
     /// Sets response headers for the proxy session.
@@ -63,11 +60,15 @@ impl<T> ReverseProxy<T> {
 
         let response_header = ctx.get_response_header().clone();
         for (key, val) in response_header.iter() {
-            header.insert_header(key.clone(), val.clone()).unwrap_or_default();
-        };
+            header
+                .insert_header(key.clone(), val.clone())
+                .unwrap_or_default();
+        }
 
         // Common headers
-        header.insert_header("Content-Type", "application/json").unwrap_or_default();
+        header
+            .insert_header("Content-Type", "application/json")
+            .unwrap_or_default();
         header
             .insert_header("Access-Control-Allow-Methods", "*")
             .unwrap_or_default();
@@ -82,22 +83,22 @@ impl<T> ReverseProxy<T> {
             )
             .unwrap_or_default();
 
-
-        if let Some(origin) = ctx.request.header.get("origin") {
-            if self
+        if let Some(origin) = ctx.request.header.get("origin")
+            && self
                 .config
                 .cors_allow_origins
                 .iter()
                 .any(|allowed| allowed == origin)
-            {
-                header
-                    .insert_header("Access-Control-Allow-Origin", origin.to_string())
-                    .unwrap_or_default();
-            }
+        {
+            header
+                .insert_header("Access-Control-Allow-Origin", origin.to_string())
+                .unwrap_or_default();
         }
 
         if let Some(req_headers) = ctx.request.header.get("Access-Control-Request-Headers") {
-            header.insert_header("Access-Control-Allow-Headers", req_headers).unwrap_or_default();
+            header
+                .insert_header("Access-Control-Allow-Headers", req_headers)
+                .unwrap_or_default();
         }
 
         let correlation_id = ctx.get_correlation_id();
@@ -127,8 +128,7 @@ impl<T: Sync> ProxyHttp for ReverseProxy<T> {
         _session: &mut Session,
         _ctx: &mut Self::CTX,
     ) -> pingora::Result<Box<HttpPeer>> {
-        let peer: Box<HttpPeer> =
-            Box::new(HttpPeer::new("", false, "".to_string()));
+        let peer: Box<HttpPeer> = Box::new(HttpPeer::new("", false, "".to_string()));
         Ok(peer)
     }
 
@@ -149,7 +149,11 @@ impl<T: Sync> ProxyHttp for ReverseProxy<T> {
     /// # Returns
     /// * `Ok(true)` on successful request processing (request fully handled)
     /// * `Err(pingora::Error)` if any step fails (context update, routing, header/body write)
-    async fn request_filter(&self, session: &mut Session, ctx: &mut Self::CTX) -> pingora::Result<bool>
+    async fn request_filter(
+        &self,
+        session: &mut Session,
+        ctx: &mut Self::CTX,
+    ) -> pingora::Result<bool>
     where
         Self::CTX: Send + Sync,
     {
@@ -175,11 +179,14 @@ impl<T: Sync> ProxyHttp for ReverseProxy<T> {
         if let Some(cookies) = handler_response.cookies {
             ctx.insert_response_header("Set-Cookie", &cookies);
         }
-        self.set_headers(session, ctx, handler_response.status).await?;
+        self.set_headers(session, ctx, handler_response.status)
+            .await?;
         ctx.set_response_body(response_bytes.clone()); // store response body in context for logging
 
         // Write the response body to the session after setting headers
-        session.write_response_body(Some(Bytes::from(response_bytes)), true).await?;
+        session
+            .write_response_body(Some(Bytes::from(response_bytes)), true)
+            .await?;
 
         Ok(true)
     }

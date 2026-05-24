@@ -10,7 +10,7 @@ pub struct RPConfig {
     #[serde(flatten)]
     pub proxy: ProxyConfig,
     #[serde(flatten)]
-    pub handler: HandlerConfig
+    pub handler: HandlerConfig,
 }
 
 #[derive(Debug, Deserialize, Clone, Default)]
@@ -28,7 +28,7 @@ pub struct LogConfig {
 pub struct ServerConfig {
     pub listen_address: String,
     #[serde(deserialize_with = "utils::deserializer::string_to_number")]
-    pub listen_port: u16
+    pub listen_port: u16,
 }
 
 #[derive(Debug, Deserialize, Clone, Default)]

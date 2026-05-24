@@ -1,13 +1,13 @@
-use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
-use reqwest::header::HeaderMap;
-use pingora_router::handler::{DefaultHandlerTrait, ResponseBodyTrait};
+use crate::handler::common::consts::{HeaderKeys, LogTypes};
+use crate::handler::proxy::{L8RequestObject, L8ResponseObject};
 use ntor::common::{EncryptedMessage, NTorParty};
 use ntor::server::NTorServer;
+use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
+use pingora_router::handler::{DefaultHandlerTrait, ResponseBodyTrait};
+use reqwest::header::HeaderMap;
 use reqwest::{Client, Response};
 use tracing::{info, trace};
 use utils::jwt::JWTClaims;
-use crate::handler::common::consts::{HeaderKeys, LogTypes};
-use crate::handler::proxy::{L8ResponseObject, L8RequestObject};
 
 /// Struct containing only associated methods (no instance methods or fields)
 pub struct ProxyHandler {}
@@ -36,18 +36,16 @@ impl ProxyHandler {
         jwt_secret: &Vec<u8>,
     ) -> Result<JWTClaims, String> {
         match ctx.get_request_header().get(header_key) {
-            None => Err(format!("Missing {} header", header_key.to_string())),
+            None => Err(format!("Missing {} header", header_key)),
             Some(token) => {
                 if token.is_empty() {
-                    return Err(format!("Empty {} header", header_key.to_string()));
+                    return Err(format!("Empty {} header", header_key));
                 }
 
                 // verify token
                 match utils::jwt::verify_jwt_token(token, jwt_secret) {
                     Ok(data) => Ok(data.claims),
-                    Err(err) => {
-                        Err(format!("Error verifying {} token: {}", header_key, err).into())
-                    }
+                    Err(err) => Err(format!("Error verifying {} token: {}", header_key, err)),
                 }
             }
         }
@@ -71,13 +69,12 @@ impl ProxyHandler {
     pub fn validate_request_headers(
         ctx: &mut Layer8Context,
         jwt_secret: &Vec<u8>,
-    ) -> Result<String, String>
-    {
+    ) -> Result<String, String> {
         match ProxyHandler::validate_jwt_token(ctx, HeaderKeys::FP_RP_JWT, jwt_secret) {
             Ok(_claims) => {
                 // todo!() nothing to validate at the moment
             }
-            Err(err) => return Err(err)
+            Err(err) => return Err(err),
         }
 
         match ProxyHandler::validate_jwt_token(ctx, HeaderKeys::INT_RP_JWT, jwt_secret) {
@@ -88,7 +85,7 @@ impl ProxyHandler {
                     None => Err("ntor_session_id is missing from JWT claims".to_string()),
                 }
             }
-            Err(err) => Err(err)
+            Err(err) => Err(err),
         }
     }
 
@@ -105,15 +102,10 @@ impl ProxyHandler {
     ///
     /// * `Ok(EncryptedMessage)` - The deserialized encrypted message from the request body
     /// * `Err(APIHandlerResponse)` - An error response if deserialization fails
-    pub fn parse_request_body(
-        ctx: &mut Layer8Context
-    ) -> Result<EncryptedMessage, String>
-    {
+    pub fn parse_request_body(ctx: &mut Layer8Context) -> Result<EncryptedMessage, String> {
         match EncryptedMessage::from_bytes(&ctx.get_request_body()) {
             Ok(res) => Ok(*res),
-            Err(err) => {
-                Err(format!("Error parsing request body: {}", err))
-            }
+            Err(err) => Err(format!("Error parsing request body: {}", err)),
         }
     }
 
@@ -137,23 +129,19 @@ impl ProxyHandler {
         request_body: EncryptedMessage,
         ntor_server_id: String,
         shared_secret: &[u8],
-    ) -> Result<L8RequestObject, String>
-    {
+    ) -> Result<L8RequestObject, String> {
         let mut ntor_server = NTorServer::new(ntor_server_id);
         ntor_server.set_shared_secret(shared_secret.to_vec());
 
         // Decrypt the request body using nTor shared secret
         let decrypted_data = ntor_server
             .decrypt(request_body)
-            .map_err(|err| {
-                return format!("Decryption failed: {}", err)
-            })?;
+            .map_err(|err| format!("Decryption failed: {}", err))?;
         // let decrypted_data = request_body.data;
 
         // parse decrypted data into WrappedUserRequest
-        let wrapped_request: L8RequestObject = utils::bytes_to_json(decrypted_data).map_err(|err| {
-            return format!("Failed to parse request body: {}", err)
-        })?;
+        let wrapped_request: L8RequestObject = utils::bytes_to_json(decrypted_data)
+            .map_err(|err| format!("Failed to parse request body: {}", err))?;
 
         Ok(wrapped_request)
     }
@@ -182,8 +170,7 @@ impl ProxyHandler {
         ctx: &Layer8Context,
         backend_url: String,
         wrapped_request: L8RequestObject,
-    ) -> Result<(Response, String), String>
-    {
+    ) -> Result<(Response, String), String> {
         // Get correlation ID for logging
         let correlation_id = ctx.get_correlation_id();
 
@@ -192,10 +179,10 @@ impl ProxyHandler {
             .unwrap_or_else(|_| HeaderMap::new());
 
         // Append cookies from the original request context if present
-        if let Some(cookies) = ctx.request.header.get(reqwest::header::COOKIE.as_str()) {
-            if let Ok(cookie_hv) = reqwest::header::HeaderValue::from_str(cookies.as_ref()) {
-                header_map.append(reqwest::header::COOKIE, cookie_hv);
-            }
+        if let Some(cookies) = ctx.request.header.get(reqwest::header::COOKIE.as_str())
+            && let Ok(cookie_hv) = reqwest::header::HeaderValue::from_str(cookies.as_ref())
+        {
+            header_map.append(reqwest::header::COOKIE, cookie_hv);
         };
 
         // Construct the full backend URL by appending the URI from the wrapped request to configured base backend URL
@@ -209,10 +196,11 @@ impl ProxyHandler {
         );
 
         let client = Client::new();
-        let response = client.request(
-            wrapped_request.method.parse().unwrap_or_default(),
-            origin_url.as_str(),
-        )
+        let response = client
+            .request(
+                wrapped_request.method.parse().unwrap_or_default(),
+                origin_url.as_str(),
+            )
             .headers(header_map.clone())
             .body(wrapped_request.body)
             .send()
@@ -221,11 +209,13 @@ impl ProxyHandler {
         match response {
             Ok(success_res) => Ok((success_res, origin_url)),
             Err(err) => {
-                let status = err.status().unwrap_or(reqwest::StatusCode::INTERNAL_SERVER_ERROR);
+                let status = err
+                    .status()
+                    .unwrap_or(reqwest::StatusCode::INTERNAL_SERVER_ERROR);
 
                 Err(format!(
                     "Error while building request to BE: status={}, error={}",
-                    status, err.to_string()
+                    status, err
                 ))
             }
         }
@@ -235,10 +225,10 @@ impl ProxyHandler {
         ctx: &Layer8Context,
         be_response: Response,
         origin_url: &str,
-    ) -> L8ResponseObject
-    {
+    ) -> L8ResponseObject {
         let status = be_response.status().as_u16();
-        let status_text = be_response.status()
+        let status_text = be_response
+            .status()
             .canonical_reason()
             .unwrap_or("OK")
             .to_string();
@@ -246,13 +236,13 @@ impl ProxyHandler {
         let url = be_response.url().to_string();
         let redirected = be_response.url().as_str() != origin_url;
 
-        let serialized_headers = utils::headermap_to_hashmap(&be_response.headers());
+        let serialized_headers = utils::headermap_to_hashmap(be_response.headers());
         let serialized_body = be_response.bytes().await.unwrap_or_default().to_vec();
 
         // Get correlation ID for logging
         info!(
-            correlation_id=ctx.get_correlation_id(),
-            log_type=LogTypes::HANDLE_BACKEND_RESPONSE,
+            correlation_id = ctx.get_correlation_id(),
+            log_type = LogTypes::HANDLE_BACKEND_RESPONSE,
             "Received response from backend: status={}, url={}",
             status,
             url.as_str()
@@ -289,17 +279,16 @@ impl ProxyHandler {
         response_body: L8ResponseObject,
         ntor_server_id: String,
         shared_secret: &[u8],
-    ) -> Result<EncryptedMessage, String>
-    {
+    ) -> Result<EncryptedMessage, String> {
         let mut ntor_server = NTorServer::new(ntor_server_id);
         ntor_server.set_shared_secret(shared_secret.to_vec());
 
         let data = response_body.to_bytes();
 
         // Encrypt the response body using nTor shared secret
-        let encrypted_data = ntor_server.encrypt(data).map_err(|err| {
-            return format!("Encryption failed: {}", err).to_string();
-        })?;
+        let encrypted_data = ntor_server
+            .encrypt(data)
+            .map_err(|err| format!("Encryption failed: {}", err).to_string())?;
 
         Ok(EncryptedMessage {
             nonce: encrypted_data.nonce,

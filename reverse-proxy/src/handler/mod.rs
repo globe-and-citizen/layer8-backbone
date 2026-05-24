@@ -1,23 +1,23 @@
-use ntor::common::{InitSessionMessage, NTorParty};
-use ntor::server::NTorServer;
-use pingora::http::StatusCode;
-use tracing::{error, info};
-use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
-use pingora_router::handler::{APIHandlerResponse, ResponseBodyTrait};
-use init_tunnel::handler::InitTunnelHandler;
-use proxy::handler::ProxyHandler;
-use init_tunnel::InitEncryptedTunnelResponse;
-use utils::{new_uuid};
-use utils::jwt::JWTClaims;
 use crate::config::{HandlerConfig, RPConfig};
 use crate::handler::common::consts::LogTypes;
 use crate::handler::healthcheck::{RpHealthcheckError, RpHealthcheckSuccess};
+use init_tunnel::InitEncryptedTunnelResponse;
+use init_tunnel::handler::InitTunnelHandler;
+use ntor::common::{InitSessionMessage, NTorParty};
+use ntor::server::NTorServer;
+use pingora::http::StatusCode;
+use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
+use pingora_router::handler::{APIHandlerResponse, ResponseBodyTrait};
+use proxy::handler::ProxyHandler;
+use tracing::{error, info};
+use utils::jwt::JWTClaims;
+use utils::new_uuid;
 
 pub mod common;
 pub mod init_tunnel;
 pub mod proxy;
-pub use init_tunnel::InMemorySecretsStorage;
 use crate::handler::common::types::ErrorResponse;
+pub use init_tunnel::InMemorySecretsStorage;
 
 mod healthcheck;
 
@@ -29,7 +29,7 @@ pub struct ReverseHandler {
 
 impl ReverseHandler {
     pub fn new(config: RPConfig) -> Self {
-        let ntor_secret = config.handler.ntor_static_secret.clone();
+        let ntor_secret = config.handler.ntor_static_secret;
         let jwt_secret = config.handler.jwt_virtual_connection_secret.clone();
 
         ReverseHandler {
@@ -50,13 +50,11 @@ impl ReverseHandler {
     /// Returns `Ok(Vec<u8>)` containing the shared secret if found, or `Err(APIHandlerResponse)`
     /// with HTTP 401 Unauthorized status if the session ID is invalid or expired.
     pub fn get_ntor_shared_secret(&self, session_id: &str) -> Result<Vec<u8>, String> {
-        let shared_secret = InMemorySecretsStorage::get(&session_id);
+        let shared_secret = InMemorySecretsStorage::get(session_id);
 
         match shared_secret {
             Some(secret) => Ok(secret),
-            None => {
-                Err("Session ID not found".to_string())
-            }
+            None => Err("Session ID not found".to_string()),
         }
     }
 
@@ -90,7 +88,7 @@ impl ReverseHandler {
         // validate request body
         let request_body = match InitTunnelHandler::validate_request_body(ctx).await {
             Ok(res) => res,
-            Err(res) => return res
+            Err(res) => return res,
         };
 
         // initialize NTorServer object with configured server ID and static secret
@@ -133,7 +131,10 @@ impl ReverseHandler {
             ntor_session_id
         );
 
-        InMemorySecretsStorage::insert(ntor_session_id, ntor_server.get_shared_secret().unwrap_or_default());
+        InMemorySecretsStorage::insert(
+            ntor_session_id,
+            ntor_server.get_shared_secret().unwrap_or_default(),
+        );
 
         APIHandlerResponse {
             status: StatusCode::OK,
@@ -183,11 +184,14 @@ impl ReverseHandler {
                 return APIHandlerResponse {
                     status: StatusCode::UNAUTHORIZED,
                     cookies: None,
-                    body: Some(ErrorResponse {
-                        error: "Failed to validate request headers".to_string()
-                    }.to_bytes()),
-                }
-            },
+                    body: Some(
+                        ErrorResponse {
+                            error: "Failed to validate request headers".to_string(),
+                        }
+                        .to_bytes(),
+                    ),
+                };
+            }
         };
 
         let shared_secret = match self.get_ntor_shared_secret(&session_id) {
@@ -202,10 +206,8 @@ impl ReverseHandler {
                 return APIHandlerResponse {
                     status: StatusCode::UNAUTHORIZED,
                     cookies: None,
-                    body: Some(ErrorResponse {
-                        error: err,
-                    }.to_bytes()),
-                }
+                    body: Some(ErrorResponse { error: err }.to_bytes()),
+                };
             }
         };
 
@@ -222,11 +224,14 @@ impl ReverseHandler {
                 return APIHandlerResponse {
                     status: StatusCode::BAD_REQUEST,
                     cookies: None,
-                    body: Some(ErrorResponse {
-                        error: "Failed to parse request body".to_string(),
-                    }.to_bytes()),
-                }
-            },
+                    body: Some(
+                        ErrorResponse {
+                            error: "Failed to parse request body".to_string(),
+                        }
+                        .to_bytes(),
+                    ),
+                };
+            }
         };
 
         // decrypt request body using nTor shared secret
@@ -246,11 +251,14 @@ impl ReverseHandler {
                 return APIHandlerResponse {
                     status: StatusCode::BAD_REQUEST,
                     cookies: None,
-                    body: Some(ErrorResponse {
-                        error: "Failed to decrypt request body".to_string(),
-                    }.to_bytes()),
-                }
-            },
+                    body: Some(
+                        ErrorResponse {
+                            error: "Failed to decrypt request body".to_string(),
+                        }
+                        .to_bytes(),
+                    ),
+                };
+            }
         };
 
         // reconstruct user request
@@ -258,7 +266,9 @@ impl ReverseHandler {
             ctx,
             self.config.backend_url.clone(),
             wrapped_request,
-        ).await {
+        )
+        .await
+        {
             Ok(res) => res,
             Err(res) => {
                 error!(
@@ -270,18 +280,24 @@ impl ReverseHandler {
                 return APIHandlerResponse {
                     status: StatusCode::INTERNAL_SERVER_ERROR,
                     cookies: None,
-                    body: Some(ErrorResponse {
-                        error: "Failed to process backend request".to_string(),
-                    }.to_bytes()),
-                }
+                    body: Some(
+                        ErrorResponse {
+                            error: "Failed to process backend request".to_string(),
+                        }
+                        .to_bytes(),
+                    ),
+                };
             }
         };
 
         // wrap backend response into L8ResponseObject
-        let wrapped_response = ProxyHandler::wrap_backend_response(ctx, response, &origin_url).await;
+        let wrapped_response =
+            ProxyHandler::wrap_backend_response(ctx, response, &origin_url).await;
 
         // get cookies from backend response if exist to set in the response to client
-        let cookies: Option<String> = wrapped_response.headers.get("set-cookie")
+        let cookies: Option<String> = wrapped_response
+            .headers
+            .get("set-cookie")
             .and_then(|v| v.as_str().map(|s| s.to_string()));
 
         // encrypt backend response using nTor shared secret and return to client
@@ -290,13 +306,11 @@ impl ReverseHandler {
             self.config.ntor_server_id.clone(),
             &shared_secret,
         ) {
-            Ok(encrypted_message) => {
-                APIHandlerResponse {
-                    status: StatusCode::OK,
-                    cookies,
-                    body: Some(encrypted_message.to_bytes()),
-                }
-            }
+            Ok(encrypted_message) => APIHandlerResponse {
+                status: StatusCode::OK,
+                cookies,
+                body: Some(encrypted_message.to_bytes()),
+            },
             Err(err) => {
                 error!(
                     %correlation_id,
@@ -307,9 +321,12 @@ impl ReverseHandler {
                 APIHandlerResponse {
                     status: StatusCode::INTERNAL_SERVER_ERROR,
                     cookies: None,
-                    body: Some(ErrorResponse {
-                        error: "Failed to encrypt response body".to_string(),
-                    }.to_bytes()),
+                    body: Some(
+                        ErrorResponse {
+                            error: "Failed to encrypt response body".to_string(),
+                        }
+                        .to_bytes(),
+                    ),
                 }
             }
         }
@@ -333,24 +350,26 @@ impl ReverseHandler {
     ///
     /// Both responses include appropriate response headers (`x-rp-healthcheck-error` or `x-rp-healthcheck-success`).
     pub async fn handle_healthcheck(&self, ctx: &mut Layer8Context) -> APIHandlerResponse {
-        if let Some(error) = ctx.param("error") {
-            if error == "true" {
-                let response_bytes = RpHealthcheckError {
-                    rp_healthcheck_error: "this is placeholder for a custom error".to_string()
-                }.to_bytes();
-
-                ctx.insert_response_header("x-rp-healthcheck-error", "response-header-error");
-                return APIHandlerResponse {
-                    status: StatusCode::IM_A_TEAPOT,
-                    cookies: None,
-                    body: Some(response_bytes),
-                };
+        if let Some(error) = ctx.param("error")
+            && error == "true"
+        {
+            let response_bytes = RpHealthcheckError {
+                rp_healthcheck_error: "this is placeholder for a custom error".to_string(),
             }
+            .to_bytes();
+
+            ctx.insert_response_header("x-rp-healthcheck-error", "response-header-error");
+            return APIHandlerResponse {
+                status: StatusCode::IM_A_TEAPOT,
+                cookies: None,
+                body: Some(response_bytes),
+            };
         }
 
         let response_bytes = RpHealthcheckSuccess {
             rp_healthcheck_success: "this is placeholder for a custom body".to_string(),
-        }.to_bytes();
+        }
+        .to_bytes();
 
         ctx.insert_response_header("x-rp-healthcheck-success", "response-header-success");
 
