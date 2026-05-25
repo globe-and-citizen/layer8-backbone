@@ -162,7 +162,7 @@ impl Layer8ContextTrait for Layer8Context {
     }
 
     fn remove_request_header(&mut self, key: &str) -> Option<String> {
-        self.request.header.remove(key)
+        self.request.header.remove(&key.to_lowercase())
     }
 
     fn insert_response_header(&mut self, key: &str, val: &str) {
@@ -170,7 +170,7 @@ impl Layer8ContextTrait for Layer8Context {
     }
 
     fn remove_response_header(&mut self, key: &str) -> Option<String> {
-        self.response.header.remove(key)
+        self.response.header.remove(&key.to_lowercase())
     }
 
     fn get_response_header(&self) -> &Layer8Header {

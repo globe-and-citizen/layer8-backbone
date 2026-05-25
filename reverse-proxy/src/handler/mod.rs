@@ -47,7 +47,7 @@ impl ReverseHandler {
     ///
     /// # Returns
     ///
-    /// Returns `Ok(Vec<u8>)` containing the shared secret if found, or `Err(APIHandlerResponse)`
+    /// Returns `Ok(Vec<u8>)` containing the shared secret if found, or `Err(String)`
     /// with HTTP 401 Unauthorized status if the session ID is invalid or expired.
     pub fn get_ntor_shared_secret(&self, session_id: &str) -> Result<Vec<u8>, String> {
         let shared_secret = InMemorySecretsStorage::get(session_id);
@@ -278,7 +278,7 @@ impl ReverseHandler {
                     res
                 );
                 return APIHandlerResponse {
-                    status: StatusCode::INTERNAL_SERVER_ERROR,
+                    status: StatusCode::BAD_GATEWAY,
                     cookies: None,
                     body: Some(
                         ErrorResponse {

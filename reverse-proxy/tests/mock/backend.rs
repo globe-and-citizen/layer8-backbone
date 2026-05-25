@@ -70,8 +70,11 @@ pub fn run_mock_be() {
 
     // Run server in background
     tokio::spawn(async move {
-        axum::Server::bind(&addr)
-            .serve(app.into_make_service())
+        let listener = tokio::net::TcpListener::bind(addr)
+            .await
+            .unwrap();
+
+        axum::serve(listener, app)
             .await
             .unwrap();
     });

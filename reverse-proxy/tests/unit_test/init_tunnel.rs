@@ -65,9 +65,9 @@ mod test_init_tunnel_handler {
                     Some("Invalid public key length".as_bytes().to_vec()),
                 ),
                 (
-                    "Public key way oversize (100 million bytes)",
+                    "Public key way oversize (100 thousands bytes)",
                     json!({
-                        "public_key": b"a".repeat(100000000)
+                        "public_key": b"a".repeat(100000)
                     })
                     .to_string()
                     .into_bytes(),

@@ -192,7 +192,7 @@ mod test_handler {
                 (
                     "Invalid public key length: very large byte array",
                     json!({
-                        "public_key": b"a".repeat(100000000)
+                        "public_key": b"a".repeat(100000)
                     })
                     .to_string()
                     .into_bytes(),
@@ -640,5 +640,7 @@ mod test_handler {
                 );
             }
         }
+
+        // unable to connect to backend
     }
 }

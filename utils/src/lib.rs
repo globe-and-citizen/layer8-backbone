@@ -37,7 +37,7 @@ pub fn vec_to_json(vec: Vec<u8>) -> String {
 
 /// Converts a JSON string to a vector of bytes. If the JSON is invalid or cannot be parsed into a vector of bytes, it returns an empty vector.
 pub fn json_to_vec(json: &str) -> Vec<u8> {
-    serde_json::from_str(json).unwrap_or(vec![])
+    serde_json::from_str(json).unwrap_or_default()
 }
 
 pub fn string_to_array32(s: String) -> Option<[u8; 32]> {

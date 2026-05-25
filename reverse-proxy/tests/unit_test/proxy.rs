@@ -55,7 +55,6 @@ mod test_proxy_handler {
         #[test]
         #[allow(clippy::unnecessary_unwrap,clippy::match_single_binding)]
         fn test_validate_jwt_token() {
-            let mut ctx = Layer8Context::default();
             let invalid_jwt_secret = utils::new_uuid().into_bytes();
 
             let header_key = "int_rp_jwt"; // or any header key since the function takes it as a parameter
@@ -87,6 +86,7 @@ mod test_proxy_handler {
 
             for (case_name, header_key, header_value, err_body) in cases {
                 println!("Running case: {}", case_name);
+                let mut ctx = Layer8Context::default();
                 if let Some(value) = header_value {
                     ctx.insert_request_header(header_key, value);
                 }
@@ -409,12 +409,14 @@ mod test_proxy_handler {
         use pingora_router::ctx::{Layer8Context, Layer8ContextRequestSummary, Layer8ContextTrait};
         use reverse_proxy::handler::proxy::L8RequestObject;
         use std::collections::HashMap;
+        use tokio::time::sleep;
         use reverse_proxy::handler::proxy::handler::ProxyHandler;
 
         #[tokio::test]
         async fn test_rebuild_user_request() {
             mock::backend::run_mock_be();
 
+            sleep(std::time::Duration::from_secs(1)).await;
             let summary = Layer8ContextRequestSummary {
                 method: "POST".parse().unwrap(),
                 scheme: "http".to_string(),

@@ -29,7 +29,7 @@ impl ProxyHandler {
     /// # Returns
     ///
     /// * `Ok(JWTClaims)` - The verified JWT claims extracted from the token
-    /// * `Err(APIHandlerResponse)` - An error response if the header is missing, empty, or token verification fails
+    /// * `Err(String)` - An error response if the header is missing, empty, or token verification fails
     pub fn validate_jwt_token(
         ctx: &mut Layer8Context,
         header_key: &str,
@@ -65,7 +65,7 @@ impl ProxyHandler {
     /// # Returns
     ///
     /// * `Ok(String)` - The ntor_session_id extracted from INT_RP_JWT_KEY claims
-    /// * `Err(APIHandlerResponse)` - An error response if token validation fails or ntor_session_id is missing
+    /// * `Err(String)` - An error response if token validation fails or ntor_session_id is missing
     pub fn validate_request_headers(
         ctx: &mut Layer8Context,
         jwt_secret: &Vec<u8>,
@@ -101,7 +101,7 @@ impl ProxyHandler {
     /// # Returns
     ///
     /// * `Ok(EncryptedMessage)` - The deserialized encrypted message from the request body
-    /// * `Err(APIHandlerResponse)` - An error response if deserialization fails
+    /// * `Err(String)` - An error response if deserialization fails
     pub fn parse_request_body(ctx: &mut Layer8Context) -> Result<EncryptedMessage, String> {
         match EncryptedMessage::from_bytes(&ctx.get_request_body()) {
             Ok(res) => Ok(*res),
@@ -165,7 +165,7 @@ impl ProxyHandler {
     ///
     /// * `Ok(L8ResponseObject)` - The response object received from the backend containing status,
     /// headers, body, and metadata
-    /// * `Err(APIHandlerResponse)` - An error response if the request fails or backend is unreachable
+    /// * `Err(String)` - An error response if the request fails or backend is unreachable
     pub async fn rebuild_user_request(
         ctx: &Layer8Context,
         backend_url: String,
@@ -274,7 +274,7 @@ impl ProxyHandler {
     /// # Returns
     ///
     /// * `Ok(EncryptedMessage)` - The encrypted message with nonce and encrypted data
-    /// * `Err(APIHandlerResponse)` - An error response if encryption fails
+    /// * `Err(String)` - An error response if encryption fails
     pub fn encrypt_response_body(
         response_body: L8ResponseObject,
         ntor_server_id: String,
