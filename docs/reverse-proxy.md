@@ -1,4 +1,4 @@
-# Reverse Proxy - Technical Architecture & Design Document (Draft)
+# Reverse Proxy - Technical Architecture & Design Document
 
 **Implementation Language:** Rust | **Proxy Engine:** Pingora
 
@@ -11,7 +11,7 @@ implementation details.
 
 - [1. Overview](#1-overview)
 - [2. Project Structure](#2-project-structure)
-- [3. Deployment Diagram](#3-deployment-diagram)
+- [3. Deployment](#3-deployment)
 - [4. Configuration](#4-configuration)
 - [5. Request Lifecycle (Pingora Proxy Implementation)](#5-request-lifecycle-pingora-proxy-implementation)
     - [5.1. Layer8Context (Request State Management)](#51-layer8context-request-state-management)
@@ -43,14 +43,24 @@ implementation details.
     - [7.4. Client Certificate Verification](#74-client-certificate-verification)
     - [7.5. Notes / Limitations](#75-notes--limitations)
 
+
 ## 1. Overview
 
-is a Rust-based network proxy built on the Pingora proxy framework. It sits in front of the SPA Backend Server (BE),
-receiving requests from ForwardProxy (FP). The RP terminates the nTor session handshake (`/init-tunnel`), decrypts
-incoming `/proxy` requests, forwards them to the backend, encrypts responses back to the client, enforces mTLS for
-secure communication, and provides a healthcheck endpoint for monitoring.
+Reverse Proxy is a Rust-based network proxy built on the Pingora proxy framework. It sits in front of the SPA Backend
+Server (BE), receiving requests from ForwardProxy (FP). The RP terminates the nTor session handshake (`/init-tunnel`),
+decrypts incoming `/proxy` requests, forwards them to the backend, encrypts responses back to the client, enforces mTLS
+for secure communication, and provides a healthcheck endpoint for monitoring.
 
-<img src="diagrams/reverse-proxy.png" alt="ReverseProxy diagram" width="600" style="max-width:100%;height:auto;" />
+Unlike a conventional HTTP reverse proxy, the ReverseProxy does not use Pingora's standard forwarding filters to stream
+requests upstream as-is. For /proxy traffic, the incoming payload is a Layer8-encrypted envelope rather than a
+backend-ready HTTP request. The RP must fully read the request, validate Layer8-specific headers and session state,
+decrypt the payload using the negotiated nTor shared secret, reconstruct the original HTTP request, and only then send
+that rebuilt request to the backend. The backend response must likewise be captured, wrapped, encrypted, and returned to
+the client. Because the RP is terminating and transforming the protocol on both ingress and egress, rebuilding each
+request/response explicitly is the correct design, whereas the standard Pingora forwarding pipeline is intended for
+passing through already-formed upstream HTTP traffic.
+
+<img src="diagrams/reverse-proxy.png" alt="ReverseProxy diagram" width="650" style="max-width:100%;height:auto;" />
 
 *Figure 1: High-level architecture diagram of the ReverseProxy.*
 
@@ -103,9 +113,11 @@ The ReverseProxy project is organized into the following modules:
 
 <div style="page-break-after: always;"></div>
 
-## 3. Deployment Diagram
+## 3. Deployment
 
-[will be added later]
+<img src="diagrams/rp-deployment.png" alt="ReverseProxy deployment diagram" width="600" style="max-width:100%;height:auto;" /><br>
+*Figure 2: ReverseProxy deployment diagram.*
+
 <br>
 
 ## 4. Configuration
@@ -122,7 +134,6 @@ flattened sub-configs.
 | `LISTEN_ADDRESS`      | `String` | `localhost`          | Address the proxy listens on.                                     |
 | `LISTEN_PORT`         | `u16`    | `6193`               | Port the proxy listens on.                                        |
 | `PATH_TO_SERVER_CONF` | `String` | `../server_conf.yml` | Path to the server routing/config file used by the Reverse Proxy. |
-
 ---
 <br>
 
@@ -139,6 +150,7 @@ flattened sub-configs.
 <br>
 
 ### 4.3. Handler (`HandlerConfig`)
+<div style="font-size: 0.75em;">
 
 | Variable                        | Type     | Example                            | Description                                                   |
 |---------------------------------|----------|------------------------------------|---------------------------------------------------------------|
@@ -148,21 +160,23 @@ flattened sub-configs.
 | `JWT_EXP_IN_HOURS`              | `i64`    | `24`                               | Expiry duration for issued JWT tokens, in hours.              |
 | `FORWARD_PROXY_URL`             | `String` | `http://localhost:6191`            | Base URL for the Forward Proxy the Reverse Proxy connects to. |
 | `BACKEND_URL`                   | `String` | `http://localhost:3000`            | Backend service URL that the Reverse Proxy routes to.         |
-
 ---
+</div>
 <br>
 
 ### 4.4. Proxy & CORS (`ProxyConfig`)
+<div style="font-size: 0.75em;">
 
 | Variable                 | Type          | Example                     | Description                                    |
 |--------------------------|---------------|-----------------------------|------------------------------------------------|
 | `CORS_ALLOW_CREDENTIALS` | `bool`        | `true`                      | Whether to allow credentials in CORS requests. |
 | `CORS_ALLOW_ORIGINS`     | `Vec<String>` | `http://localhost:6191,...` | Comma-separated list of allowed CORS origins.  |
-
 ---
+</div>
 <br>
 
 ### 4.5. TLS (`TLSConfig`)
+<div style="font-size: 1em;">
 
 | Variable     | Type     | Example               | Description                                         |
 |--------------|----------|-----------------------|-----------------------------------------------------|
@@ -170,8 +184,9 @@ flattened sub-configs.
 | `CA_PATH`    | `String` | `./certs/root_ca.crt` | Path to the CA certificate for mTLS verification.   |
 | `CERT_PATH`  | `String` | `./certs/server.crt`  | Path to the ReverseProxy certificate.               |
 | `KEY_PATH`   | `String` | `./certs/server.key`  | Path to the ReverseProxy private key.               |
-
 ---
+</div>
+<br>
 
 ## 5. Request Lifecycle (Pingora Proxy Implementation)
 
@@ -269,7 +284,7 @@ Typical logged information includes:
 - response status code
 - relevant context or tracing data
 
-<div style="page-break-after: always;"></div>
+<br>
 
 ## 6. API Handlers
 
@@ -483,14 +498,56 @@ Returns:
 **Source:** `reverse-proxy/src/tls_conf.rs`
 
 The ReverseProxy enforces **mutual TLS (mTLS)** during connection establishment.
-It presents a server certificate and requires clients to present a certificate signed by a trusted CA.
+It presents its own server certificate (**RP TLS Certificate**) and requires connecting peers to present a certificate
+that chains back to the trusted **Layer8 CA certificate**. Below is the proposed certificate infrastructure and trust
+model for the ReverseProxy within the Layer8 topology.
+
+<img src="diagrams/certificate_infrastructure.png" alt="Certificate Infrastructure" width="600" /><br>
+*Figure 3: Proposed certificate infrastructure.*
+
+Based on the proposed certificate infrastructure, Layer8 acts as a private certificate authority for internal services.
+In this model:
+
+- the **Layer8 root/private CA key** is used to issue internal service certificates
+- the **ReverseProxy (RP)** holds its own TLS certificate and private key
+- the **ForwardProxy (FP)** holds its own TLS certificate and private key
+- upstream internal / partner-facing services may also hold Layer8-issued certificates
+- participating peers trust the **Layer8 CA certificate** as the common trust anchor
+
+This means the ReverseProxy does not merely check for the presence of any client certificate; it verifies that the
+presented certificate is signed by the configured Layer8 CA and is therefore part of the trusted Layer8 service mesh.
+Figure 4 illustrates the mTLS flow during connection establishment, where the ReverseProxy and its peers mutually verify
+each other's certificates against the Layer8 CA trust anchor.
+
+<img src="diagrams/mtls_flow.png" alt="mTLS handshake flow" width="400" /><br>
+*Figure 4: mTLS handshake flow during connection establishment.*
 
 > **Configuration:** TLS settings and certificate paths are defined in `TLSConfig`.
 > TLS credentials are loaded at startup and can be dynamically reloaded if certificate files change.
 
 <br>
 
-### 7.1. TLS Credential Loading
+### 7.1. Certificate Roles in the Layer8 Topology
+
+The certificate diagram implies the following trust relationships relevant to the ReverseProxy:
+
+- **RP identity certificate** — proves the identity of the ReverseProxy to connecting clients/peers
+- **Layer8 CA certificate** — trust anchor used by the ReverseProxy to verify peer/client certificates
+- **Peer certificates** — certificates presented by trusted Layer8 participants (for example FP or another internal
+  service) during the TLS handshake
+
+Operationally, the ReverseProxy uses:
+
+- `CERT_PATH` + `KEY_PATH` to identify itself during handshake
+- `CA_PATH` to verify the certificate chain presented by the remote peer
+
+In the intended deployment model, traffic between Layer8-controlled internal components is protected with mTLS using
+Layer8-issued certificates. Public browser-facing TLS certificates (for example AWS-managed certificates used by the SPA
+frontend) are outside the ReverseProxy’s internal mTLS trust boundary.
+
+<br>
+
+### 7.2. TLS Credential Loading
 
 **Source:** `layer8-backbone/utils/src/cert/setup.rs`
 
@@ -503,8 +560,9 @@ pub struct TLSCredentials {
 }
 ```
 
-- `ca_cert` — X.509 certificate authority used to verify client certificates
-- `cert_key` — wrapped in [`ArcSwap`] for lock-free atomic updates during reload
+- `ca_cert` — X.509 CA certificate used as the trust anchor for verifying peer/client certificates
+- `cert_key` — the ReverseProxy’s active server certificate chain and private key, wrapped in [`ArcSwap`] for lock-free
+  atomic updates during reload
 
 **Loading Process:** Triggered at startup by `main.rs` and on-demand by the TLS reload watcher.
 
@@ -515,12 +573,13 @@ pub struct TLSCredentials {
 3. Read **server private key** from `key_path` as PEM
 4. Parse and validate each component:
     - CA cert parsed as X.509 certificate
-    - Server cert parsed as X.509 stack (supports intermediate chains)
-    - Private key parsed as `PKey`
+    - server cert parsed as X.509 stack (supports intermediate chains if present)
+    - private key parsed as `PKey`
 5. Combine cert + key into [`CertKey`] wrapped in [`ArcSwap`] for lock-free updates
-6. Return [`TLSCredentials`] struct containing `ca_cert` and `cert_key`
+6. Return [`TLSCredentials`] struct containing the trusted CA certificate and the RP certificate/key pair
 
 On any parsing or I/O failure, returns `Err(String)` describing the error.
+
 <br>
 
 **Reload Process:** Triggered by the file watcher when a change in the certificate files is detected.
@@ -530,18 +589,19 @@ On any parsing or I/O failure, returns `Err(String)` describing the error.
 1. Read **server certificate chain** from `cert_path` as PEM stack
 2. Read **server private key** from `key_path` as PEM
 3. Parse and validate:
-    - Server cert parsed as X.509 stack
-    - Private key parsed as `PKey`
+    - server cert parsed as X.509 stack
+    - private key parsed as `PKey`
 4. Combine into new [`CertKey`] instance
 5. Atomically swap via `ArcSwap::store()` — in-flight connections retain old credentials, new connections use updated
    ones
 6. Return `Ok(())` on success or `Err(String)` on any parsing/I/O failure
 
-This allows certificate rotation without service restart or connection disruption.
+This allows certificate rotation for the ReverseProxy identity certificate without service restart or connection
+disruption.
 
 <br>
 
-### 7.2. Dynamic TLS Reload
+### 7.3. Dynamic TLS Reload
 
 **Source:** `layer8-backbone/utils/src/cert/mod.rs`
 
@@ -555,43 +615,57 @@ This allows certificate rotation without service restart or connection disruptio
     - On failure: logs error and retains previous credentials
 4. **Lock-free updates:** uses [`ArcSwap`] to atomically swap cert/key without blocking active connections
 
-This allows certificate rotation without restarting the service.
+This supports operational certificate rotation for the RP certificate while preserving active connections.
+
+> Note: as currently documented, only the RP certificate/key pair is reloaded dynamically. If the Layer8 CA certificate
+> changes, a full credential reload or process restart may still be required unless CA reload support is added.
 
 <br>
 
-### 7.3. Handshake Configuration
+### 7.4. Handshake Configuration
 
 [`TLSServerConfig`] implements Pingora's [`TlsAccept`] trait. During TLS handshake setup,
 `certificate_callback(&self, ssl: &mut TlsRef)` configures the TLS context:
 
 1. `ssl.set_hostname()` — sets the expected SNI hostname
-2. Load current **server private key** from `tls_credentials` via `ArcSwap::load()`
-3. Load and install **server leaf certificate**
-4. Add **intermediate chain certificates** to the certificate chain
+2. Load current **RP private key** from `tls_credentials` via `ArcSwap::load()`
+3. Load and install the **RP leaf certificate**
+4. Add any **intermediate chain certificates** to the certificate chain
 5. Enable peer verification with a custom verify callback:
     - [`SslVerifyMode::PEER`]
-    - Callback verifies client cert against the configured CA certificate
+    - callback verifies the presented peer certificate against the configured **Layer8 CA certificate**
+
+In effect, the ReverseProxy proves its own identity with its RP certificate and validates the remote side against the
+Layer8 CA trust anchor, establishing mutual authentication.
 
 <br>
 
-### 7.4. Client Certificate Verification
+### 7.5. Client / Peer Certificate Verification
 
 The verify callback (`verify_client_file`) enforces:
 
 - **mTLS required:** verify mode set to `PEER`
-- **Client cert required:** handshake fails if `peer_certificate()` is missing (`NO_CERTIFICATE` alert)
-- **CA validation:** client cert must verify against the configured CA public key using X.509 chain validation
+- **Peer certificate required:** handshake fails if `peer_certificate()` is missing (`NO_CERTIFICATE` alert)
+- **CA validation:** the presented certificate must verify against the configured Layer8 CA public key using X.509 chain
+  validation
 - **Chain support:** uses client-supplied intermediate chain if present, otherwise an empty chain
+
+In the architecture shown by the certificate diagram, this means the ReverseProxy will trust only peers that present a
+certificate chaining to the Layer8 CA. Typical trusted peers would include Layer8-managed components such as the
+ForwardProxy or other internal service-to-service clients configured with Layer8-issued certificates.
 
 On success, logs `"Client certificate verification succeeded"`.
 All outcomes are logged with `log_type = LogTypes::TLS_HANDSHAKE`.
 
 <br>
 
-### 7.5. Notes / Limitations
+### 7.6. Notes / Limitations
 
 - TLS material installation uses `unwrap()` in several places; invalid credentials can panic during handshake
-- Verification is CA-signature based; no explicit SAN/CN allowlisting or revocation checks are implemented
-- Credentials are updated lock-free via [`ArcSwap`]; new connections always use the latest loaded certificates
+- Verification is currently CA-signature based; no explicit SAN/CN allowlisting or revocation checks are documented
+- Credentials are updated lock-free via [`ArcSwap`]; new connections always use the latest loaded RP certificate
 - Reload failures do not affect in-flight connections; they continue with the last valid certificate
-
+- The current implementation appears to model a **single trusted CA certificate**; more complex PKI requirements
+  (intermediate CAs, certificate profiles, revocation, trust-domain separation) would require additional logic
+- Because the architecture relies on a shared Layer8 CA trust anchor, protection of the Layer8 CA private key is
+  security-critical
