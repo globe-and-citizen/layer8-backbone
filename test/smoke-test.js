@@ -121,13 +121,13 @@ async function checkProxyRequest() {
 
         const response = await interceptorWasm.fetch(`${PROXY_TARGET_URL}/healthcheck`);
         if (response.status === 200) {
-            console.log(`  ✓ Interceptor fetch /proxy → ${response.status}`);
+            console.log(`  ✓ Interceptor proxy healthcheck → ${response.status}`);
             return true;
         }
-        console.error(`  ✗ Interceptor fetch /proxy → ${response.status} (expected 200)`);
+        console.error(`  ✗ Interceptor proxy healthcheck → ${response.status} (expected 200)`);
         return false;
     } catch (err) {
-        console.error(`  ✗ Interceptor fetch /proxy → error: ${err.message}`);
+        console.error(`  ✗ Interceptor proxy healthcheck → error: ${err.message}`);
         return false;
     }
 }
@@ -155,7 +155,7 @@ async function main() {
     if (initTunnelOk) {
         record(await checkProxyRequest());
     } else {
-        console.error('  ✗ Interceptor fetch /proxy → skipped because init-tunnel failed');
+        console.error('  ✗ Interceptor proxy healthcheck → skipped because init-tunnel failed');
         record(false);
     }
 
