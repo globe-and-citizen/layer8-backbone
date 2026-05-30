@@ -24,6 +24,7 @@ const PROXY_TARGET_URL = process.env.PROXY_TARGET_URL || BACKEND_URL;
 
 // The backend_url sent to FP in init-tunnel must match RP's NTOR_SERVER_ID
 const RP_BACKEND_URL = process.env.RP_BACKEND_URL || 'https://reverse-proxy:6193';
+const PROXY_REQUEST_TIMEOUT_MS = parseInt(process.env.PROXY_REQUEST_TIMEOUT_MS || '15000', 10);
 
 // Retry configuration for the init-tunnel check (RP may still be starting up)
 const INIT_TUNNEL_MAX_ATTEMPTS = parseInt(process.env.INIT_TUNNEL_RETRIES || '20', 10);
@@ -116,9 +117,13 @@ async function checkInitTunnel() {
 }
 
 async function checkProxyRequest() {
+    let proxyRequestTimeoutId;
     let resolveRuntimeError;
     const runtimeErrorPromise = new Promise((resolve) => {
         resolveRuntimeError = resolve;
+    });
+    const timeoutPromise = new Promise((resolve) => {
+        proxyRequestTimeoutId = setTimeout(() => resolve({ timeout: true }), PROXY_REQUEST_TIMEOUT_MS);
     });
     // l8-intercept may throw uncaught WASM runtime errors in Node; trap them to report a clean test failure.
     const onUnhandledRuntimeError = (err) => {
@@ -134,11 +139,16 @@ async function checkProxyRequest() {
 
         const result = await Promise.race([
             runtimeErrorPromise,
+            timeoutPromise,
             interceptorWasm.fetch(`${PROXY_TARGET_URL}/healthcheck`).then((response) => ({ response })),
         ]);
 
         if (result.runtimeError) {
             console.error(`  ✗ Interceptor proxy healthcheck → runtime error: ${result.runtimeError.message}`);
+            return false;
+        }
+        if (result.timeout) {
+            console.error(`  ✗ Interceptor proxy healthcheck → timeout after ${PROXY_REQUEST_TIMEOUT_MS}ms`);
             return false;
         }
         const response = result.response;
@@ -152,9 +162,11 @@ async function checkProxyRequest() {
         console.error(`  ✗ Interceptor proxy healthcheck → error: ${err.message}`);
         return false;
     } finally {
+        clearTimeout(proxyRequestTimeoutId);
         process.removeListener('uncaughtException', onUnhandledRuntimeError);
         process.removeListener('unhandledRejection', onUnhandledRuntimeError);
-        resolveRuntimeError({ settled: true });
+        // Settle pending runtime error promise on success/timeout so repeated runs don't retain dangling promises.
+        resolveRuntimeError();
     }
 }
 

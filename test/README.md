@@ -77,6 +77,7 @@ The smoke test runner (`smoke-test.js`) accepts the following variables:
 | `RP_BACKEND_URL` | `https://reverse-proxy:6193` | RP URL sent to FP in init-tunnel (must match RP's `NTOR_SERVER_ID`) |
 | `INIT_TUNNEL_RETRIES` | `20` | Max attempts for the init-tunnel check |
 | `INIT_TUNNEL_RETRY_DELAY_MS` | `3000` | Milliseconds between retries |
+| `PROXY_REQUEST_TIMEOUT_MS` | `15000` | Timeout for interceptor proxy healthcheck request |
 
 ## Services
 
