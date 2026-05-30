@@ -46,6 +46,8 @@ services:
   mock-auth:
     build:
       context: mock-auth
+    ports:
+      - "5001:5001"
     networks:
       - layer8-smoke
     healthcheck:
@@ -62,6 +64,8 @@ services:
       HOST: "0.0.0.0"
       PORT: "3000"
       JWT_SECRET: smoke-backend-jwt-secret
+    ports:
+      - "3000:3000"
     networks:
       - layer8-smoke
     healthcheck:
