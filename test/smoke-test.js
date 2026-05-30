@@ -20,10 +20,11 @@ const { spawn } = require('child_process');
 const FP_URL = process.env.FP_URL || 'http://localhost:6191';
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:3000';
 const MOCK_AUTH_URL = process.env.MOCK_AUTH_URL || 'http://localhost:5001';
-// Default to BACKEND_URL so host-local runs do not depend on docker-only service DNS.
+// Default to BACKEND_URL so host-local runs do not depend on Docker-only service DNS.
 const PROXY_TARGET_URL = process.env.PROXY_TARGET_URL || BACKEND_URL;
 
 // The backend_url sent to FP in init-tunnel must match RP's NTOR_SERVER_ID
+// and be reachable from FP's Docker-network perspective.
 const RP_BACKEND_URL = process.env.RP_BACKEND_URL || 'https://reverse-proxy:6193';
 const PROXY_REQUEST_TIMEOUT_MS = parseInt(process.env.PROXY_REQUEST_TIMEOUT_MS || '15000', 10);
 const PROXY_REQUEST_RETRIES = parseInt(process.env.PROXY_REQUEST_RETRIES || '10', 10);
@@ -92,7 +93,8 @@ async function tryInitTunnel() {
     const body = JSON.stringify({ public_key: Array.from(rawPubKey) });
 
     // Do not URL-encode the backend_url value: the FP's query parser uses
-    // splitn(2, '=') and passes the raw value to Url::parse without decoding.
+    // splitn(2, '=') and passes the raw value to Url::parse without decoding
+    // (e.g. keep https://... not https%3A%2F%2F...).
     const url = `${FP_URL}/init-tunnel?backend_url=${RP_BACKEND_URL}`;
     const res = await httpRequest('POST', url, body);
     return res;
@@ -142,19 +144,25 @@ async function checkProxyRequest() {
 
 async function tryProxyRequest() {
     const script = `
+let reported = false;
 const report = (payload) => {
-  try {
-    process.stdout.write(JSON.stringify(payload));
-  } finally {
-    process.exit(0);
-  }
+  if (reported) return;
+  reported = true;
+  process.stdout.write(JSON.stringify(payload), () => process.exit(0));
+  setTimeout(() => process.exit(0), 25).unref();
 };
-process.on('uncaughtException', (err) => report({ ok: false, message: 'runtime error: ' + ((err && err.message) || String(err)) }));
-process.on('unhandledRejection', (err) => report({ ok: false, message: 'runtime error: ' + ((err && err.message) || String(err)) }));
+const formatError = (err) => (err && typeof err === 'object' && 'message' in err ? err.message : String(err));
+process.on('uncaughtException', (err) => report({ ok: false, message: 'runtime error: ' + formatError(err) }));
+process.on('unhandledRejection', (err) => report({ ok: false, message: 'runtime error: ' + formatError(err) }));
 (async () => {
   try {
     const interceptorWasm = await import('l8-intercept');
-    interceptorWasm.initEncryptedTunnel(process.env.FP_URL, [interceptorWasm.ServiceProvider.new(process.env.PROXY_TARGET_URL)]);
+    try {
+      interceptorWasm.initEncryptedTunnel(process.env.FP_URL, [interceptorWasm.ServiceProvider.new(process.env.PROXY_TARGET_URL)]);
+    } catch (err) {
+      report({ ok: false, message: 'error: Failed to initialize encrypted tunnel: ' + formatError(err) });
+      return;
+    }
     const response = await interceptorWasm.fetch(process.env.PROXY_TARGET_URL + '/healthcheck');
     if (response.status === 200) {
       report({ ok: true, status: response.status });
@@ -162,7 +170,7 @@ process.on('unhandledRejection', (err) => report({ ok: false, message: 'runtime 
     }
     report({ ok: false, message: response.status + ' (expected 200)' });
   } catch (err) {
-    report({ ok: false, message: 'error: ' + ((err && err.message) || String(err)) });
+    report({ ok: false, message: 'error: ' + formatError(err) });
   }
 })();`;
 
@@ -195,18 +203,18 @@ process.on('unhandledRejection', (err) => report({ ok: false, message: 'runtime 
                     resolve(JSON.parse(output));
                     return;
                 } catch (_) {
-                    // Fall through to structured runtime error report below.
+                    // Child may emit non-JSON output when crashing; fall through.
                 }
             }
 
             const errText = (stderr || '').trim();
             if (errText) {
-                resolve({ ok: false, message: `runtime error: ${errText.split('\n')[0]}` });
+                resolve({ ok: false, message: `runtime error: ${errText.split('\n').slice(0, 3).join(' | ')}` });
                 return;
             }
 
             if (code !== 0 || signal) {
-                resolve({ ok: false, message: `runtime error: child exited with code ${code}, signal ${signal || 'none'}` });
+                resolve({ ok: false, message: `runtime error: child exited with code ${code}, signal ${signal}` });
                 return;
             }
 

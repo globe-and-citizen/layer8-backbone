@@ -74,7 +74,7 @@ The smoke test runner (`smoke-test.js`) accepts the following variables:
 | `BACKEND_URL` | `http://localhost:3000` | SPA backend base URL |
 | `MOCK_AUTH_URL` | `http://localhost:5001` | Mock auth server base URL |
 | `PROXY_TARGET_URL` | same as `BACKEND_URL` | Backend URL used by interceptor `fetch` proxy validation |
-| `RP_BACKEND_URL` | `https://reverse-proxy:6193` | RP URL sent to FP in init-tunnel (must match RP's `NTOR_SERVER_ID`) |
+| `RP_BACKEND_URL` | `https://reverse-proxy:6193` | Reverse Proxy URL as seen from FP within the Docker network (this is the mTLS endpoint sent in init-tunnel); must exactly match RP's `NTOR_SERVER_ID` |
 | `INIT_TUNNEL_RETRIES` | `20` | Maximum number of init-tunnel attempts, including the initial attempt |
 | `INIT_TUNNEL_RETRY_DELAY_MS` | `3000` | Milliseconds between retries |
 | `PROXY_REQUEST_TIMEOUT_MS` | `15000` | Timeout for interceptor proxy healthcheck request |
@@ -117,6 +117,6 @@ docker compose -f docker-compose.smoke.yml logs -f forward-proxy
 docker compose -f docker-compose.smoke.yml exec forward-proxy ls -la /certs/
 ```
 
-**First-run is slow.** The Rust binaries are compiled from source (no pre-built cache). Expect 5 to 15 minutes depending on hardware. Subsequent runs reuse the Docker layer cache and should start in under a minute.
+**The first run is slow.** The Rust binaries are compiled from source (no pre-built cache). Expect 5 to 15 minutes depending on hardware. Subsequent runs reuse the Docker layer cache and should start in under a minute.
 
 **RP not ready yet.** The init-tunnel check retries according to `INIT_TUNNEL_RETRIES` and `INIT_TUNNEL_RETRY_DELAY_MS` (defaults: 20 attempts, 3000ms delay). The interceptor proxy healthcheck also retries according to `PROXY_REQUEST_RETRIES` and `PROXY_REQUEST_RETRY_DELAY_MS` before the smoke test fails.
