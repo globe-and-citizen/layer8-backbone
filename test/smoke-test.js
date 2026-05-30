@@ -15,6 +15,7 @@
 
 const http = require('http');
 const crypto = require('crypto');
+const { spawn } = require('child_process');
 
 const FP_URL = process.env.FP_URL || 'http://localhost:6191';
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:3000';
@@ -140,52 +141,78 @@ async function checkProxyRequest() {
 }
 
 async function tryProxyRequest() {
-    let proxyRequestTimeoutId;
-    let resolveRuntimeError;
-    const runtimeErrorPromise = new Promise((resolve) => {
-        resolveRuntimeError = resolve;
-    });
-    const timeoutPromise = new Promise((resolve) => {
-        proxyRequestTimeoutId = setTimeout(() => resolve({ timeout: true }), PROXY_REQUEST_TIMEOUT_MS);
-    });
-    // l8-intercept may throw uncaught WASM runtime errors in Node; trap them to report a clean test failure.
-    const onUnhandledRuntimeError = (err) => {
-        const runtimeError = err instanceof Error ? err : new Error(String(err));
-        resolveRuntimeError({ runtimeError });
-    };
-
-    process.once('uncaughtException', onUnhandledRuntimeError);
-    process.once('unhandledRejection', onUnhandledRuntimeError);
-    try {
-        const interceptorWasm = await import('l8-intercept');
-        interceptorWasm.initEncryptedTunnel(FP_URL, [interceptorWasm.ServiceProvider.new(PROXY_TARGET_URL)]);
-
-        const result = await Promise.race([
-            runtimeErrorPromise,
-            timeoutPromise,
-            interceptorWasm.fetch(`${PROXY_TARGET_URL}/healthcheck`).then((response) => ({ response })),
-        ]);
-
-        if (result.runtimeError) {
-            return { ok: false, message: `runtime error: ${result.runtimeError.message}` };
-        }
-        if (result.timeout) {
-            return { ok: false, message: `timeout after ${PROXY_REQUEST_TIMEOUT_MS}ms` };
-        }
-        const response = result.response;
-        if (response.status === 200) {
-            return { ok: true, status: response.status };
-        }
-        return { ok: false, message: `${response.status} (expected 200)` };
-    } catch (err) {
-        return { ok: false, message: `error: ${err.message}` };
-    } finally {
-        clearTimeout(proxyRequestTimeoutId);
-        process.removeListener('uncaughtException', onUnhandledRuntimeError);
-        process.removeListener('unhandledRejection', onUnhandledRuntimeError);
-        // Settle pending runtime error promise on success/timeout so repeated runs don't retain dangling promises.
-        resolveRuntimeError({ runtimeError: null });
+    const script = `
+const report = (payload) => {
+  try {
+    process.stdout.write(JSON.stringify(payload));
+  } finally {
+    process.exit(0);
+  }
+};
+process.on('uncaughtException', (err) => report({ ok: false, message: 'runtime error: ' + ((err && err.message) || String(err)) }));
+process.on('unhandledRejection', (err) => report({ ok: false, message: 'runtime error: ' + ((err && err.message) || String(err)) }));
+(async () => {
+  try {
+    const interceptorWasm = await import('l8-intercept');
+    interceptorWasm.initEncryptedTunnel(process.env.FP_URL, [interceptorWasm.ServiceProvider.new(process.env.PROXY_TARGET_URL)]);
+    const response = await interceptorWasm.fetch(process.env.PROXY_TARGET_URL + '/healthcheck');
+    if (response.status === 200) {
+      report({ ok: true, status: response.status });
+      return;
     }
+    report({ ok: false, message: response.status + ' (expected 200)' });
+  } catch (err) {
+    report({ ok: false, message: 'error: ' + ((err && err.message) || String(err)) });
+  }
+})();`;
+
+    return await new Promise((resolve) => {
+        const child = spawn(process.execPath, ['-e', script], {
+            env: { ...process.env, FP_URL, PROXY_TARGET_URL },
+            stdio: ['ignore', 'pipe', 'pipe'],
+        });
+
+        let stdout = '';
+        let stderr = '';
+        let timedOut = false;
+        const timeoutId = setTimeout(() => {
+            timedOut = true;
+            child.kill('SIGKILL');
+        }, PROXY_REQUEST_TIMEOUT_MS);
+
+        child.stdout.on('data', (chunk) => { stdout += chunk.toString(); });
+        child.stderr.on('data', (chunk) => { stderr += chunk.toString(); });
+        child.on('close', (code, signal) => {
+            clearTimeout(timeoutId);
+            if (timedOut) {
+                resolve({ ok: false, message: `timeout after ${PROXY_REQUEST_TIMEOUT_MS}ms` });
+                return;
+            }
+
+            const output = stdout.trim();
+            if (output) {
+                try {
+                    resolve(JSON.parse(output));
+                    return;
+                } catch (_) {
+                    // Fall through to structured runtime error report below.
+                }
+            }
+
+            const errText = (stderr || '').trim();
+            if (errText) {
+                resolve({ ok: false, message: `runtime error: ${errText.split('\n')[0]}` });
+                return;
+            }
+
+            if (code !== 0 || signal) {
+                resolve({ ok: false, message: `runtime error: child exited with code ${code}, signal ${signal || 'none'}` });
+                return;
+            }
+
+            resolve({ ok: false, message: 'runtime error: child process exited without result' });
+        });
+    });
 }
 
 async function main() {
