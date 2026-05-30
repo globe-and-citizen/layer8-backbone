@@ -116,14 +116,15 @@ async function checkInitTunnel() {
 }
 
 async function checkProxyRequest() {
-    let onUnhandledRuntimeError;
+    let resolveRuntimeError;
     const runtimeErrorPromise = new Promise((resolve) => {
-        // l8-intercept may throw uncaught WASM runtime errors in Node; trap them to report a clean test failure.
-        onUnhandledRuntimeError = (err) => {
-            const runtimeError = err instanceof Error ? err : new Error(String(err));
-            resolve({ runtimeError });
-        };
+        resolveRuntimeError = resolve;
     });
+    // l8-intercept may throw uncaught WASM runtime errors in Node; trap them to report a clean test failure.
+    const onUnhandledRuntimeError = (err) => {
+        const runtimeError = err instanceof Error ? err : new Error(String(err));
+        resolveRuntimeError({ runtimeError });
+    };
 
     process.once('uncaughtException', onUnhandledRuntimeError);
     process.once('unhandledRejection', onUnhandledRuntimeError);
@@ -153,6 +154,7 @@ async function checkProxyRequest() {
     } finally {
         process.removeListener('uncaughtException', onUnhandledRuntimeError);
         process.removeListener('unhandledRejection', onUnhandledRuntimeError);
+        resolveRuntimeError({ settled: true });
     }
 }
 
