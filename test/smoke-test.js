@@ -29,7 +29,7 @@ const PROXY_REQUEST_RETRIES = parseInt(process.env.PROXY_REQUEST_RETRIES || '10'
 const PROXY_REQUEST_RETRY_DELAY_MS = parseInt(process.env.PROXY_REQUEST_RETRY_DELAY_MS || '2000', 10);
 
 // Retry configuration for the init-tunnel check (RP may still be starting up)
-const INIT_TUNNEL_MAX_ATTEMPTS = parseInt(process.env.INIT_TUNNEL_RETRIES || '20', 10);
+const INIT_TUNNEL_RETRIES = parseInt(process.env.INIT_TUNNEL_RETRIES || '20', 10);
 const INIT_TUNNEL_RETRY_DELAY_MS = parseInt(process.env.INIT_TUNNEL_RETRY_DELAY_MS || '3000', 10);
 
 function httpRequest(method, url, body) {
@@ -98,23 +98,23 @@ async function tryInitTunnel() {
 }
 
 async function checkInitTunnel() {
-    for (let attempt = 1; attempt <= INIT_TUNNEL_MAX_ATTEMPTS; attempt++) {
+    for (let attempt = 1; attempt <= INIT_TUNNEL_RETRIES; attempt++) {
         try {
             const res = await tryInitTunnel();
             if (res.status === 200) {
                 console.log(`  ✓ FP→RP init-tunnel → ${res.status} (attempt ${attempt})`);
                 return true;
             }
-            console.log(`  … FP→RP init-tunnel → ${res.status} (attempt ${attempt}/${INIT_TUNNEL_MAX_ATTEMPTS})`);
+            console.log(`  … FP→RP init-tunnel → ${res.status} (attempt ${attempt}/${INIT_TUNNEL_RETRIES})`);
         } catch (err) {
-            console.log(`  … FP→RP init-tunnel → error: ${err.message} (attempt ${attempt}/${INIT_TUNNEL_MAX_ATTEMPTS})`);
+            console.log(`  … FP→RP init-tunnel → error: ${err.message} (attempt ${attempt}/${INIT_TUNNEL_RETRIES})`);
         }
 
-        if (attempt < INIT_TUNNEL_MAX_ATTEMPTS) {
+        if (attempt < INIT_TUNNEL_RETRIES) {
             await new Promise((r) => setTimeout(r, INIT_TUNNEL_RETRY_DELAY_MS));
         }
     }
-    console.error(`  ✗ FP→RP init-tunnel failed after ${INIT_TUNNEL_MAX_ATTEMPTS} attempts`);
+    console.error(`  ✗ FP→RP init-tunnel failed after ${INIT_TUNNEL_RETRIES} attempts`);
     return false;
 }
 

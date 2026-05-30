@@ -75,7 +75,7 @@ The smoke test runner (`smoke-test.js`) accepts the following variables:
 | `MOCK_AUTH_URL` | `http://localhost:5001` | Mock auth server base URL |
 | `PROXY_TARGET_URL` | same as `BACKEND_URL` | Backend URL used by interceptor `fetch` proxy validation |
 | `RP_BACKEND_URL` | `https://reverse-proxy:6193` | RP URL sent to FP in init-tunnel (must match RP's `NTOR_SERVER_ID`) |
-| `INIT_TUNNEL_RETRIES` | `20` | Max attempts for the init-tunnel check |
+| `INIT_TUNNEL_RETRIES` | `20` | Maximum number of init-tunnel attempts, including the initial attempt |
 | `INIT_TUNNEL_RETRY_DELAY_MS` | `3000` | Milliseconds between retries |
 | `PROXY_REQUEST_TIMEOUT_MS` | `15000` | Timeout for interceptor proxy healthcheck request |
 | `PROXY_REQUEST_RETRIES` | `10` | Max attempts for the interceptor proxy healthcheck after init-tunnel succeeds |
