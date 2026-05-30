@@ -119,4 +119,4 @@ docker compose -f docker-compose.smoke.yml exec forward-proxy ls -la /certs/
 
 **First-run is slow.** The Rust binaries are compiled from source (no pre-built cache). Expect 5 to 15 minutes depending on hardware. Subsequent runs reuse the Docker layer cache and should start in under a minute.
 
-**RP not ready yet.** The init-tunnel check retries up to 20 times (3-second gaps). If RP is still starting, wait a moment and re-run `npm run smoke`.
+**RP not ready yet.** The init-tunnel check retries according to `INIT_TUNNEL_RETRIES` and `INIT_TUNNEL_RETRY_DELAY_MS` (defaults: 20 attempts, 3000ms delay). The interceptor proxy healthcheck also retries according to `PROXY_REQUEST_RETRIES` and `PROXY_REQUEST_RETRY_DELAY_MS` before the smoke test fails.

@@ -184,7 +184,7 @@ async function tryProxyRequest() {
         process.removeListener('uncaughtException', onUnhandledRuntimeError);
         process.removeListener('unhandledRejection', onUnhandledRuntimeError);
         // Settle pending runtime error promise on success/timeout so repeated runs don't retain dangling promises.
-        resolveRuntimeError();
+        resolveRuntimeError({ runtimeError: null });
     }
 }
 
