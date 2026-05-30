@@ -78,7 +78,11 @@ async function checkHealthcheck(name, baseUrl) {
 async function tryInitTunnel() {
     // Generate a random X25519 key pair and send the public key to FP
     const { publicKey } = crypto.generateKeyPairSync('x25519');
-    const rawPubKey = publicKey.export({ format: 'raw' });
+    const jwk = publicKey.export({ format: 'jwk' });
+    const rawPubKey = Buffer.from(jwk.x, 'base64url');
+    if (rawPubKey.length !== 32) {
+        throw new Error(`Unexpected X25519 public key length: ${rawPubKey.length}`);
+    }
     const body = JSON.stringify({ public_key: Array.from(rawPubKey) });
 
     // Do not URL-encode the backend_url value: the FP's query parser uses
