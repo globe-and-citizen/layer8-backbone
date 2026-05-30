@@ -148,10 +148,16 @@ async function main() {
     record(await checkHealthcheck('Backend', BACKEND_URL));
 
     console.log('\nProxy chain:');
-    record(await checkInitTunnel());
+    const initTunnelOk = await checkInitTunnel();
+    record(initTunnelOk);
 
     console.log('\nProxy smoke:');
-    record(await checkProxyRequest());
+    if (initTunnelOk) {
+        record(await checkProxyRequest());
+    } else {
+        console.error('  ✗ Interceptor fetch /proxy → skipped because init-tunnel failed');
+        record(false);
+    }
 
     console.log(`\nResults: ${passed} passed, ${failed} failed\n`);
     process.exit(failed > 0 ? 1 : 0);
