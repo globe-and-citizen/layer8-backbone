@@ -25,6 +25,8 @@ const PROXY_TARGET_URL = process.env.PROXY_TARGET_URL || BACKEND_URL;
 // The backend_url sent to FP in init-tunnel must match RP's NTOR_SERVER_ID
 const RP_BACKEND_URL = process.env.RP_BACKEND_URL || 'https://reverse-proxy:6193';
 const PROXY_REQUEST_TIMEOUT_MS = parseInt(process.env.PROXY_REQUEST_TIMEOUT_MS || '15000', 10);
+const PROXY_REQUEST_RETRIES = parseInt(process.env.PROXY_REQUEST_RETRIES || '10', 10);
+const PROXY_REQUEST_RETRY_DELAY_MS = parseInt(process.env.PROXY_REQUEST_RETRY_DELAY_MS || '2000', 10);
 
 // Retry configuration for the init-tunnel check (RP may still be starting up)
 const INIT_TUNNEL_MAX_ATTEMPTS = parseInt(process.env.INIT_TUNNEL_RETRIES || '20', 10);
@@ -117,6 +119,27 @@ async function checkInitTunnel() {
 }
 
 async function checkProxyRequest() {
+    for (let attempt = 1; attempt <= PROXY_REQUEST_RETRIES; attempt++) {
+        const result = await tryProxyRequest();
+        if (result.ok) {
+            console.log(`  ✓ Interceptor proxy healthcheck → ${result.status} (attempt ${attempt})`);
+            return true;
+        }
+
+        if (attempt < PROXY_REQUEST_RETRIES) {
+            console.log(`  … Interceptor proxy healthcheck → ${result.message} (attempt ${attempt}/${PROXY_REQUEST_RETRIES})`);
+            await new Promise((r) => setTimeout(r, PROXY_REQUEST_RETRY_DELAY_MS));
+            continue;
+        }
+
+        console.error(`  ✗ Interceptor proxy healthcheck → ${result.message} (attempt ${attempt}/${PROXY_REQUEST_RETRIES})`);
+        return false;
+    }
+
+    return false;
+}
+
+async function tryProxyRequest() {
     let proxyRequestTimeoutId;
     let resolveRuntimeError;
     const runtimeErrorPromise = new Promise((resolve) => {
@@ -144,23 +167,18 @@ async function checkProxyRequest() {
         ]);
 
         if (result.runtimeError) {
-            console.error(`  ✗ Interceptor proxy healthcheck → runtime error: ${result.runtimeError.message}`);
-            return false;
+            return { ok: false, message: `runtime error: ${result.runtimeError.message}` };
         }
         if (result.timeout) {
-            console.error(`  ✗ Interceptor proxy healthcheck → timeout after ${PROXY_REQUEST_TIMEOUT_MS}ms`);
-            return false;
+            return { ok: false, message: `timeout after ${PROXY_REQUEST_TIMEOUT_MS}ms` };
         }
         const response = result.response;
         if (response.status === 200) {
-            console.log(`  ✓ Interceptor proxy healthcheck → ${response.status}`);
-            return true;
+            return { ok: true, status: response.status };
         }
-        console.error(`  ✗ Interceptor proxy healthcheck → ${response.status} (expected 200)`);
-        return false;
+        return { ok: false, message: `${response.status} (expected 200)` };
     } catch (err) {
-        console.error(`  ✗ Interceptor proxy healthcheck → error: ${err.message}`);
-        return false;
+        return { ok: false, message: `error: ${err.message}` };
     } finally {
         clearTimeout(proxyRequestTimeoutId);
         process.removeListener('uncaughtException', onUnhandledRuntimeError);

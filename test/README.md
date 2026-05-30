@@ -78,6 +78,8 @@ The smoke test runner (`smoke-test.js`) accepts the following variables:
 | `INIT_TUNNEL_RETRIES` | `20` | Max attempts for the init-tunnel check |
 | `INIT_TUNNEL_RETRY_DELAY_MS` | `3000` | Milliseconds between retries |
 | `PROXY_REQUEST_TIMEOUT_MS` | `15000` | Timeout for interceptor proxy healthcheck request |
+| `PROXY_REQUEST_RETRIES` | `10` | Max attempts for the interceptor proxy healthcheck after init-tunnel succeeds |
+| `PROXY_REQUEST_RETRY_DELAY_MS` | `2000` | Milliseconds between interceptor proxy healthcheck retries |
 
 ## Services
 
