@@ -38,8 +38,9 @@ function httpRequest(method, url, body) {
             headers: {},
         };
 
-        if (body) {
-            const bodyStr = typeof body === 'string' ? body : JSON.stringify(body);
+        const bodyStr = body ? (typeof body === 'string' ? body : JSON.stringify(body)) : null;
+
+        if (bodyStr) {
             options.headers['Content-Type'] = 'application/json';
             options.headers['Content-Length'] = Buffer.byteLength(bodyStr);
         }
@@ -52,8 +53,7 @@ function httpRequest(method, url, body) {
 
         req.on('error', reject);
 
-        if (body) {
-            const bodyStr = typeof body === 'string' ? body : JSON.stringify(body);
+        if (bodyStr) {
             req.write(bodyStr);
         }
         req.end();
