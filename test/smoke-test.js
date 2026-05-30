@@ -19,7 +19,7 @@ const crypto = require('crypto');
 const FP_URL = process.env.FP_URL || 'http://localhost:6191';
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:3000';
 const MOCK_AUTH_URL = process.env.MOCK_AUTH_URL || 'http://localhost:5001';
-const PROXY_TARGET_URL = process.env.PROXY_TARGET_URL || 'http://spa-backend:3000';
+const PROXY_TARGET_URL = process.env.PROXY_TARGET_URL || BACKEND_URL;
 
 // The backend_url sent to FP in init-tunnel must match RP's NTOR_SERVER_ID
 const RP_BACKEND_URL = process.env.RP_BACKEND_URL || 'https://reverse-proxy:6193';
@@ -115,11 +115,23 @@ async function checkInitTunnel() {
 }
 
 async function checkProxyRequest() {
+    let trappedRuntimeError = null;
+    const onUnhandledRuntimeError = (err) => {
+        trappedRuntimeError = err instanceof Error ? err : new Error(String(err));
+    };
+
+    process.once('uncaughtException', onUnhandledRuntimeError);
+    process.once('unhandledRejection', onUnhandledRuntimeError);
+
     try {
         const interceptorWasm = await import('l8-intercept');
         interceptorWasm.initEncryptedTunnel(FP_URL, [interceptorWasm.ServiceProvider.new(PROXY_TARGET_URL)]);
 
         const response = await interceptorWasm.fetch(`${PROXY_TARGET_URL}/healthcheck`);
+        if (trappedRuntimeError) {
+            console.error(`  ✗ Interceptor proxy healthcheck → runtime error: ${trappedRuntimeError.message}`);
+            return false;
+        }
         if (response.status === 200) {
             console.log(`  ✓ Interceptor proxy healthcheck → ${response.status}`);
             return true;
@@ -129,6 +141,9 @@ async function checkProxyRequest() {
     } catch (err) {
         console.error(`  ✗ Interceptor proxy healthcheck → error: ${err.message}`);
         return false;
+    } finally {
+        process.removeListener('uncaughtException', onUnhandledRuntimeError);
+        process.removeListener('unhandledRejection', onUnhandledRuntimeError);
     }
 }
 
