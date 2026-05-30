@@ -12,5 +12,8 @@
     "smoke:wait": "sh wait-for-services.sh",
     "smoke": "node smoke-test.js",
     "smoke:run": "npm run smoke:up && npm run smoke:wait && npm run smoke"
+  },
+  "dependencies": {
+    "l8-intercept": "^0.4.2"
   }
 }

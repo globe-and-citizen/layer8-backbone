@@ -8,7 +8,7 @@
  *  2. Mock-auth /healthcheck returns 200
  *  3. Backend /healthcheck returns 200
  *  4. FP→RP init-tunnel succeeds (proves the full mTLS chain is working)
- *  5. Backend login with default credentials succeeds
+ *  5. Proxy request via interceptor fetch succeeds
  *
  * Run after `npm run smoke:wait` to ensure all services are ready.
  */
@@ -19,6 +19,7 @@ const crypto = require('crypto');
 const FP_URL = process.env.FP_URL || 'http://localhost:6191';
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:3000';
 const MOCK_AUTH_URL = process.env.MOCK_AUTH_URL || 'http://localhost:5001';
+const PROXY_TARGET_URL = process.env.PROXY_TARGET_URL || 'http://spa-backend:3000';
 
 // The backend_url sent to FP in init-tunnel must match RP's NTOR_SERVER_ID
 const RP_BACKEND_URL = process.env.RP_BACKEND_URL || 'https://reverse-proxy:6193';
@@ -113,23 +114,20 @@ async function checkInitTunnel() {
     return false;
 }
 
-async function checkBackendLogin() {
+async function checkProxyRequest() {
     try {
-        const res = await httpRequest('POST', `${BACKEND_URL}/login`, { username: 'tester', password: '1234' });
-        if (res.status === 200) {
-            let parsed;
-            try { parsed = JSON.parse(res.body); } catch (_) { /* ignore */ }
-            if (parsed && parsed.token) {
-                console.log(`  ✓ Backend /login → ${res.status} (token received)`);
-                return true;
-            }
-            console.error(`  ✗ Backend /login → ${res.status} but no token in response`);
-            return false;
+        const interceptorWasm = await import('l8-intercept');
+        interceptorWasm.initEncryptedTunnel(FP_URL, [interceptorWasm.ServiceProvider.new(PROXY_TARGET_URL)]);
+
+        const response = await interceptorWasm.fetch(`${PROXY_TARGET_URL}/healthcheck`);
+        if (response.status === 200) {
+            console.log(`  ✓ Interceptor fetch /proxy → ${response.status}`);
+            return true;
         }
-        console.error(`  ✗ Backend /login → ${res.status} (expected 200)`);
+        console.error(`  ✗ Interceptor fetch /proxy → ${response.status} (expected 200)`);
         return false;
     } catch (err) {
-        console.error(`  ✗ Backend /login → error: ${err.message}`);
+        console.error(`  ✗ Interceptor fetch /proxy → error: ${err.message}`);
         return false;
     }
 }
@@ -152,8 +150,8 @@ async function main() {
     console.log('\nProxy chain:');
     record(await checkInitTunnel());
 
-    console.log('\nBackend smoke:');
-    record(await checkBackendLogin());
+    console.log('\nProxy smoke:');
+    record(await checkProxyRequest());
 
     console.log(`\nResults: ${passed} passed, ${failed} failed\n`);
     process.exit(failed > 0 ? 1 : 0);

@@ -62,7 +62,7 @@ npm run smoke:down
 | 2 | `GET mock-auth /healthcheck` | Mock auth server is up |
 | 3 | `GET backend /healthcheck` | SPA backend is up |
 | 4 | `POST FP /init-tunnel` | FP→RP mTLS chain works end-to-end (NTor handshake) |
-| 5 | `POST backend /login` | Backend accepts credentials (`tester` / `1234`) |
+| 5 | Interceptor `fetch` via FP `/proxy` | Encrypted proxy request succeeds end-to-end |
 
 ## Environment Variables
 
@@ -73,6 +73,7 @@ The smoke test runner (`smoke-test.js`) accepts the following variables:
 | `FP_URL` | `http://localhost:6191` | Forward Proxy base URL |
 | `BACKEND_URL` | `http://localhost:3000` | SPA backend base URL |
 | `MOCK_AUTH_URL` | `http://localhost:5001` | Mock auth server base URL |
+| `PROXY_TARGET_URL` | `http://spa-backend:3000` | Backend URL used by interceptor `fetch` proxy validation |
 | `RP_BACKEND_URL` | `https://reverse-proxy:6193` | RP URL sent to FP in init-tunnel (must match RP's `NTOR_SERVER_ID`) |
 | `INIT_TUNNEL_RETRIES` | `20` | Max attempts for the init-tunnel check |
 | `INIT_TUNNEL_RETRY_DELAY_MS` | `3000` | Milliseconds between retries |
