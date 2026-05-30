@@ -3,8 +3,8 @@ FROM node:20-alpine
 WORKDIR /app
 
 COPY package.json ./
-RUN apk add --no-cache wget \
- && npm install --omit=dev
+RUN apk add --no-cache wget
+RUN npm install --omit=dev
 
 COPY index.js ./
 
