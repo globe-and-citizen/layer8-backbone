@@ -73,7 +73,7 @@ The smoke test runner (`smoke-test.js`) accepts the following variables:
 | `FP_URL` | `http://localhost:6191` | Forward Proxy base URL |
 | `BACKEND_URL` | `http://localhost:3000` | SPA backend base URL |
 | `MOCK_AUTH_URL` | `http://localhost:5001` | Mock auth server base URL |
-| `PROXY_TARGET_URL` | same as `BACKEND_URL` | Backend URL used by interceptor `fetch` proxy validation |
+| `PROXY_TARGET_URL` | same as `RP_BACKEND_URL` | Reverse Proxy server identity URL used by interceptor `fetch` proxy validation; must match the URL used for init-tunnel |
 | `RP_BACKEND_URL` | `https://reverse-proxy:6193` | Reverse Proxy URL as seen from FP within the Docker network (this is the mTLS endpoint sent in init-tunnel); must exactly match RP's `NTOR_SERVER_ID` |
 | `INIT_TUNNEL_RETRIES` | `20` | Maximum number of init-tunnel attempts, including the initial attempt |
 | `INIT_TUNNEL_RETRY_DELAY_MS` | `3000` | Milliseconds between retries |

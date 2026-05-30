@@ -20,12 +20,12 @@ const { spawn } = require('child_process');
 const FP_URL = process.env.FP_URL || 'http://localhost:6191';
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:3000';
 const MOCK_AUTH_URL = process.env.MOCK_AUTH_URL || 'http://localhost:5001';
-// Default to BACKEND_URL so host-local runs do not depend on Docker-only service DNS.
-const PROXY_TARGET_URL = process.env.PROXY_TARGET_URL || BACKEND_URL;
 
 // The backend_url sent to FP in init-tunnel must match RP's NTOR_SERVER_ID
 // and be reachable from FP's Docker-network perspective.
 const RP_BACKEND_URL = process.env.RP_BACKEND_URL || 'https://reverse-proxy:6193';
+// Must match the RP backend identity used during init-tunnel, otherwise interceptor fetch can fail as unreachable.
+const PROXY_TARGET_URL = process.env.PROXY_TARGET_URL || RP_BACKEND_URL;
 const PROXY_REQUEST_TIMEOUT_MS = parseInt(process.env.PROXY_REQUEST_TIMEOUT_MS || '15000', 10);
 const PROXY_REQUEST_RETRIES = parseInt(process.env.PROXY_REQUEST_RETRIES || '10', 10);
 const PROXY_REQUEST_RETRY_DELAY_MS = parseInt(process.env.PROXY_REQUEST_RETRY_DELAY_MS || '2000', 10);
