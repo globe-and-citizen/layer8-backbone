@@ -78,7 +78,7 @@ async function checkHealthcheck(name, baseUrl) {
 async function tryInitTunnel() {
     // Generate a random X25519 key pair and send the public key to FP
     const { publicKey } = crypto.generateKeyPairSync('x25519');
-    const rawPubKey = publicKey.export({ type: 'raw' });
+    const rawPubKey = publicKey.export({ format: 'raw' });
     const body = JSON.stringify({ public_key: Array.from(rawPubKey) });
 
     // Do not URL-encode the backend_url value: the FP's query parser uses
