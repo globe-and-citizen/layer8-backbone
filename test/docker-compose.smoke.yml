@@ -1,0 +1,129 @@
+name: layer8-smoke
+
+networks:
+  layer8-smoke:
+    driver: bridge
+
+volumes:
+  step-ca-data:
+  fp-certs:
+  rp-certs:
+
+services:
+
+  # ── Certificate Authority ────────────────────────────────────────────────────
+  step-ca:
+    image: smallstep/step-ca:latest
+    environment:
+      DOCKER_STEPCA_INIT_NAME: "Layer8 Smoke CA"
+      DOCKER_STEPCA_INIT_DNS_NAMES: "step-ca,localhost"
+      DOCKER_STEPCA_INIT_ACME: "true"
+    volumes:
+      - step-ca-data:/home/step
+    networks:
+      - layer8-smoke
+    restart: unless-stopped
+
+  # ── Metrics store ────────────────────────────────────────────────────────────
+  influxdb2:
+    image: influxdb:2
+    environment:
+      DOCKER_INFLUXDB_INIT_MODE: setup
+      DOCKER_INFLUXDB_INIT_USERNAME: admin
+      DOCKER_INFLUXDB_INIT_PASSWORD: adminpassword
+      DOCKER_INFLUXDB_INIT_ORG: layer8org
+      DOCKER_INFLUXDB_INIT_BUCKET: layer8bucket
+      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: DEFAULT_TOKEN_FOR_TESTING
+    networks:
+      - layer8-smoke
+    healthcheck:
+      test: ["CMD", "influx", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # ── Mock auth server (returns NTor cert for the RP) ──────────────────────────
+  mock-auth:
+    build:
+      context: mock-auth
+    networks:
+      - layer8-smoke
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:5001/healthcheck"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ── Mock SPA backend (target for the Reverse Proxy) ──────────────────────────
+  spa-backend:
+    build:
+      context: ../spa/backend
+    environment:
+      HOST: "0.0.0.0"
+      PORT: "3000"
+      JWT_SECRET: smoke-backend-jwt-secret
+    networks:
+      - layer8-smoke
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/healthcheck"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ── Forward Proxy ────────────────────────────────────────────────────────────
+  forward-proxy:
+    build:
+      context: ..
+      dockerfile: forward-proxy/Dockerfile
+    env_file:
+      - .env.smoke-fp
+    environment:
+      # Certificate renewal env vars consumed by certs/scripts/entrypoint.sh and renew_cert.sh
+      CA_SERVER_URL: https://step-ca:9000
+      CERT_NAME: forward-proxy
+      CA_PATH: /certs/root_ca.crt
+      CERT_PATH: /certs/mtls.crt
+      KEY_PATH: /certs/mtls.key
+    volumes:
+      - fp-certs:/certs
+    ports:
+      - "6191:6191"
+    depends_on:
+      influxdb2:
+        condition: service_healthy
+      mock-auth:
+        condition: service_healthy
+      step-ca:
+        condition: service_started
+    networks:
+      - layer8-smoke
+    restart: on-failure
+
+  # ── Reverse Proxy ────────────────────────────────────────────────────────────
+  reverse-proxy:
+    build:
+      context: ..
+      dockerfile: reverse-proxy/Dockerfile
+    env_file:
+      - .env.smoke-rp
+    environment:
+      # Certificate renewal env vars consumed by certs/scripts/entrypoint.sh and renew_cert.sh
+      CA_SERVER_URL: https://step-ca:9000
+      CERT_NAME: reverse-proxy
+      CA_PATH: /certs/root_ca.crt
+      CERT_PATH: /certs/mtls.crt
+      KEY_PATH: /certs/mtls.key
+      # Ensure the ACME HTTP-01 challenge uses the correct hostname SAN
+      SANS: reverse-proxy
+    volumes:
+      - rp-certs:/certs
+    ports:
+      - "6193:6193"
+    depends_on:
+      spa-backend:
+        condition: service_healthy
+      step-ca:
+        condition: service_started
+    networks:
+      - layer8-smoke
+    restart: on-failure
