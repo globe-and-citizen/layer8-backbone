@@ -116,24 +116,31 @@ async function checkInitTunnel() {
 }
 
 async function checkProxyRequest() {
-    let trappedRuntimeError = null;
-    // l8-intercept may throw uncaught WASM runtime errors in Node; trap them to report a clean test failure.
-    const onUnhandledRuntimeError = (err) => {
-        trappedRuntimeError = err instanceof Error ? err : new Error(String(err));
-    };
+    let onUnhandledRuntimeError;
+    const runtimeErrorPromise = new Promise((resolve) => {
+        // l8-intercept may throw uncaught WASM runtime errors in Node; trap them to report a clean test failure.
+        onUnhandledRuntimeError = (err) => {
+            const runtimeError = err instanceof Error ? err : new Error(String(err));
+            resolve({ runtimeError });
+        };
+    });
 
     process.once('uncaughtException', onUnhandledRuntimeError);
     process.once('unhandledRejection', onUnhandledRuntimeError);
-
     try {
         const interceptorWasm = await import('l8-intercept');
         interceptorWasm.initEncryptedTunnel(FP_URL, [interceptorWasm.ServiceProvider.new(PROXY_TARGET_URL)]);
 
-        const response = await interceptorWasm.fetch(`${PROXY_TARGET_URL}/healthcheck`);
-        if (trappedRuntimeError) {
-            console.error(`  ✗ Interceptor proxy healthcheck → runtime error: ${trappedRuntimeError.message}`);
+        const result = await Promise.race([
+            runtimeErrorPromise,
+            interceptorWasm.fetch(`${PROXY_TARGET_URL}/healthcheck`).then((response) => ({ response })),
+        ]);
+
+        if (result.runtimeError) {
+            console.error(`  ✗ Interceptor proxy healthcheck → runtime error: ${result.runtimeError.message}`);
             return false;
         }
+        const response = result.response;
         if (response.status === 200) {
             console.log(`  ✓ Interceptor proxy healthcheck → ${response.status}`);
             return true;

@@ -89,7 +89,7 @@ The smoke test runner (`smoke-test.js`) accepts the following variables:
 | `forward-proxy` | `6191` | Built from repo root with `forward-proxy/Dockerfile` |
 | `reverse-proxy` | `6193` | Built from repo root with `reverse-proxy/Dockerfile` |
 
-> **Note:** `step-ca` and `influxdb2` are not exposed on the host by default — they communicate over the internal `layer8-smoke` Docker network.
+> **Note:** `step-ca` and `influxdb2` are not exposed on the host — they communicate over the internal `layer8-smoke` Docker network.
 
 ## Certificate Flow
 
