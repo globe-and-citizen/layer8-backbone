@@ -19,6 +19,7 @@ const crypto = require('crypto');
 const FP_URL = process.env.FP_URL || 'http://localhost:6191';
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:3000';
 const MOCK_AUTH_URL = process.env.MOCK_AUTH_URL || 'http://localhost:5001';
+// Default to BACKEND_URL so host-local runs do not depend on docker-only service DNS.
 const PROXY_TARGET_URL = process.env.PROXY_TARGET_URL || BACKEND_URL;
 
 // The backend_url sent to FP in init-tunnel must match RP's NTOR_SERVER_ID
@@ -116,6 +117,7 @@ async function checkInitTunnel() {
 
 async function checkProxyRequest() {
     let trappedRuntimeError = null;
+    // l8-intercept may throw uncaught WASM runtime errors in Node; trap them to report a clean test failure.
     const onUnhandledRuntimeError = (err) => {
         trappedRuntimeError = err instanceof Error ? err : new Error(String(err));
     };
@@ -152,7 +154,11 @@ async function main() {
     let failed = 0;
 
     function record(ok) {
-        if (ok) passed++; else failed++;
+        if (ok) {
+            passed++;
+        } else {
+            failed++;
+        }
     }
 
     console.log('\nLayer8 smoke e2e test\n');
