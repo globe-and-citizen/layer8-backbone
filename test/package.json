@@ -5,12 +5,11 @@
   "license": "ISC",
   "author": "",
   "type": "commonjs",
-  "main": "e2e-test.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "test:layer8-login": "node layer8-login.e2e-test.js"
+    "test": "playwright test",
+    "test:layer8-login": "playwright test tests/layer8-login.e2e.spec.js"
   },
-  "dependencies": {
-    "puppeteer": "^24.8.2"
+  "devDependencies": {
+    "@playwright/test": "^1.53.0"
   }
 }
