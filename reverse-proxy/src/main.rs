@@ -2,7 +2,10 @@ mod handler;
 mod proxy;
 mod tls_conf;
 
+use crate::config::RPConfig;
 use crate::handler::ReverseHandler;
+use crate::proxy::ReverseProxy;
+use crate::tls_conf::TLSServerConfig;
 use futures::FutureExt;
 use pingora::server::Server;
 use pingora::server::configuration::Opt;
@@ -11,10 +14,7 @@ use pingora_router::handler::APIHandler;
 use pingora_router::router::Router;
 use std::sync::Arc;
 use tracing::{debug, error};
-use utils::cert::{watch_tls, TLSCredentials};
-use crate::config::RPConfig;
-use crate::proxy::ReverseProxy;
-use crate::tls_conf::TLSServerConfig;
+use utils::cert::{TLSCredentials, watch_tls};
 
 mod config;
 
@@ -23,9 +23,11 @@ fn load_config() -> RPConfig {
     dotenv::dotenv().ok();
 
     // Deserialize from env vars
-    let config: RPConfig = envy::from_env().map_err(|e| {
-        error!("Failed to load configuration: {}", e);
-    }).unwrap();
+    let config: RPConfig = envy::from_env()
+        .map_err(|e| {
+            error!("Failed to load configuration: {}", e);
+        })
+        .unwrap();
 
     debug!(name: "RPConfig", value = ?config);
     config
@@ -40,10 +42,7 @@ fn main() {
             panic!("Failed to load TLS config {}", err)
         }
     };
-    watch_tls(
-        tls_cred.clone(),
-        rp_config.proxy.tls.clone(),
-    );
+    watch_tls(tls_cred.clone(), rp_config.proxy.tls.clone());
 
     let tls_server_config = TLSServerConfig {
         host_name: "reverse-proxy".to_string(),
@@ -60,7 +59,8 @@ fn main() {
     let mut my_server = Server::new(Some(Opt {
         conf: std::env::var("SERVER_CONF").ok(),
         ..Default::default()
-    })).unwrap();
+    }))
+    .unwrap();
     my_server.bootstrap();
 
     let handle_init_tunnel: APIHandler<Arc<ReverseHandler>> =
@@ -73,7 +73,7 @@ fn main() {
         Box::new(|h, ctx| async move { h.handle_healthcheck(ctx).await }.boxed());
 
     let rp_handler = Arc::new(ReverseHandler::new(rp_config.clone()));
-    let mut router: Router<Arc<ReverseHandler>> = Router::new(rp_handler.clone());
+    let mut router: Router<Arc<ReverseHandler>> = Router::new(rp_handler);
     router.post("/init-tunnel".to_string(), Box::new([handle_init_tunnel]));
     router.post("/proxy".to_string(), Box::new([handle_proxy]));
     router.get("/healthcheck".to_string(), Box::new([handle_healthcheck]));
@@ -87,17 +87,16 @@ fn main() {
         my_proxy.add_tls_with_settings(
             &format!(
                 "{}:{}",
-                rp_config.server.listen_address,
-                rp_config.server.listen_port
+                rp_config.server.listen_address, rp_config.server.listen_port
             ),
             None,
-            TlsSettings::with_callbacks(Box::new(tls_server_config)).expect("Cannot set TlsSettings callbacks")
+            TlsSettings::with_callbacks(Box::new(tls_server_config))
+                .expect("Cannot set TlsSettings callbacks"),
         );
     } else {
         my_proxy.add_tcp(&format!(
             "{}:{}",
-            rp_config.server.listen_address,
-            rp_config.server.listen_port
+            rp_config.server.listen_address, rp_config.server.listen_port
         ));
     }
 

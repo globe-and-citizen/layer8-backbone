@@ -1,4 +1,4 @@
-# ForwardProxy — Technical Architecture & Design Document (Draft)
+# ForwardProxy — Technical Architecture & Design Document
 
 **Implementation Language:** Rust | **Proxy Engine:** Pingora
 
@@ -10,11 +10,17 @@ implementation details.
 <br>
 
 ### *Table of contents:*
+<div style="font-size: 1em;">
 
 - [1. Overview](#1-overview)
 - [2. Project Structure](#2-project-structure)
-- [3. Deployment Diagram](#3-deployment-diagram)
+- [3. Deployment](#3-deployment-diagram)
 - [4. Configuration](#4-configuration)
+    - [4.1. Server (`FPConfig`)](#41-server-fpconfig)
+    - [4.2. Logging (`LogConfig`)](#42-logging-logconfig)
+    - [4.3. Handler (`HandlerConfig`)](#43-handler-handlerconfig)
+    - [4.4. Proxy & mTLS (`ProxyConfig` / `TLSConfig`)](#44-proxy--mtls-proxyconfig--tlsconfig)
+    - [4.5. InfluxDB (`InfluxDBConfig`)](#45-influxdb-influxdbconfig)
 - [5. Request Lifecycle](#5-request-lifecycle-pingora-filters)
     - [5.1. Layer8Context (CTX - Request State Management)](#51-layer8context-ctx---request-state-management)
     - [5.2. `request_filter` Phase](#52-request_filter-phase)
@@ -32,8 +38,15 @@ implementation details.
     - [6.4. Handle `/init-tunnel` Response](#64-handle-init-tunnel-response)
     - [6.5. Handle `/healthcheck`](#65-handle-healthcheck)
 - [7. Usage Statistics](#7-usage-statistics-badly-drafted-needs-work)
+    - [7.1. Initialization](#71-initialization)
+    - [7.2. Metrics](#72-metrics)
+    - [7.3. Update behavior](#73-update-behavior)
+    - [7.4. Error handling](#74-error-handling)
+    - [7.5. Notes](#75-notes)
 - [8. Dynamic mTLS Certificate Loading](#8-dynamic-mtls-certificate-loading)
-
+    - [8.1. Configuration Loading](#81-configuration-loading)
+    - [8.2. Dynamic Reload via `step-cli` Script](#82-dynamic-reload-via-step-cli-script)
+</div>
 <div style="page-break-after: always;"></div>
 
 ## 1. Overview
@@ -44,7 +57,12 @@ network architecture. Its primary responsibility is to manage secure tunnel esta
 facilitate the secure routing of encrypted traffic (`/proxy`) while maintaining session state and validating
 authentication tokens.
 
-<img src="diagrams/forward-proxy.png" alt="ForwardProxy diagram" width="600" style="max-width:100%;height:auto;" />
+By leveraging Pingora’s proxy filter phases, the ForwardProxy cleanly separates request validation, body transformation,
+upstream peer selection, header rewriting, response adaptation, retry handling, and observability across the HTTP
+lifecycle. This phase-based design improves maintainability, strengthens security boundaries, and makes the proxy’s
+routing and tunnel-establishment logic easier to reason about.
+
+<img src="diagrams/forward-proxy.png" alt="ForwardProxy diagram" width="500" style="max-width:100%;height:auto;" />
 
 *Figure 1: ForwardProxy high-level architecture*
 
@@ -94,9 +112,11 @@ The ForwardProxy project is organized into the following modules:
 
 <div style="page-break-after: always;"></div>
 
-## 3. Deployment Diagram
+## 3. Deployment
 
-[todo]
+<img src="diagrams/fp_deployment.png" alt="fp_deployment.png" width="600"/></br>
+*Figure 2: ForwardProxy deployment diagram*
+
 <br>
 
 ## 4. Configuration
@@ -107,16 +127,18 @@ flattened sub-configs.
 <br>
 
 ### 4.1. Server (`FPConfig`)
+<div style="font-size: 1em;">
 
 | Variable         | Type     | Example     | Description                   |
 |------------------|----------|-------------|-------------------------------|
 | `LISTEN_ADDRESS` | `String` | `localhost` | Address the proxy listens on. |
 | `LISTEN_PORT`    | `u16`    | `6191`      | Port the proxy listens on.    |
-
 ---
+</div>
 <br>
 
 ### 4.2. Logging (`LogConfig`)
+<div style="font-size: 0.75em;">
 
 | Variable       | Type     | Example             | Description                                                            |
 |----------------|----------|---------------------|------------------------------------------------------------------------|
@@ -124,11 +146,12 @@ flattened sub-configs.
 | `LOG_FORMAT`   | `String` | `plain`             | Output format. Defaults to `json` unless set to `plain`.               |
 | `LOG_PATH`     | `String` | `console`           | Set to `console` for stdout, or provide a folder path for file output. |
 | `LOG_FILENAME` | `String` | `forward-proxy.log` | Log filename. Required when `LOG_PATH` is not `console`.               |
-
 ---
+</div>
 <br>
 
 ### 4.3. Handler (`HandlerConfig`)
+<div style="font-size: 0.75em;">
 
 | Variable                     | Type      | Example                                  | Description                                                                                                    |
 |------------------------------|-----------|------------------------------------------|----------------------------------------------------------------------------------------------------------------|
@@ -136,11 +159,12 @@ flattened sub-configs.
 | `JWT_EXP_IN_HOURS`           | `i64`     | `24`                                     | Expiry duration for issued JWT tokens, in hours.                                                               |
 | `AUTH_ACCESS_TOKEN`          | `String`  | `Basic bGF5ZXI4...`                      | Bearer/Basic token used to authenticate requests to the Auth Server.                                           |
 | `AUTH_GET_CERTIFICATE_URL`   | `String`  | `http://l8.net/api/v1/cert?backend_url=` | Auth Server endpoint for fetching nTor certificates. The `backend_url` query parameter is appended at runtime. |
-
 ---
+</div>
 <br>
 
 ### 4.4. Proxy & mTLS (`ProxyConfig` / `TLSConfig`)
+<div style="font-size: 0.75em;">
 
 | Variable                 | Type          | Example                           | Description                                         |
 |--------------------------|---------------|-----------------------------------|-----------------------------------------------------|
@@ -150,11 +174,12 @@ flattened sub-configs.
 | `CA_PATH`                | `String`      | `../certs/mtls/ca.pem`            | Path to the CA certificate for mTLS verification.   |
 | `CERT_PATH`              | `String`      | `../certs/mtls/forward-proxy.pem` | Path to the ForwardProxy's client certificate.      |
 | `KEY_PATH`               | `String`      | `../certs/mtls/forward-proxy.key` | Path to the ForwardProxy's private key.             |
-
 ---
+</div>
 <br>
 
 ### 4.5. InfluxDB (`InfluxDBConfig`)
+<div style="font-size: 0.75em;">
 
 | Variable              | Type     | Example                     | Description                                |
 |-----------------------|----------|-----------------------------|--------------------------------------------|
@@ -162,8 +187,8 @@ flattened sub-configs.
 | `INFLUXDB_ORG`        | `String` | `layer8org`                 | InfluxDB organization name.                |
 | `INFLUXDB_BUCKET`     | `String` | `layer8bucket`              | InfluxDB bucket for writing usage metrics. |
 | `INFLUXDB_AUTH_TOKEN` | `String` | `DEFAULT_TOKEN_FOR_TESTING` | Authentication token for the InfluxDB API. |
-
 ---
+</div>
 <div style="page-break-after: always;"></div>
 
 ## 5. Request Lifecycle (Pingora Filters)
@@ -173,7 +198,6 @@ trigger condition, and its responsibility within the ForwardProxy. (See
 the [Pingora phase documentation](https://github.com/cloudflare/pingora/blob/main/docs/user_guide/phase.md) for
 execution order and request processing details.)
 
-<br>
 
 ### 5.1 Layer8Context (CTX - Request State Management)
 
@@ -188,8 +212,11 @@ container that flows through all Pingora filter phases for the duration of a req
 
 ### 5.2. `request_filter` Phase
 
-The `request_filter` is the initial phase for all incoming requests. It initializes the CTX, validates the request, and
-routes it to the appropriate handler based on the API path:
+The `request_filter` is the first phase executed for every incoming request. It performs early validation to reject
+malformed or unauthorized requests, handles CORS preflight responses immediately, and routes valid requests to the
+appropriate handler based on the API path (`/healthcheck`, `/init-tunnel`, or `/proxy`):
+
+<div style="font-size: 0.75em;">
 
 | API Path            | Responsibility                                                                                                                                                                                            | Error Cases                                                                                                  | Next Phase \(if success, otherwise [logging](#58-logging-phase)\) |
 |---------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------|-------------------------------------------------------------------|
@@ -197,14 +224,15 @@ routes it to the appropriate handler based on the API path:
 | GET `/healthcheck`  | Validates the request and returns a simple 200 OK response if the service is healthy, see [handle `/healthcheck`](#65-handle-healthcheck).                                                                |                                                                                                              | [logging](#58-logging-phase)                                      |
 | POST `/init-tunnel` | - Validates `backend_url` query param<br>- Resolves `backend_url` to socket addresses for upstream connection in next phase (`backend_url` will be saved as `rp_base_url` if this request succeeds)       | - `backend_url` param is missing or invalid URL format<br>- Internal Error                                   | [upstream_peer](#53-upstream_peer-phase)                          |
 | POST `/proxy`       | - Validates `int_fp_jwt` header token<br>- Retrieves init-tunnel session using `int_fp_jwt` from storage<br>- Resolves `rp_base_url` in session to socket addresses for upstream connection in next phase | - Token signature is invalid or expired (additional verification is under consideration)<br>- Internal Error | [upstream_peer](#53-upstream_peer-phase)                          |
-
 ----
+</div>
 <br>
 
 ### 5.3. `upstream_peer` Phase
 
-The `upstream_peer` phase establishes connection to the target Reverse Proxy (RP) using socket addresses resolved
-in `request_filter`.
+The `upstream_peer` phase establishes a connection to the target Reverse Proxy (RP) using socket addresses resolved
+in `request_filter`. By separating connection setup from request logic, this phase enables dynamic upstream selection
+and mTLS configuration at connect time.
 
 - If `ENABLE_TLS` is `true`, it uses mTLS with the configured CA, client certificate, and private key.
 - If `ENABLE_TLS` is `false`, it uses plain TCP.
@@ -222,25 +250,28 @@ in `request_filter`.
 The `request_body_filter` phase is responsible for reading and potentially manipulating the request body before it is
 forwarded to the upstream Reverse Proxy.
 
+<div style="font-size: 0.75em;">
+
 | API Path            | Responsibility                                                                                                                                                                                     | Error Cases                                                                                                                                                     | Next Phase                                                     |
 |---------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------|----------------------------------------------------------------|
 | POST `/init-tunnel` | Reads the full body payload, validates it, and fetches the nTor server certificate for `backend_url` from the Auth Server \(see [handle `/init-tunnel` request](#63-handle-init-tunnel-request)\). | - Invalid JSON body format or missing required fields<br>- Cannot connect to the Auth Server<br>- Error while handling Auth Server response<br>- Internal Error | [upstream\_request\_filter](#55-upstream_request_filter-phase) |
 | POST `/proxy`       | Reads the full body payload and forwards it unchanged.                                                                                                                                             | None                                                                                                                                                            | [upstream\_request\_filter](#55-upstream_request_filter-phase) |
-
 ----
+</div>
 <br>
 
 ### 5.5. `upstream_request_filter` Phase
 
 The `upstream_request_filter` phase manipulates the outgoing request headers before the request is sent to the upstream
 Reverse Proxy. This includes:
+<div style="font-size: 0.75em;">
 
 | API Path            | Responsibility  (API-specific only; shared upstream header policy applies to all handlers as described below)                                                                        | Error Cases           | Next Phase                                   |
 |---------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-----------------------|----------------------------------------------|
 | POST `/init-tunnel` | None (the request body contains the NTor credentials, so no header manipulation is needed in this phase)                                                                             | None                  | [response_filter](#56-response_filter-phase) |
 | POST `/proxy`       | - Retrieves init-tunnel session using `int_fp_jwt`<br>- Get `fp_rp_jwt` token from session and injects it into upstream headers<br>- Removes `int_fp_jwt` before forwarding upstream | Failed to get session | [response_filter](#56-response_filter-phase) |
-
 ----
+</div>
 <br>
 
 **Unified upstream header policy** (applies to all API handlers)
@@ -270,13 +301,14 @@ The `response_body_filter` phase is responsible for manipulating or inspecting t
 upstream Reverse Proxy before it is sent downstream to the Interceptor. This phase is particularly important for
 handling the response from the `/init-tunnel` endpoint, where the ForwardProxy needs to extract NTor credentials from
 the Reverse Proxy's response payload and store them for future use during `/proxy` requests.
+<div style="font-size: 0.75em;">
 
 | API Path            | Responsibility                                                                                                                                                                                                                                                                                                                         | Error Cases                                                                                                       | Next Phase                                             |
 |---------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------|--------------------------------------------------------|
 | POST `/init-tunnel` | - Extracts NTor credentials from CTX<br>- Parses RP response and removes `fp_rp_jwt` token<br>- Generates `int_fp_jwt` token using configured `jwt_virtual_connection_key` as secret<br>- Adds `int_fp_jwt` to RP response<br>- Creates and stores IntFPSession (see [handle `init-tunnel` response](#64-handle-init-tunnel-response)) | - Error parsing RP response body<br>- Internal Error (failed to get data from CTX, failed generating token, etc.) | [logging](#47-logging-phase)                           |
 | POST `/proxy`       | - Reads the full response body payload and forwards it unchanged.                                                                                                                                                                                                                                                                      | None                                                                                                              | [response_body_filter](#46-response_body_filter-phase) |
-
 ----
+</div>
 <br>
 
 ### 5.8. `logging` Phase
@@ -298,7 +330,7 @@ connection to the upstream Reverse Proxy during the `upstream_peer` phase. It is
 - Setting retry flag to attempt connection with the next available address
 - Logging detailed error information including the failed address and retry status
 
-<br>
+</br>
 
 ## 6. API Handlers
 
@@ -317,6 +349,7 @@ The *ForwardHandler* implements following core components:
     - `verify_int_fp_jwt()`: Verifies the `int_fp_jwt` token for incoming `/proxy` requests to authenticate and
       authorize access to sessions.
     - `handle_healthcheck()`: Responds to health check requests to indicate service status.
+
 <br>
 
 ### 6.1. Session Management
@@ -358,6 +391,7 @@ The verification process for the `int_fp_jwt` token includes:
 The output of this handler is a *InitTunnelSession* that is stored in the [in-memory storage](#61-session-management) of
 the ForwardHandler instance from the `/init-tunnel` step. This session contains the necessary information for handling
 subsequent `/proxy` requests, such as the `rp_base_url` and the `fp_rp_jwt` token.
+
 <br>
 
 ### 6.3. Handle `/init-tunnel` Request
@@ -430,38 +464,106 @@ Returns:
 - `418 IM_A_TEAPOT` with body `{ fp_healthcheck_error: "this is placeholder for a custom error" }` if `?error=true`
   query parameter is provided (used for testing failure scenarios)
 
-  <br>
+</br>
 
-## 7. Usage Statistics (badly drafted, needs work)
+## 7. Usage Statistics
 
-**Source: `layer8-backbone/forward-proxy/src/statistics`**
+The forward proxy reports per-client usage metrics to InfluxDB.
 
-This section describes the design and implementation of the usage statistics module in the ForwardProxy, which is
-responsible for tracking per-client usage metrics and emitting them to InfluxDB v2 for monitoring and analysis.
+### 7.1. Initialization
 
-At a high level:
+Metrics are enabled by initializing the shared client with `InfluxDBConfig`:
 
-- The proxy initializes a single shared InfluxDB writer via `Statistics::init_influxdb_client(&InfluxDBConfig)`.
-- During request handling, the proxy calls `Statistics::update(...)` with:
-    - `client_id` (who the usage belongs to),
-    - `request_path` (what type of request it was),
-    - `response_status` (whether it succeeded),
-    - and `total_byte_transferred` (bandwidth usage for proxied traffic).
+- `influxdb_url`
+- `influxdb_org`
+- `influxdb_auth_token`
+- `influxdb_bucket`
 
-The module records counters using a simple model:
+`Statistics::init_influxdb_client(...)` stores a global `InfluxDBClient` instance for later writes and should be called
+once during proxy startup, before requests are processed.
 
-- **tag**: `client_id`
-- **field**: `counter`
-- **measurements**:
-    - `total_request` (always incremented)
-    - `total_success` (incremented for successful proxied requests)
-    - `total_byte_transferred` (adds bytes for successful proxied requests)
-    - `total_tunnel_initiated` (incremented when a tunnel is successfully initiated)
+</br>
 
-Statistics updates are **best-effort**: if InfluxDB is unavailable or a write fails, the failure is **logged** (
-with `correlation_id`) and the proxy continues without failing the request.
+### 7.2. Metrics
 
-<div style="page-break-after: always;"></div>
+The following measurements are recorded, tagged by `client_id`:
+- `total_request` (always incremented)
+- `total_success` (incremented for successful proxied requests)
+- `total_byte_transferred` (adds bytes for successful proxied requests)
+- `total_tunnel_initiated` (incremented when a tunnel is successfully initiated)
+
+All values are written using the `counter` field through `InfluxDBClient::update_counter(...)`, which is invoked
+internally by the metric helper methods during request statistics submission.
+
+</br>
+
+### 7.3. Update behavior
+
+`Statistics::update(...)` is called in the [`logging` phase](#58-logging-phase) of the request lifecycle, which is the
+last phase executed after a request has finished processing, when the proxy already knows:
+
+- `client_id`
+- `correlation_id`
+- `request_path`
+- `total_byte_transferred`
+- `response_status`
+
+This method forwards the values to `InfluxDBClient::update_statistics(...)`, which records metrics as follows:
+
+- At the beginning of every statistics update, `increase_total_request()` is called to increment `total_request`
+- If the request completed with `response_status == 200` and `request_path == RequestPaths::PROXY`:
+    - `add_total_byte_transferred()` is called to record transferred bytes
+    - `increase_total_success()` is called to increment successful proxy requests
+- If the request completed with `response_status == 200` and `request_path == RequestPaths::INIT_TUNNEL`:
+    - `increase_total_tunnel_initiated()` is called to increment successful tunnel initiations
+
+In practice, this means:
+
+- `Statistics::init_influxdb_client(...)` is used during service initialization
+- `Statistics::update(...)` is used once per handled request, after the response outcome is known
+- the `InfluxDBClient::*` helper methods are not called directly from the request handler; they are called internally by
+  `update_statistics(...)`
+
+</br>
+
+### 7.4. Error handling
+
+InfluxDB write failures are logged with the request `correlation_id` and do not interrupt request processing. Errors
+produced while writing metrics are handled inside `Statistics::update(...)`.
+
+</br>
+
+### 7.5. Notes
+
+- Metrics are tracked per client via the `client_id` tag.
+- Byte counts are only recorded for successful proxy requests.
+- Tunnel counts are only recorded for successful tunnel initiation requests.
+- If the InfluxDB client is not initialized, `Statistics::update(...)` skips metric submission.
+
+<br>
 
 ## 8. Dynamic mTLS Certificate Loading
 
+### 8.1. Configuration Loading
+
+The ForwardProxy loads mTLS settings from environment variables through `TLSConfig`, including `ENABLE_TLS`, `CA_PATH`,
+`CERT_PATH`, and `KEY_PATH`. These values are flattened into `FPConfig` and loaded at startup before the proxy begins
+accepting traffic.
+
+During initialization, the proxy reads the CA certificate, client certificate, and private key from the configured file
+paths and constructs a shared `TLSCredentials` object. This object is then passed into the proxy runtime and used for
+upstream mTLS connections.
+
+</br>
+
+### 8.2. Dynamic Reload via `step-cli` Script
+
+Client certificates are expected to be renewed externally by the container entrypoint script using `step-cli`. To avoid
+restarting the ForwardProxy after renewal, the runtime starts a background watcher with `watch_tls(...)`.
+
+The watcher polls `CERT_PATH` and `KEY_PATH` every 2 seconds. When the certificate or key file changes, it reloads the
+updated files and atomically swaps the active client certificate/key pair in memory. If reload fails, the error is
+logged and the previously loaded credentials remain active.
+
+This allows certificate rotation driven by the `step-cli` script to be picked up automatically by the ForwardProxy.
+**Current limitation:** the CA certificate is not reloaded dynamically and still requires a restart if changed.

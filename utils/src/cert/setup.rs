@@ -6,7 +6,7 @@ use pingora::utils::tls::CertKey;
 use serde::Deserialize;
 use crate::deserializer;
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Clone, Default)]
 pub struct TLSConfig {
     #[serde(default, deserialize_with = "deserializer::string_to_bool")]
     pub enable_tls: bool,

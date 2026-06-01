@@ -5,11 +5,11 @@ use crate::handler::types::response::ErrorResponse;
 use crate::statistics::Statistics;
 use async_trait::async_trait;
 use bytes::Bytes;
-use pingora::{Error, ErrorType};
 use pingora::OrErr;
 use pingora::http::{RequestHeader, ResponseHeader, StatusCode};
 use pingora::prelude::{HttpPeer, ProxyHttp, Session};
 use pingora::upstreams::peer::PeerOptions;
+use pingora::{Error, ErrorType};
 use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
 use pingora_router::handler::ResponseBodyTrait;
 use reqwest::header::TRANSFER_ENCODING;
@@ -25,7 +25,11 @@ pub struct ForwardProxy {
 }
 
 impl ForwardProxy {
-    pub fn new(config: ProxyConfig, tls_credentials: Arc<TLSCredentials>, handler: ForwardHandler) -> Self {
+    pub fn new(
+        config: ProxyConfig,
+        tls_credentials: Arc<TLSCredentials>,
+        handler: ForwardHandler,
+    ) -> Self {
         ForwardProxy {
             config,
             tls_credentials,
@@ -47,9 +51,19 @@ impl ForwardProxy {
     /// # Returns
     /// * `Ok(())` - Successfully added all CORS headers
     /// * `Err(Error)` - If an error occurred while inserting headers
-    pub fn set_response_header(&self, ctx: &Layer8Context, response: &mut ResponseHeader) -> pingora::Result<()> {
-        response.insert_header("Access-Control-Allow-Credentials", self.config.cors_allow_credentials.to_string())?;
-        response.insert_header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")?;
+    pub fn set_response_header(
+        &self,
+        ctx: &Layer8Context,
+        response: &mut ResponseHeader,
+    ) -> pingora::Result<()> {
+        response.insert_header(
+            "Access-Control-Allow-Credentials",
+            self.config.cors_allow_credentials.to_string(),
+        )?;
+        response.insert_header(
+            "Access-Control-Allow-Methods",
+            "GET, POST, PUT, DELETE, OPTIONS",
+        )?;
         response.insert_header("Access-Control-Max-Age", "86400")?;
 
         if let Some(origin) = ctx.request.header.get("origin") {
@@ -80,7 +94,11 @@ impl ForwardProxy {
     /// # Returns
     /// * `Ok(true)` - Successfully handled the preflight request
     /// * `Err(Error)` - If an error occurred while processing or writing the response
-    pub async fn handle_preflight_request(&self, ctx: &mut Layer8Context, session: &mut Session) -> pingora::Result<bool> {
+    pub async fn handle_preflight_request(
+        &self,
+        ctx: &mut Layer8Context,
+        session: &mut Session,
+    ) -> pingora::Result<bool> {
         // Handle CORS preflight request
         ctx.response.status = StatusCode::NO_CONTENT;
         let mut header = ResponseHeader::build(StatusCode::NO_CONTENT, None)?;
@@ -113,7 +131,11 @@ impl ForwardProxy {
     /// # Returns
     /// * `Ok(true)` - Successfully handled the healthcheck request
     /// * `Err(Error)` - If an error occurred while processing or writing the response
-    pub async fn handle_healthcheck(&self, ctx: &mut Layer8Context, session: &mut Session) -> pingora::Result<bool> {
+    pub async fn handle_healthcheck(
+        &self,
+        ctx: &mut Layer8Context,
+        session: &mut Session,
+    ) -> pingora::Result<bool> {
         let correlation_id = ctx.get_correlation_id();
         let handler_response = self.handler.handle_healthcheck(ctx);
         let mut header = ResponseHeader::build(handler_response.status, None)?;
@@ -142,7 +164,9 @@ impl ForwardProxy {
 
         session.write_response_header_ref(&header, false).await?;
         // Write the response body to the session after setting headers
-        session.write_response_body(Some(Bytes::from(response_bytes)), true).await?;
+        session
+            .write_response_body(Some(Bytes::from(response_bytes)), true)
+            .await?;
 
         Ok(true)
     }
@@ -182,12 +206,14 @@ impl ForwardProxy {
             } else {
                 ErrorResponse {
                     error: "Invalid backend_url".to_string(),
-                }.to_bytes()
+                }
+                .to_bytes()
             }
         } else {
             ErrorResponse {
                 error: "backend_url is a required param".to_string(),
-            }.to_bytes()
+            }
+            .to_bytes()
         }
     }
 
@@ -226,7 +252,8 @@ impl ForwardProxy {
         match ctx.get_request_header().get(HeaderKeys::INT_FP_JWT) {
             None => ErrorResponse {
                 error: "Missing int_fp_jwt header".to_string(),
-            }.to_bytes(),
+            }
+            .to_bytes(),
             Some(int_fp_jwt) => match self.handler.verify_int_fp_jwt(int_fp_jwt.as_str()) {
                 Ok(session) => {
                     debug!(%correlation_id, "IntFPSession: {:?}", session);
@@ -250,7 +277,8 @@ impl ForwardProxy {
                     } else {
                         ErrorResponse {
                             error: "Invalid backend_url".to_string(),
-                        }.to_bytes()
+                        }
+                        .to_bytes()
                     }
                 }
                 Err(err) => {
@@ -336,11 +364,11 @@ impl ProxyHttp for ForwardProxy {
         let correlation_id = ctx.get_correlation_id();
 
         let addrs = ctx
-            .get(&CtxKeys::UPSTREAM_ADDRESS.to_string())
+            .get(CtxKeys::UPSTREAM_ADDRESS)
             .unwrap_or(&"".to_string())
             .clone();
         let sni = ctx
-            .get(&CtxKeys::UPSTREAM_SNI.to_string())
+            .get(CtxKeys::UPSTREAM_SNI)
             .unwrap_or(&"".to_string())
             .clone();
         info!(
@@ -357,8 +385,9 @@ impl ProxyHttp for ForwardProxy {
         let upstream_sni = sni.to_string(); // clone for move into closure
         let mut opt_peer = None;
         for addr in address_list.clone() {
-            match std::panic::catch_unwind(|| HttpPeer::new(addr, self.config.tls.enable_tls, upstream_sni.clone()))
-            {
+            match std::panic::catch_unwind(|| {
+                HttpPeer::new(addr, self.config.tls.enable_tls, upstream_sni.clone())
+            }) {
                 Ok(p) => {
                     info!(
                         %correlation_id,
@@ -467,12 +496,8 @@ impl ProxyHttp for ForwardProxy {
             (RequestPaths::HEALTHCHECK, "GET") => {
                 return self.handle_healthcheck(ctx, session).await;
             }
-            (RequestPaths::INIT_TUNNEL, "POST") => {
-                self.request_filter_init_tunnel(ctx)
-            }
-            (RequestPaths::PROXY, "POST") => {
-                self.request_filter_proxy(ctx)
-            }
+            (RequestPaths::INIT_TUNNEL, "POST") => self.request_filter_init_tunnel(ctx),
+            (RequestPaths::PROXY, "POST") => self.request_filter_proxy(ctx),
             _ => {
                 ctx.response.status = StatusCode::NOT_FOUND;
                 let header = ResponseHeader::build(StatusCode::NOT_FOUND, None)?;
@@ -828,10 +853,10 @@ impl ProxyHttp for ForwardProxy {
         // Update client usage statistics
         if session.req_header().method.as_str() == "POST"
             && (session.req_header().uri.path() == RequestPaths::PROXY
-            || session.req_header().uri.path() == RequestPaths::INIT_TUNNEL)
+                || session.req_header().uri.path() == RequestPaths::INIT_TUNNEL)
         {
             let client_id = ctx
-                .get(&CtxKeys::BACKEND_AUTH_CLIENT_ID.to_string())
+                .get(CtxKeys::BACKEND_AUTH_CLIENT_ID)
                 .unwrap_or(&"".to_string())
                 .clone();
             let request_path = session.req_header().uri.path().to_string();
@@ -846,7 +871,8 @@ impl ProxyHttp for ForwardProxy {
                     request_path,
                     total_byte_transferred,
                     status,
-                ).await;
+                )
+                .await;
             });
         }
 
@@ -858,7 +884,7 @@ impl ProxyHttp for ForwardProxy {
             origin = ctx.request.header.get("origin"),
             referer = ctx.request.header.get("referer"),
             user_agent = ctx.request.header.get("User-Agent"),
-            latency_ms=ctx.get_latency_ms(),
+            latency_micro=ctx.get_latency().as_micros(),
             response_body_size=ctx.get_response_body().len(),
             error=?e,
         );
@@ -902,7 +928,7 @@ impl ProxyHttp for ForwardProxy {
             || e.etype == ErrorType::ConnectRefused
         {
             let mut addrs = ctx
-                .get(&CtxKeys::UPSTREAM_ADDRESS.to_string())
+                .get(CtxKeys::UPSTREAM_ADDRESS)
                 .unwrap_or(&"".to_string())
                 .clone();
 

@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::time::Instant;
+use std::time::{Instant, Duration};
 use pingora::http::{Method, RequestHeader, StatusCode};
 use pingora::proxy::Session;
 use crate::utils::get_request_body;
@@ -96,7 +96,7 @@ pub struct Layer8Context {
     /// during request processing.
     /// Accessed via `get(&self, key: &str)` and `set(&mut self, key: String, value: String)` methods
     memory: HashMap<String, String>,
-    pub latency_start: Instant, // todo: remove if not needed
+    pub latency_start: Instant,
 }
 
 impl Default for Layer8Context {
@@ -157,12 +157,20 @@ impl Layer8ContextTrait for Layer8Context {
         &self.request.header
     }
 
+    fn insert_request_header(&mut self, key: &str, val: &str) {
+        self.request.header.insert(key.to_lowercase().to_string(), val.to_string());
+    }
+
+    fn remove_request_header(&mut self, key: &str) -> Option<String> {
+        self.request.header.remove(&key.to_lowercase())
+    }
+
     fn insert_response_header(&mut self, key: &str, val: &str) {
         self.response.header.insert(key.to_lowercase().to_string(), val.to_string());
     }
 
     fn remove_response_header(&mut self, key: &str) -> Option<String> {
-        self.response.header.remove(key)
+        self.response.header.remove(&key.to_lowercase())
     }
 
     fn get_response_header(&self) -> &Layer8Header {
@@ -225,8 +233,8 @@ impl Layer8ContextTrait for Layer8Context {
             .clone()
     }
 
-    fn get_latency_ms(&self) -> i64 {
-        self.latency_start.elapsed().as_nanos() as i64
+    fn get_latency(&self) -> Duration {
+        self.latency_start.elapsed()
     }
 }
 
@@ -240,6 +248,8 @@ pub trait Layer8ContextTrait {
     fn param(&self, key: &str) -> Option<&String>;
     fn set_request_header(&mut self, header: RequestHeader);
     fn get_request_header(&self) -> &Layer8Header;
+    fn insert_request_header(&mut self, key: &str, val: &str);
+    fn remove_request_header(&mut self, key: &str) -> Option<String>;
     fn insert_response_header(&mut self, key: &str, val: &str);
     fn remove_response_header(&mut self, key: &str) -> Option<String>;
     fn get_response_header(&self) -> &Layer8Header;
@@ -254,7 +264,7 @@ pub trait Layer8ContextTrait {
     fn set_request_summary(&mut self, summary: Layer8ContextRequestSummary);
     fn set_correlation_id(&mut self) -> String;
     fn get_correlation_id(&self) -> String;
-    fn get_latency_ms(&self) -> i64;
+    fn get_latency(&self) -> Duration;
 }
 
 /// `Layer8Header` is a type alias for a map of HTTP header key-value pairs used

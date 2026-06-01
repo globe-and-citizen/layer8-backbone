@@ -1,15 +1,15 @@
-use std::sync::Arc;
+use crate::handler::common::consts::LogTypes;
+use boring::stack::Stack;
+use boring::x509::X509;
+use boring::x509::store::X509StoreBuilder;
 use boring::{
     ssl::{SslAlert, SslRef, SslVerifyError, SslVerifyMode},
-    x509::{X509StoreContext},
+    x509::X509StoreContext,
 };
-use boring::stack::Stack;
-use boring::x509::store::X509StoreBuilder;
-use boring::x509::X509;
 use pingora::{listeners::TlsAccept, protocols::tls::TlsRef};
+use std::sync::Arc;
 use tracing::{error, info};
 use utils::cert::TLSCredentials;
-use crate::handler::common::consts::LogTypes;
 
 /// TLS configuration for the reverse-proxy server side.
 ///
@@ -45,7 +45,10 @@ impl TlsAccept for TLSServerConfig {
         // set hostname
         ssl.set_hostname(&self.host_name)
             .inspect_err(|e| {
-                error!(log_type = LogTypes::TLS_HANDSHAKE, "Failed to set hostname: {}", e);
+                error!(
+                    log_type = LogTypes::TLS_HANDSHAKE,
+                    "Failed to set hostname: {}", e
+                );
             })
             .unwrap();
 
@@ -53,16 +56,22 @@ impl TlsAccept for TLSServerConfig {
         let cert_key = self.tls_credentials.cert_key.load_full();
 
         // set private key
-        ssl.set_private_key(&cert_key.key())
+        ssl.set_private_key(cert_key.key())
             .inspect_err(|e| {
-                error!(log_type = LogTypes::TLS_HANDSHAKE, "Failed to set server private key: {}", e);
+                error!(
+                    log_type = LogTypes::TLS_HANDSHAKE,
+                    "Failed to set server private key: {}", e
+                );
             })
             .unwrap();
 
         // leaf certificate
-        ssl.set_certificate(&cert_key.leaf())
+        ssl.set_certificate(cert_key.leaf())
             .inspect_err(|e| {
-                error!(log_type = LogTypes::TLS_HANDSHAKE, "Failed to set server certificate: {}", e);
+                error!(
+                    log_type = LogTypes::TLS_HANDSHAKE,
+                    "Failed to set server certificate: {}", e
+                );
             })
             .unwrap();
 
@@ -70,7 +79,10 @@ impl TlsAccept for TLSServerConfig {
         for cert in cert_key.intermediates() {
             ssl.add_chain_cert(cert)
                 .inspect_err(|e| {
-                    error!(log_type = LogTypes::TLS_HANDSHAKE, "Failed to add chain certificate: {}", e);
+                    error!(
+                        log_type = LogTypes::TLS_HANDSHAKE,
+                        "Failed to add chain certificate: {}", e
+                    );
                 })
                 .unwrap();
         }
@@ -83,6 +95,7 @@ impl TlsAccept for TLSServerConfig {
     }
 }
 
+#[allow(clippy::type_complexity)]
 impl TLSServerConfig {
     fn verify_callback(
         ca_cert: X509,
@@ -102,13 +115,10 @@ impl TLSServerConfig {
     ///
     /// Returns `Ok(())` when verification succeeds, otherwise returns
     /// `SslVerifyError` mapped to an appropriate TLS alert.
-    fn verify_client_file(
-        ca_cert: &X509,
-        ssl: &mut TlsRef,
-    ) -> Result<(), SslVerifyError> {
+    fn verify_client_file(ca_cert: &X509, ssl: &mut TlsRef) -> Result<(), SslVerifyError> {
         let client_cert = ssl.peer_certificate().ok_or_else(|| {
             error!(
-                log_type=LogTypes::TLS_HANDSHAKE,
+                log_type = LogTypes::TLS_HANDSHAKE,
                 "Failed to get client certificate"
             );
             SslVerifyError::Invalid(SslAlert::NO_CERTIFICATE)
@@ -136,19 +146,27 @@ impl TLSServerConfig {
                 .map_err(|_| SslVerifyError::Invalid(SslAlert::INTERNAL_ERROR))?;
             ctx.init(&store, &client_cert, &empty_chain, |c| c.verify_cert())
         }
-            .map_err(|_| {
-                error!(log_type=LogTypes::TLS_HANDSHAKE, "Certificate verification process failed");
-                SslVerifyError::Invalid(SslAlert::BAD_CERTIFICATE)
-            })?;
+        .map_err(|_| {
+            error!(
+                log_type = LogTypes::TLS_HANDSHAKE,
+                "Certificate verification process failed"
+            );
+            SslVerifyError::Invalid(SslAlert::BAD_CERTIFICATE)
+        })?;
 
         if !verified {
-            error!(log_type=LogTypes::TLS_HANDSHAKE, "Client certificate verification failed");
+            error!(
+                log_type = LogTypes::TLS_HANDSHAKE,
+                "Client certificate verification failed"
+            );
             return Err(SslVerifyError::Invalid(SslAlert::BAD_CERTIFICATE));
         }
 
-        info!(log_type=LogTypes::TLS_HANDSHAKE, "Client certificate verification succeeded");
+        info!(
+            log_type = LogTypes::TLS_HANDSHAKE,
+            "Client certificate verification succeeded"
+        );
 
         Ok(())
     }
 }
-

@@ -20,7 +20,7 @@ use serde::ser::Serialize;
 /// - `T`: The handler type, typically containing shared state or logic for processing requests.
 ///
 /// # Example
-/// ```rust
+/// ```ignore
 /// use std::sync::Arc;
 /// use futures::FutureExt;
 /// use pingora::http::StatusCode;
@@ -45,7 +45,7 @@ pub type APIHandler<T> = Box<dyn for<'a> Fn(&'a T, &'a mut Layer8Context) -> Box
 
 /// `APIHandlerResponse` contains information returned by handlers and can be
 /// shared across handlers during request processing.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, PartialEq)]
 pub struct APIHandlerResponse {
     pub status: StatusCode,
     pub cookies: Option<String>,

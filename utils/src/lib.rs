@@ -30,12 +30,14 @@ pub fn new_uuid() -> String {
     Uuid::new_v4().to_string()
 }
 
+/// Converts a vector of bytes to a JSON string. If the conversion fails, it returns an empty string.
 pub fn vec_to_json(vec: Vec<u8>) -> String {
-    serde_json::to_string(&vec).unwrap()
+    serde_json::to_string(&vec).unwrap_or_else(|_| "".to_string())
 }
 
+/// Converts a JSON string to a vector of bytes. If the JSON is invalid or cannot be parsed into a vector of bytes, it returns an empty vector.
 pub fn json_to_vec(json: &str) -> Vec<u8> {
-    serde_json::from_str(json).unwrap()
+    serde_json::from_str(json).unwrap_or_default()
 }
 
 pub fn string_to_array32(s: String) -> Option<[u8; 32]> {

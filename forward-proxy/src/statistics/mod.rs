@@ -1,30 +1,46 @@
-mod influxdb_client;
+pub mod influxdb_client;
 
-use crate::config::InfluxDBConfig;
 use crate::handler::consts::LogTypes;
-use crate::statistics::influxdb_client::InfluxDBClient;
 use futures::TryFutureExt;
 use once_cell::sync::Lazy;
+use std::error::Error;
 use tokio::sync::Mutex;
 use tracing::error;
 
-struct InfluxDBMeasurements;
-
-impl InfluxDBMeasurements {
-    const TOTAL_BYTE_TRANSFERRED: &'static str = "total_byte_transferred";
-    const TOTAL_TUNNEL_INITIATED: &'static str = "total_tunnel_initiated";
-    const TOTAL_SUCCESS: &'static str = "total_success";
-    const TOTAL_REQUEST: &'static str = "total_request";
+#[async_trait::async_trait]
+pub trait StatisticsWriter: Send + Sync {
+    /// Updates statistics for a request.
+    ///
+    /// Increments the total request counter, and depending on the response status
+    /// and request path, updates additional metrics (bytes, success count, tunnel initiations).
+    ///
+    /// # Arguments
+    /// * `client_id` - unique identifier of the client
+    /// * `request_path` - request path (PROXY or INIT\_TUNNEL)
+    /// * `total_byte_transferred` - number of bytes transferred
+    /// * `response_status` - HTTP response status code
+    ///
+    /// # Returns
+    /// * `Ok(())` if the update was successful
+    /// * `Err` if an error occurred while writing
+    async fn update_statistics(
+        &self,
+        client_id: String,
+        request_path: String,
+        total_byte_transferred: i64,
+        response_status: u16,
+    ) -> Result<(), Box<dyn Error + Sync + Send>>;
 }
 
-static INFLUXDB_CLIENT: Lazy<Mutex<Option<InfluxDBClient>>> = Lazy::new(|| Mutex::new(None));
+static INFLUXDB_CLIENT: Lazy<Mutex<Option<Box<dyn StatisticsWriter>>>> =
+    Lazy::new(|| Mutex::new(None));
 
 pub struct Statistics;
 
 impl Statistics {
-    pub async fn init_influxdb_client(config: &InfluxDBConfig) {
+    pub async fn init_statistics_writer(writer: Box<dyn StatisticsWriter>) {
         let mut influxdb_client = INFLUXDB_CLIENT.lock().await;
-        *influxdb_client = Some(InfluxDBClient::new(&config));
+        *influxdb_client = Some(writer);
     }
 
     pub async fn update(
