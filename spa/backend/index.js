@@ -248,6 +248,12 @@ app.get("/me", (req, res) => {
     });
 });
 
+app.get("/ravi-test", (req, res) => {
+    res.status(200).json({
+        msg: "Thank God I'm Done!"
+    });
+});
+
 app.post("/logout", (req, res) => {
     console.log("logout user:", req.session.user);
     req.session.destroy(() => {
