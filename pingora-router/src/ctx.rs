@@ -97,6 +97,7 @@ pub struct Layer8Context {
     /// Accessed via `get(&self, key: &str)` and `set(&mut self, key: String, value: String)` methods
     memory: HashMap<String, String>,
     pub latency_start: Instant,
+    pub otel_span: Option<tracing::Span>,
 }
 
 impl Default for Layer8Context {
@@ -106,6 +107,7 @@ impl Default for Layer8Context {
             response: Default::default(),
             memory: Default::default(),
             latency_start: Instant::now(),
+            otel_span: None,
         }
     }
 }
@@ -236,6 +238,14 @@ impl Layer8ContextTrait for Layer8Context {
     fn get_latency(&self) -> Duration {
         self.latency_start.elapsed()
     }
+
+    fn set_otel_span(&mut self, span: tracing::Span) {
+        self.otel_span = Some(span);
+    }
+
+    fn otel_span(&self) -> Option<&tracing::Span> {
+        self.otel_span.as_ref()
+    }
 }
 
 /// This trait appears to be redundant and could potentially be removed,
@@ -265,6 +275,8 @@ pub trait Layer8ContextTrait {
     fn set_correlation_id(&mut self) -> String;
     fn get_correlation_id(&self) -> String;
     fn get_latency(&self) -> Duration;
+    fn set_otel_span(&mut self, span: tracing::Span);
+    fn otel_span(&self) -> Option<&tracing::Span>;
 }
 
 /// `Layer8Header` is a type alias for a map of HTTP header key-value pairs used

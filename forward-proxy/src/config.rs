@@ -1,6 +1,8 @@
 use serde::Deserialize;
 use utils::cert::TLSConfig;
 use utils::deserializer;
+use utils::log::LogConfig;
+use utils::telemetry::TelemetryConfig;
 
 #[derive(Debug, Deserialize)]
 pub struct FPConfig {
@@ -15,17 +17,8 @@ pub struct FPConfig {
     pub handler: HandlerConfig,
     #[serde(flatten)]
     pub influxdb: InfluxDBConfig,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct LogConfig {
-    pub log_level: String,
-    /// default to "json" if not "plain"
-    pub log_format: String,
-    /// "console" or folder path
-    pub log_path: String,
-    /// required if log_path is not "console"
-    pub log_filename: String,
+    #[serde(flatten)]
+    pub telemetry: TelemetryConfig,
 }
 
 #[derive(Debug, Deserialize)]

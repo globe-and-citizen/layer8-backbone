@@ -2,6 +2,7 @@ pub mod jwt;
 pub mod deserializer;
 pub mod log;
 pub mod cert;
+pub mod telemetry;
 
 use url::Url;
 

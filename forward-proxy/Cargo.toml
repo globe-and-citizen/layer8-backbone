@@ -22,5 +22,8 @@ tracing = "0.1.41"
 influxdb2 = { version = "0.5.2", default-features = false, features = ["rustls"] }
 bincode = "2.0.1"
 
+# opentelemetry
+opentelemetry = "0.32"
+
 [dev-dependencies]
 axum = "0.8.9"

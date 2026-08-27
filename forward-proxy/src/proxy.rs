@@ -1,14 +1,15 @@
 use crate::config::ProxyConfig;
-use crate::handler::ForwardHandler;
 use crate::handler::consts::{CtxKeys, HeaderKeys, LogTypes, RequestPaths};
 use crate::handler::types::response::ErrorResponse;
+use crate::handler::ForwardHandler;
 use crate::statistics::Statistics;
 use async_trait::async_trait;
 use bytes::Bytes;
-use pingora::OrErr;
+use opentelemetry::global;
 use pingora::http::{RequestHeader, ResponseHeader, StatusCode};
 use pingora::prelude::{HttpPeer, ProxyHttp, Session};
 use pingora::upstreams::peer::PeerOptions;
+use pingora::OrErr;
 use pingora::{Error, ErrorType};
 use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
 use pingora_router::handler::ResponseBodyTrait;
@@ -17,6 +18,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tracing::{debug, error, info};
 use utils::cert::TLSCredentials;
+use utils::telemetry::PingoraHeaderInjector;
 
 pub struct ForwardProxy {
     config: ProxyConfig,
@@ -485,6 +487,19 @@ impl ProxyHttp for ForwardProxy {
         // initialize context with request information for later use in the processing pipeline
         ctx.update(session).await?;
 
+        let path = session.req_header().uri.path();
+        let method = session.req_header().method.as_str();
+
+        let span = tracing::info_span!(
+            "fp.request",
+            http.request.method = %method,
+            url.path = %path,
+        );
+
+        ctx.set_otel_span(span.clone());
+
+        let _guard = span.enter();
+
         if session.req_header().method == pingora::http::Method::OPTIONS {
             return self.handle_preflight_request(ctx, session).await;
         }
@@ -693,6 +708,19 @@ impl ProxyHttp for ForwardProxy {
             .insert_header("x-correlation-id", correlation_id)
             .unwrap_or_default();
 
+        if let Some(span) = ctx.otel_span() {
+            let _guard = span.enter();
+
+            global::get_text_map_propagator(|propagator| {
+                propagator.inject_context(
+                    &opentelemetry::Context::current(),
+                    &mut PingoraHeaderInjector {
+                        request: upstream_request,
+                    },
+                );
+            });
+        }
+
         Ok(())
     }
 
@@ -874,6 +902,16 @@ impl ProxyHttp for ForwardProxy {
                 )
                 .await;
             });
+        }
+
+        if let Some(span) = ctx.otel_span() {
+            let _guard = span.enter();
+
+            span.record("http.response.status_code", status);
+
+            if let Some(err) = e {
+                span.record("error.type", tracing::field::display(err));
+            }
         }
 
         info!(
