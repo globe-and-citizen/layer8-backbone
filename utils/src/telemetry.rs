@@ -3,23 +3,89 @@ use opentelemetry::trace::TracerProvider;
 use opentelemetry_otlp::{SpanExporter, WithExportConfig};
 use opentelemetry_sdk::{trace::SdkTracerProvider, Resource};
 use tracing_subscriber::Registry;
+use crate::deserializer;
+
+#[derive(Debug, Clone)]
+pub enum OTLPProtocol {
+    Grpc,
+    Http,
+}
+
+impl<'de> serde::Deserialize<'de> for OTLPProtocol {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct ProtocolVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for ProtocolVisitor {
+            type Value = OTLPProtocol;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("a string 'grpc' or 'http' (case-insensitive)")
+            }
+
+            fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                match v.to_ascii_lowercase().as_str() {
+                    "grpc" => Ok(OTLPProtocol::Grpc),
+                    "http" => Ok(OTLPProtocol::Http),
+                    other => Err(E::unknown_variant(other, &["grpc", "http"])),
+                }
+            }
+        }
+
+        deserializer.deserialize_str(ProtocolVisitor)
+    }
+}
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct TelemetryConfig {
-    pub otlp_exporter_endpoint: String,
-    pub otlp_exporter_protocol: String,
+    #[serde(deserialize_with = "deserializer::string_to_bool")]
+    pub otlp_enable: bool,
+    pub otlp_endpoint: String,
+    pub otlp_protocol: OTLPProtocol,
+    pub otlp_service_name: String,
+}
+
+impl Default for TelemetryConfig {
+    fn default() -> Self {
+        Self {
+            otlp_enable: false,
+            otlp_endpoint: "".to_string(),
+            otlp_protocol: OTLPProtocol::Grpc,
+            otlp_service_name: "app".to_string(),
+        }
+    }
 }
 
 pub fn init_telemetry(
     config: TelemetryConfig,
-) -> (SdkTracerProvider, OpenTelemetryLayer<Registry, Tracer>) {
+) -> Option<(SdkTracerProvider, OpenTelemetryLayer<Registry, Tracer>)> {
+    if !config.otlp_enable {
+        return None;
+    }
     // Create an OTLP span exporter using the tonic (gRPC) implementation.
     // This exporter will send collected spans to an OTLP collector/endpoint.
-    let exporter = SpanExporter::builder()
-        .with_tonic()
-        .with_endpoint(config.otlp_exporter_endpoint.to_string())
-        .build()
-        .expect("failed to create OTLP exporter");
+    let exporter = match config.otlp_protocol {
+        OTLPProtocol::Grpc => {
+            SpanExporter::builder()
+                .with_tonic()
+                .with_endpoint(config.otlp_endpoint)
+                .build()
+                .expect("Failed to create OTLP gRPC exporter")
+        }
+
+        OTLPProtocol::Http => {
+            SpanExporter::builder()
+                .with_http()
+                .with_endpoint(config.otlp_endpoint)
+                .build()
+                .expect("Failed to create OTLP HTTP exporter")
+        }
+    };
 
     // Build a tracer provider with a Resource that identifies this service.
     // The provider is configured with a batch exporter to buffer and export spans
@@ -27,14 +93,14 @@ pub fn init_telemetry(
     let provider = SdkTracerProvider::builder()
         .with_resource(
             Resource::builder()
-                .with_service_name("forward-proxy")
+                .with_service_name(config.otlp_service_name.clone())
                 .build(),
         )
         .with_batch_exporter(exporter)
         .build();
 
     // Obtain a tracer from the provider. This tracer is used to create spans.
-    let tracer = provider.tracer("forward-proxy");
+    let tracer = provider.tracer(config.otlp_service_name.clone());
 
     // Create a tracing layer that forwards spans from `tracing` to OpenTelemetry.
     let telemetry_layer = tracing_opentelemetry::layer().with_tracer(tracer);
@@ -53,7 +119,7 @@ pub fn init_telemetry(
     global::set_tracer_provider(provider.clone());
 
     // Return the configured provider so the caller can keep ownership if needed.
-    (provider, telemetry_layer)
+    Some((provider, telemetry_layer))
 }
 
 use opentelemetry::propagation::Injector;

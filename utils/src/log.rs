@@ -7,7 +7,7 @@ use opentelemetry_sdk::trace::SdkTracerProvider;
 use crate::telemetry::{init_telemetry, TelemetryConfig};
 use serde::Deserialize;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct LogConfig {
     pub log_level: String,
     /// default to "json" if not "plain"
@@ -18,9 +18,20 @@ pub struct LogConfig {
     pub log_filename: String,
 }
 
+impl Default for LogConfig {
+    fn default() -> Self {
+        Self {
+            log_level: "INFO".into(),
+            log_format: "plain".into(),
+            log_path: "console".into(),
+            log_filename: "app.log".into(),
+        }
+    }
+}
+
 pub struct LogAndTraceGuard {
     _file_guard: Option<WorkerGuard>,
-    _trace_provider: SdkTracerProvider,
+    _trace_provider: Option<SdkTracerProvider>,
 }
 
 pub fn init_logger(
@@ -28,39 +39,66 @@ pub fn init_logger(
     telemetry_config: TelemetryConfig,
 ) -> LogAndTraceGuard {
     // 1) Map the configured string level to the tracing filter.
-    //    This is the gatekeeper for events emitted by the app.
     let level_filter = to_level_filter(log_config.log_level);
 
     // 2) Select the destination writer.
-    //    - "console" => stdout
-    //    - otherwise => daily rotating file under the configured directory/name
-    //    The non-blocking wrapper prevents logging from blocking the app thread.
     let (writer, file_guard) = if log_config.log_path == "console" {
-        let (non_blocking, guard) = tracing_appender::non_blocking(std::io::stdout());
-        (fmt::writer::BoxMakeWriter::new(non_blocking), Some(guard))
+        let (non_blocking, guard) =
+            tracing_appender::non_blocking(std::io::stdout());
+
+        (
+            fmt::writer::BoxMakeWriter::new(non_blocking),
+            Some(guard),
+        )
     } else {
-        let file_appender = tracing_appender::rolling::daily(log_config.log_path, log_config.log_filename);
-        let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
-        (fmt::writer::BoxMakeWriter::new(non_blocking), Some(guard))
+        let file_appender = tracing_appender::rolling::daily(
+            log_config.log_path,
+            log_config.log_filename,
+        );
+
+        let (non_blocking, guard) =
+            tracing_appender::non_blocking(file_appender);
+
+        (
+            fmt::writer::BoxMakeWriter::new(non_blocking),
+            Some(guard),
+        )
     };
 
-    // 3) Build the OpenTelemetry provider and attach its tracing layer.
-    //    This allows tracing events to be exported through the configured SDK.
-    let (telemetry_provider, telemetry_layer) = init_telemetry(telemetry_config);
+    // 3) Initialize OpenTelemetry.
+    //
+    //    If telemetry is disabled:
+    //        telemetry = None
+    //
+    //    If telemetry is enabled:
+    //        telemetry = Some((provider, layer))
+    let telemetry = init_telemetry(telemetry_config);
+
+    // Keep the provider alive for as long as the logger is alive.
+    let telemetry_provider = telemetry
+        .as_ref()
+        .map(|(provider, _)| provider.clone());
+
+    // Extract the optional OpenTelemetry layer.
+    let telemetry_layer = telemetry.map(|(_, layer)| layer);
 
     // 4) Determine output format.
-    //    Anything other than "plain" is treated as structured JSON output.
     let is_json = log_config.log_format.to_lowercase() != "plain";
 
     // 5) Create the base registry.
-    //    The registry combines the exporter layer with the log-level filter.
+    //
+    // `telemetry_layer` is Option<OpenTelemetryLayer<...>>.
+    //
+    // When Some:
+    //     Registry → OpenTelemetry layer → level filter
+    //
+    // When None:
+    //     Registry → level filter
     let registry = tracing_subscriber::registry()
         .with(telemetry_layer)
         .with(level_filter);
 
-    // 6) Create the final dispatch object.
-    //    The selected formatter controls how events are rendered.
-    //    `writer` is consumed in the chosen branch and is therefore not reused.
+    // 6) Add the selected formatting layer.
     let dispatch = if is_json {
         let json_layer = fmt::layer()
             .with_writer(writer)
@@ -72,7 +110,9 @@ pub fn init_logger(
             .with_current_span(true)
             .flatten_event(true);
 
-        tracing::Dispatch::new(registry.with(Some(json_layer)))
+        tracing::Dispatch::new(
+            registry.with(Some(json_layer))
+        )
     } else {
         let plain_layer = fmt::layer()
             .with_writer(writer)
@@ -82,16 +122,23 @@ pub fn init_logger(
             .with_line_number(true)
             .compact();
 
-        tracing::Dispatch::new(registry.with(Some(plain_layer)))
+        tracing::Dispatch::new(
+            registry.with(Some(plain_layer))
+        )
     };
 
-    // 7) Install this subscriber as the process-wide default.
-    //    After this call, all `tracing::info!`, `warn!`, and `error!`
-    //    calls in the application use this configuration by default.
+    // 7) Install the single global tracing subscriber.
     tracing::dispatcher::set_global_default(dispatch)
         .expect("Failed to set global tracing default dispatcher");
 
-    tracing::info!("Logger and OpenTelemetry Tracing initialized successfully.");
+    tracing::info!(
+        "Logger initialized successfully. OpenTelemetry tracing: {}",
+        if telemetry_provider.is_some() {
+            "enabled"
+        } else {
+            "disabled"
+        }
+    );
 
     LogAndTraceGuard {
         _file_guard: file_guard,
