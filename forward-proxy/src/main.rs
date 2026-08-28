@@ -2,7 +2,6 @@ mod config;
 mod handler;
 mod proxy;
 mod statistics;
-mod telemetry;
 
 use crate::config::FPConfig;
 use crate::handler::ForwardHandler;

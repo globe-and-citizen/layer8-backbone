@@ -114,6 +114,11 @@ pub fn init_telemetry(
     //     .with(telemetry)
     //     .init();
 
+    // registers a propagator in OpenTelemetry's global context
+    global::set_text_map_propagator(
+        opentelemetry_sdk::propagation::TraceContextPropagator::new(),
+    );
+
     // Set the OpenTelemetry global tracer provider so other libraries can
     // retrieve tracers from the global API.
     global::set_tracer_provider(provider.clone());
@@ -134,6 +139,29 @@ pub struct PingoraHeaderInjector<'a> {
 
 impl<'a> Injector for PingoraHeaderInjector<'a> {
     fn set(&mut self, key: &str, value: String) {
-        let _ = self.request.insert_header(key.to_owned(), value);
+        self.request
+            .insert_header(key.to_owned(), value)
+            .expect("failed to insert OTel header");
+    }
+}
+
+pub struct PingoraHeaderExtractor<'a> {
+    pub request: &'a pingora::http::RequestHeader,
+}
+
+impl opentelemetry::propagation::Extractor for PingoraHeaderExtractor<'_> {
+    fn get(&self, key: &str) -> Option<&str> {
+        self.request
+            .headers
+            .get(key)
+            .and_then(|value| value.to_str().ok())
+    }
+
+    fn keys(&self) -> Vec<&str> {
+        self.request
+            .headers
+            .keys()
+            .map(|name| name.as_str())
+            .collect()
     }
 }

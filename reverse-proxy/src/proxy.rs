@@ -2,12 +2,16 @@ use crate::config::ProxyConfig;
 use crate::handler::common::consts::LogTypes;
 use async_trait::async_trait;
 use bytes::Bytes;
+use opentelemetry::global;
+use opentelemetry::trace::TraceContextExt;
 use pingora::http::{ResponseHeader, StatusCode};
 use pingora::prelude::{HttpPeer, ProxyHttp};
 use pingora::proxy::Session;
 use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
 use pingora_router::router::Router;
-use tracing::{debug, info};
+use tracing::{debug, error, info};
+use tracing_opentelemetry::OpenTelemetrySpanExt;
+use utils::telemetry::PingoraHeaderExtractor;
 
 /// Reverse proxy server for routing and processing HTTP requests.
 ///
@@ -163,16 +167,37 @@ impl<T: Sync> ProxyHttp for ReverseProxy<T> {
         let path = session.req_header().uri.path();
         let method = session.req_header().method.as_str();
 
-        let span = tracing::info_span!(
-            "request::lifecycle",
-            http.request.method = %method,
-            url.path = %path,
-        );
+        // telemetry instrument
+        {
+            // Extract tracing metadata from incoming request headers and make it the
+            // parent of the current request span. This keeps the proxy request in the
+            // same distributed trace as the upstream caller.
+            let parent_context = global::get_text_map_propagator(|propagator| {
+                propagator.extract(&PingoraHeaderExtractor {
+                    request: session.req_header(),
+                })
+            });
 
-        ctx.set_otel_span(span.clone());
+            // Create a request lifecycle span with the HTTP method and path. This span
+            // is used for tracing the full lifetime of the request inside the proxy and
+            // is later attached to the context for downstream propagation.
+            let lifecycle_span = tracing::info_span!(
+                "rp::lifecycle",
+                http.request.method = %method,
+                url.path = %path,
+            );
+            
+            // Enter span so all logs emitted while processing this request inherit the same trace and span context.
+            let _guard = lifecycle_span.enter();
 
-        let _guard = span.enter();
+            if let Err(err) = lifecycle_span.set_parent(parent_context) {
+                error!("telemetry: failed to set parent context: {:?}", err);
+            }
 
+            // Store the span in the request context so it stays alive for the lifetime of the request.
+            // It is dropped when the context is dropped or when it is explicitly released.
+            ctx.set_otel_span(lifecycle_span.clone());
+        }
 
         ctx.read_request_body(session).await?;
 
@@ -234,17 +259,20 @@ impl<T: Sync> ProxyHttp for ReverseProxy<T> {
         if let Some(_err) = e {
             status = session.response_written().unwrap().status.as_u16();
         }
-        let correlation_id = ctx.get_correlation_id();
 
-        if let Some(span) = ctx.otel_span() {
+        let correlation_id = if let Some(span) = ctx.get_otel_span() {
             let _guard = span.enter();
+            let cx = span.context();
 
             span.record("http.response.status_code", status);
 
             if let Some(err) = e {
                 span.record("error.type", tracing::field::display(err));
             }
-        }
+            cx.span().span_context().trace_id().to_string()
+        } else {
+            ctx.get_correlation_id()
+        };
 
         info!(
             %correlation_id,

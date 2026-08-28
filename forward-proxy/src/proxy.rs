@@ -6,6 +6,7 @@ use crate::statistics::Statistics;
 use async_trait::async_trait;
 use bytes::Bytes;
 use opentelemetry::global;
+use opentelemetry::trace::TraceContextExt;
 use pingora::http::{RequestHeader, ResponseHeader, StatusCode};
 use pingora::prelude::{HttpPeer, ProxyHttp, Session};
 use pingora::upstreams::peer::PeerOptions;
@@ -17,8 +18,9 @@ use reqwest::header::TRANSFER_ENCODING;
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::{debug, error, info};
+use tracing_opentelemetry::OpenTelemetrySpanExt;
 use utils::cert::TLSCredentials;
-use utils::telemetry::PingoraHeaderInjector;
+use utils::telemetry::{PingoraHeaderExtractor, PingoraHeaderInjector};
 
 pub struct ForwardProxy {
     config: ProxyConfig,
@@ -490,15 +492,37 @@ impl ProxyHttp for ForwardProxy {
         let path = session.req_header().uri.path();
         let method = session.req_header().method.as_str();
 
-        let span = tracing::info_span!(
-            "request::lifecycle",
-            http.request.method = %method,
-            url.path = %path,
-        );
+        // telemetry instrument
+        {
+            // Extract tracing metadata from incoming request headers and make it the
+            // parent of the current request span. This keeps the proxy request in the
+            // same distributed trace as the upstream caller.
+            let parent_context = global::get_text_map_propagator(|propagator| {
+                propagator.extract(&PingoraHeaderExtractor {
+                    request: session.req_header(),
+                })
+            });
 
-        ctx.set_otel_span(span.clone());
+            // Create a request lifecycle span with the HTTP method and path. This span
+            // is used for tracing the full lifetime of the request inside the proxy and
+            // is later attached to the context for downstream propagation.
+            let lifecycle_span = tracing::info_span!(
+                "fp::lifecycle",
+                http.request.method = %method,
+                url.path = %path,
+            );
 
-        let _guard = span.enter();
+            // Enter span so all logs emitted while processing this request inherit the same trace and span context.
+            let _guard = lifecycle_span.enter();
+
+            if let Err(err) = lifecycle_span.set_parent(parent_context) {
+                error!("telemetry: failed to set parent context: {:?}", err);
+            }
+
+            // Store the span in the request context so it stays alive for the lifetime of the request.
+            // It is dropped when the context is dropped or when it is explicitly released.
+            ctx.set_otel_span(lifecycle_span.clone());
+        }
 
         if session.req_header().method == pingora::http::Method::OPTIONS {
             return self.handle_preflight_request(ctx, session).await;
@@ -708,12 +732,13 @@ impl ProxyHttp for ForwardProxy {
             .insert_header("x-correlation-id", correlation_id)
             .unwrap_or_default();
 
-        if let Some(span) = ctx.otel_span() {
-            let _guard = span.enter();
+        // Inject OpenTelemetry span context into upstream request headers for distributed tracing
+        if let Some(span) = ctx.get_otel_span() {
+            let otel_context = span.context();
 
             global::get_text_map_propagator(|propagator| {
                 propagator.inject_context(
-                    &opentelemetry::Context::current(),
+                    &otel_context,
                     &mut PingoraHeaderInjector {
                         request: upstream_request,
                     },
@@ -871,12 +896,24 @@ impl ProxyHttp for ForwardProxy {
     where
         Self::CTX: Send + Sync,
     {
-        let correlation_id = ctx.get_correlation_id();
-
         let mut status = ctx.response.status.as_u16();
         if let Some(_err) = e {
             status = session.response_written().unwrap().status.as_u16();
         }
+
+        let correlation_id = if let Some(span) = ctx.get_otel_span() {
+            let _guard = span.enter();
+            let cx = span.context();
+
+            span.record("http.response.status_code", status);
+
+            if let Some(err) = e {
+                span.record("error.type", tracing::field::display(err));
+            }
+            cx.span().span_context().trace_id().to_string()
+        } else {
+            ctx.get_correlation_id()
+        };
 
         // Update client usage statistics
         if session.req_header().method.as_str() == "POST"
@@ -887,30 +924,23 @@ impl ProxyHttp for ForwardProxy {
                 .get(CtxKeys::BACKEND_AUTH_CLIENT_ID)
                 .unwrap_or(&"".to_string())
                 .clone();
-            let request_path = session.req_header().uri.path().to_string();
-            let total_byte_transferred =
-                (ctx.get_request_body().len() + ctx.get_response_body().len()) as i64;
-            let correlation_id = correlation_id.clone();
 
-            tokio::spawn(async move {
-                Statistics::update(
-                    client_id,
-                    correlation_id,
-                    request_path,
-                    total_byte_transferred,
-                    status,
-                )
-                .await;
-            });
-        }
+            if !client_id.is_empty() {
+                let request_path = session.req_header().uri.path().to_string();
+                let total_byte_transferred =
+                    (ctx.get_request_body().len() + ctx.get_response_body().len()) as i64;
+                let correlation_id = correlation_id.clone();
 
-        if let Some(span) = ctx.otel_span() {
-            let _guard = span.enter();
-
-            span.record("http.response.status_code", status);
-
-            if let Some(err) = e {
-                span.record("error.type", tracing::field::display(err));
+                tokio::spawn(async move {
+                    Statistics::update(
+                        client_id,
+                        correlation_id,
+                        request_path,
+                        total_byte_transferred,
+                        status,
+                    )
+                    .await;
+                });
             }
         }
 

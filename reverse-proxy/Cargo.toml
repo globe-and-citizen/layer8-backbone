@@ -25,6 +25,10 @@ axum = { version = "0.8.9", features = ["json"] }
 dashmap = "6.1.0"
 secrecy = "0.8"
 
+# opentelemetry
+opentelemetry = "0.32.0"
+tracing-opentelemetry = "0.33.0"
+
 [[test]]
 name = "unit_test_handler"
 path = "tests/unit_test/handler.rs"

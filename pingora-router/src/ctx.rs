@@ -243,7 +243,7 @@ impl Layer8ContextTrait for Layer8Context {
         self.otel_span = Some(span);
     }
 
-    fn otel_span(&self) -> Option<&tracing::Span> {
+    fn get_otel_span(&self) -> Option<&tracing::Span> {
         self.otel_span.as_ref()
     }
 }
@@ -276,7 +276,7 @@ pub trait Layer8ContextTrait {
     fn get_correlation_id(&self) -> String;
     fn get_latency(&self) -> Duration;
     fn set_otel_span(&mut self, span: tracing::Span);
-    fn otel_span(&self) -> Option<&tracing::Span>;
+    fn get_otel_span(&self) -> Option<&tracing::Span>;
 }
 
 /// `Layer8Header` is a type alias for a map of HTTP header key-value pairs used
