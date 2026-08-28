@@ -8,6 +8,7 @@ mod test_handler {
         use reverse_proxy::config::{HandlerConfig, ServerConfig};
 
         use reverse_proxy::handler::{InMemorySecretsStorage, ReverseHandler};
+        use utils::log::LogConfig;
 
         fn create_test_handler() -> ReverseHandler {
             let handler_config = HandlerConfig {
@@ -30,7 +31,7 @@ mod test_handler {
                     cors_allow_origins: vec![],
                 },
                 handler: handler_config,
-                log: reverse_proxy::config::LogConfig {
+                log: LogConfig {
                     log_level: "debug".to_string(),
                     log_format: "json".to_string(),
                     log_path: "./logs".to_string(),
@@ -40,6 +41,7 @@ mod test_handler {
                     listen_address: "".to_string(),
                     listen_port: 0,
                 },
+                telemetry: Default::default(),
             };
 
             ReverseHandler::new(rp_config)
@@ -74,7 +76,7 @@ mod test_handler {
         use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
         use pingora_router::handler::{RequestBodyTrait, ResponseBodyTrait};
         use reverse_proxy::config::{
-            HandlerConfig, LogConfig, ProxyConfig, RPConfig, ServerConfig,
+            HandlerConfig, ProxyConfig, RPConfig, ServerConfig,
         };
         use reverse_proxy::handler::init_tunnel::{
             InitEncryptedTunnelRequest, InitEncryptedTunnelResponse,
@@ -82,6 +84,7 @@ mod test_handler {
         use reverse_proxy::handler::{InMemorySecretsStorage, ReverseHandler};
         use serde_json::json;
         use utils::cert::TLSConfig;
+        use utils::log::LogConfig;
 
         fn create_test_handler() -> (ReverseHandler, RPConfig) {
             let config = RPConfig {
@@ -115,6 +118,7 @@ mod test_handler {
                     jwt_exp_in_hours: 24,
                     backend_url: "http://localhost:8080".to_string(),
                 },
+                telemetry: Default::default(),
             };
             (ReverseHandler::new(config.clone()), config)
         }

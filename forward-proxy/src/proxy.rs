@@ -491,7 +491,7 @@ impl ProxyHttp for ForwardProxy {
         let method = session.req_header().method.as_str();
 
         let span = tracing::info_span!(
-            "fp.request",
+            "request::lifecycle",
             http.request.method = %method,
             url.path = %path,
         );

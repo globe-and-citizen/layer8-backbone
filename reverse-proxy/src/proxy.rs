@@ -159,6 +159,21 @@ impl<T: Sync> ProxyHttp for ReverseProxy<T> {
     {
         // create Context
         ctx.update(session).await?;
+
+        let path = session.req_header().uri.path();
+        let method = session.req_header().method.as_str();
+
+        let span = tracing::info_span!(
+            "request::lifecycle",
+            http.request.method = %method,
+            url.path = %path,
+        );
+
+        ctx.set_otel_span(span.clone());
+
+        let _guard = span.enter();
+
+
         ctx.read_request_body(session).await?;
 
         let handler_response = self.router.call_handler(ctx).await;
@@ -220,6 +235,16 @@ impl<T: Sync> ProxyHttp for ReverseProxy<T> {
             status = session.response_written().unwrap().status.as_u16();
         }
         let correlation_id = ctx.get_correlation_id();
+
+        if let Some(span) = ctx.otel_span() {
+            let _guard = span.enter();
+
+            span.record("http.response.status_code", status);
+
+            if let Some(err) = e {
+                span.record("error.type", tracing::field::display(err));
+            }
+        }
 
         info!(
             %correlation_id,

@@ -11,6 +11,7 @@ use reverse_proxy::tls_conf::TLSServerConfig;
 use std::sync::Arc;
 use std::thread;
 use utils::cert::TLSCredentials;
+use utils::log::LogConfig;
 
 #[allow(dead_code)]
 pub static TEST_REVERSE_PROXY: Lazy<TestServer> = Lazy::new(TestServer::start);
@@ -33,7 +34,7 @@ impl TestServer {
 
 fn start_reverse_proxy() {
     let rp_config = reverse_proxy::config::RPConfig {
-        log: reverse_proxy::config::LogConfig {
+        log: LogConfig {
             log_level: "info".to_string(),
             log_format: "plain".to_string(),
             log_path: "console".to_string(),
@@ -60,6 +61,7 @@ fn start_reverse_proxy() {
             jwt_exp_in_hours: 1,
             backend_url: mock::data::MOCK_BACKEND_URL.to_string(),
         },
+        telemetry: Default::default(),
     };
 
     let tls_cred = match TLSCredentials::load(&rp_config.proxy.tls) {
@@ -70,10 +72,8 @@ fn start_reverse_proxy() {
     };
 
     let _logger_guard = utils::log::init_logger(
-        rp_config.log.log_level.clone(),
-        rp_config.log.log_format.clone(),
-        rp_config.log.log_path.clone(),
-        rp_config.log.log_filename.clone(),
+        rp_config.log.clone(),
+        rp_config.telemetry.clone(),
     );
 
     let mut server = Server::new(Some(Opt {

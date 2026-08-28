@@ -13,7 +13,8 @@ use pingora::{listeners::tls::TlsSettings, prelude::http_proxy_service};
 use pingora_router::handler::APIHandler;
 use pingora_router::router::Router;
 use std::sync::Arc;
-use tracing::{debug, error};
+use tokio::runtime::Runtime;
+use tracing::{debug, error, info};
 use utils::cert::{TLSCredentials, watch_tls};
 
 mod config;
@@ -49,12 +50,13 @@ fn main() {
         tls_credentials: tls_cred,
     };
 
-    let _logger_guard = utils::log::init_logger(
-        rp_config.log.log_level.clone(),
-        rp_config.log.log_format.clone(),
-        rp_config.log.log_path.clone(),
-        rp_config.log.log_filename.clone(),
-    );
+    let rt = Runtime::new().unwrap();
+    let _logger_guard = rt.block_on(async {
+        utils::log::init_logger(
+            rp_config.log.clone(),
+            rp_config.telemetry.clone(),
+        )
+    });
 
     let mut my_server = Server::new(Some(Opt {
         conf: std::env::var("SERVER_CONF").ok(),
@@ -105,5 +107,10 @@ fn main() {
     // my_proxy.add_tcp("127.0.0.1:6194"); // Localhost only
 
     my_server.add_service(my_proxy);
+
+    info!(
+        "Starting server at {}:{}",
+        rp_config.server.listen_address, rp_config.server.listen_port
+    );
     my_server.run_forever();
 }

@@ -1,5 +1,7 @@
 use serde::Deserialize;
 use utils::cert::TLSConfig;
+use utils::log::LogConfig;
+use utils::telemetry::TelemetryConfig;
 
 #[derive(Debug, Deserialize, Clone, Default)]
 pub struct RPConfig {
@@ -11,17 +13,8 @@ pub struct RPConfig {
     pub proxy: ProxyConfig,
     #[serde(flatten)]
     pub handler: HandlerConfig,
-}
-
-#[derive(Debug, Deserialize, Clone, Default)]
-pub struct LogConfig {
-    pub log_level: String,
-    /// default to "json" if not "plain"
-    pub log_format: String,
-    /// "console" or folder path
-    pub log_path: String,
-    /// required if log_path is not "console"
-    pub log_filename: String,
+    #[serde(flatten)]
+    pub telemetry: TelemetryConfig,
 }
 
 #[derive(Debug, Deserialize, Clone, Default)]
