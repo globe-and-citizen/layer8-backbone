@@ -24,11 +24,12 @@ fn load_config() -> RPConfig {
     dotenv::dotenv().ok();
 
     // Deserialize from env vars
-    let config: RPConfig = envy::from_env()
+    let mut config: RPConfig = envy::from_env()
         .map_err(|e| {
             error!("Failed to load configuration: {}", e);
         })
         .unwrap();
+    config.proxy.ctx.use_otel = config.telemetry.otlp_enable;
 
     debug!(name: "RPConfig", value = ?config);
     config

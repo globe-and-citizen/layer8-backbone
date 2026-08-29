@@ -2,16 +2,14 @@ use crate::config::ProxyConfig;
 use crate::handler::common::consts::LogTypes;
 use async_trait::async_trait;
 use bytes::Bytes;
-use opentelemetry::global;
-use opentelemetry::trace::TraceContextExt;
+use opentelemetry::trace::Status;
 use pingora::http::{ResponseHeader, StatusCode};
 use pingora::prelude::{HttpPeer, ProxyHttp};
 use pingora::proxy::Session;
-use pingora_router::ctx::{Layer8Context, Layer8ContextConfig, Layer8ContextTrait};
+use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
 use pingora_router::router::Router;
-use tracing::{debug, error, info};
+use tracing::{debug, info};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
-use utils::telemetry::PingoraHeaderExtractor;
 
 /// Reverse proxy server for routing and processing HTTP requests.
 ///
@@ -105,13 +103,13 @@ impl<T> ReverseProxy<T> {
                 .unwrap_or_default();
         }
 
-        let correlation_id = ctx.get_correlation_id();
-        debug!(
-            %correlation_id,
-            log_type=LogTypes::HANDLE_BACKEND_RESPONSE,
-            "Response Headers: {:?}",
-            header.headers
-        );
+        {
+            let _guard = ctx.request_span.enter();
+            debug!(
+                log_type = LogTypes::HANDLE_BACKEND_RESPONSE,
+                "Response Headers: {:?}", header.headers
+            );
+        }
         session.write_response_header_ref(&header, false).await
     }
 }
@@ -162,49 +160,7 @@ impl<T: Sync> ProxyHttp for ReverseProxy<T> {
         Self::CTX: Send + Sync,
     {
         // create Context
-        ctx.update(
-            session,
-            Layer8ContextConfig {
-                use_correlation_id: self.config.use_correlation_id,
-            },
-        )
-        .await?;
-
-        let path = session.req_header().uri.path();
-        let method = session.req_header().method.as_str();
-
-        // telemetry instrument
-        {
-            // Extract tracing metadata from incoming request headers and make it the
-            // parent of the current request span. This keeps the proxy request in the
-            // same distributed trace as the upstream caller.
-            let parent_context = global::get_text_map_propagator(|propagator| {
-                propagator.extract(&PingoraHeaderExtractor {
-                    request: session.req_header(),
-                })
-            });
-
-            // Create a request lifecycle span with the HTTP method and path. This span
-            // is used for tracing the full lifetime of the request inside the proxy and
-            // is later attached to the context for downstream propagation.
-            let lifecycle_span = tracing::info_span!(
-                "rp::lifecycle",
-                http.request.method = %method,
-                url.path = %path,
-            );
-
-            // Enter span so all logs emitted while processing this request inherit the same trace and span context.
-            let _guard = lifecycle_span.enter();
-
-            if let Err(err) = lifecycle_span.set_parent(parent_context) {
-                error!("telemetry: failed to set parent context: {:?}", err);
-            }
-
-            // Store the span in the request context so it stays alive for the lifetime of the request.
-            // It is dropped when the context is dropped or when it is explicitly released.
-            ctx.set_otel_span(lifecycle_span.clone());
-        }
-
+        ctx.update(session, self.config.ctx.clone()).await?;
         ctx.read_request_body(session).await?;
 
         let handler_response = self.router.call_handler(ctx).await;
@@ -266,31 +222,36 @@ impl<T: Sync> ProxyHttp for ReverseProxy<T> {
             status = session.response_written().unwrap().status.as_u16();
         }
 
-        let correlation_id = if let Some(span) = ctx.get_otel_span() {
-            let _guard = span.enter();
-            let cx = span.context();
+        let span = ctx.get_request_span();
 
-            span.record("http.response.status_code", status);
+        // Record the HTTP response status code
+        span.record("http.response.status_code", status);
 
-            if let Some(err) = e {
-                span.record("error.type", tracing::field::display(err));
-            }
-            cx.span().span_context().trace_id().to_string()
+        if let Some(err) = e {
+            span.record("error.type", tracing::field::display(&err));
+            // Set OpenTelemetry status to Error
+            span.set_status(Status::error(err.to_string()));
+        } else if status >= 400 {
+            // Flag HTTP errors explicitly if applicable
+            span.set_status(Status::error(format!("HTTP {}", status)));
         } else {
-            ctx.get_correlation_id()
-        };
+            // Explicitly set OK so Jaeger marks it green
+            span.set_status(Status::Ok);
+        }
 
-        info!(
-            %correlation_id,
-            log_type=LogTypes::ACCESS_LOG,
-            status=status,
-            request_summary = session.request_summary(),
-            origin = ctx.request.header.get("origin"),
-            referer = ctx.request.header.get("referer"),
-            latency_micros=ctx.get_latency().as_micros() as i64,
-            response_body_size=ctx.get_response_body().len(),
-            user_agent=ctx.request.header.get("User-Agent"),
-            error=?e,
-        );
+        {
+            let _guard = span.enter();
+            info!(
+                log_type=LogTypes::ACCESS_LOG,
+                status=status,
+                request_summary = session.request_summary(),
+                origin = ctx.request.header.get("origin"),
+                referer = ctx.request.header.get("referer"),
+                latency_micros=ctx.get_latency().as_micros() as i64,
+                response_body_size=ctx.get_response_body().len(),
+                user_agent=ctx.request.header.get("User-Agent"),
+                error=?e,
+            );
+        }
     }
 }

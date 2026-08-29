@@ -1,4 +1,5 @@
 use serde::Deserialize;
+use pingora_router::ctx::Layer8ContextConfig;
 use utils::cert::TLSConfig;
 use utils::deserializer;
 use utils::log::LogConfig;
@@ -35,6 +36,8 @@ pub struct HandlerConfig {
 pub struct ProxyConfig {
     #[serde(flatten)]
     pub tls: TLSConfig,
+    #[serde(skip_deserializing)]
+    pub ctx: Layer8ContextConfig,
     #[serde(default, deserialize_with = "utils::deserializer::string_to_bool")]
     pub cors_allow_credentials: bool,
     #[serde(deserialize_with = "deserializer::string_to_vec")]

@@ -5,14 +5,13 @@ use crate::handler::ForwardHandler;
 use crate::statistics::Statistics;
 use async_trait::async_trait;
 use bytes::Bytes;
-use opentelemetry::global;
-use opentelemetry::trace::TraceContextExt;
+use opentelemetry::trace::{Status, TraceContextExt};
 use pingora::http::{RequestHeader, ResponseHeader, StatusCode};
 use pingora::prelude::{HttpPeer, ProxyHttp, Session};
 use pingora::upstreams::peer::PeerOptions;
 use pingora::OrErr;
 use pingora::{Error, ErrorType};
-use pingora_router::ctx::{Layer8Context, Layer8ContextConfig, Layer8ContextTrait};
+use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
 use pingora_router::handler::ResponseBodyTrait;
 use reqwest::header::TRANSFER_ENCODING;
 use std::sync::Arc;
@@ -20,7 +19,6 @@ use std::time::Duration;
 use tracing::{debug, error, info};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 use utils::cert::TLSCredentials;
-use utils::telemetry::{PingoraHeaderExtractor, PingoraHeaderInjector};
 
 pub struct ForwardProxy {
     config: ProxyConfig,
@@ -494,48 +492,7 @@ impl ProxyHttp for ForwardProxy {
         Self::CTX: Send + Sync,
     {
         // initialize context with request information for later use in the processing pipeline
-        ctx.update(
-            session,
-            Layer8ContextConfig {
-                use_correlation_id: self.config.use_correlation_id,
-            },
-        )
-        .await?;
-
-        let path = session.req_header().uri.path();
-        let method = session.req_header().method.as_str();
-
-        // telemetry instrument
-        {
-            // Extract tracing metadata from incoming request headers and make it the
-            // parent of the current request span. This keeps the proxy request in the
-            // same distributed trace as the upstream caller.
-            let parent_context = global::get_text_map_propagator(|propagator| {
-                propagator.extract(&PingoraHeaderExtractor {
-                    request: session.req_header(),
-                })
-            });
-
-            // Create a request lifecycle span with the HTTP method and path. This span
-            // is used for tracing the full lifetime of the request inside the proxy and
-            // is later attached to the context for downstream propagation.
-            let lifecycle_span = tracing::info_span!(
-                "fp::lifecycle",
-                http.request.method = %method,
-                url.path = %path,
-            );
-
-            // Enter span so all logs emitted while processing this request inherit the same trace and span context.
-            let _guard = lifecycle_span.enter();
-
-            if let Err(err) = lifecycle_span.set_parent(parent_context) {
-                error!("telemetry: failed to set parent context: {:?}", err);
-            }
-
-            // Store the span in the request context so it stays alive for the lifetime of the request.
-            // It is dropped when the context is dropped or when it is explicitly released.
-            ctx.set_otel_span(lifecycle_span.clone());
-        }
+        ctx.update(session, self.config.ctx.clone()).await?;
 
         if session.req_header().method == pingora::http::Method::OPTIONS {
             return self.handle_preflight_request(ctx, session).await;
@@ -746,18 +703,7 @@ impl ProxyHttp for ForwardProxy {
             .unwrap_or_default();
 
         // Inject OpenTelemetry span context into upstream request headers for distributed tracing
-        if let Some(span) = ctx.get_otel_span() {
-            let otel_context = span.context();
-
-            global::get_text_map_propagator(|propagator| {
-                propagator.inject_context(
-                    &otel_context,
-                    &mut PingoraHeaderInjector {
-                        request: upstream_request,
-                    },
-                );
-            });
-        }
+        ctx.inject_otel_header(upstream_request);
 
         Ok(())
     }
@@ -914,19 +860,24 @@ impl ProxyHttp for ForwardProxy {
             .map(|response| response.status.as_u16())
             .unwrap_or_else(|| ctx.response.status.as_u16());
 
-        let correlation_id = if let Some(span) = ctx.get_otel_span() {
-            let _guard = span.enter();
-            let cx = span.context();
+        let span = ctx.get_request_span();
+        let cx = span.context();
 
-            span.record("http.response.status_code", status);
+        // Record the HTTP response status code
+        span.record("http.response.status_code", status);
 
-            if let Some(err) = e {
-                span.record("error.type", tracing::field::display(err));
-            }
-            cx.span().span_context().trace_id().to_string()
+        if let Some(err) = e {
+            span.record("error.type", tracing::field::display(&err));
+            // Set OpenTelemetry status to Error
+            span.set_status(Status::error(err.to_string()));
+        } else if status >= 400 {
+            // Flag HTTP errors explicitly if applicable
+            span.set_status(Status::error(format!("HTTP {}", status)));
         } else {
-            ctx.get_correlation_id()
-        };
+            // Explicitly set OK so Jaeger marks it green
+            span.set_status(Status::Ok);
+        }
+        let trace_id = cx.span().span_context().trace_id().to_string();
 
         // Update client usage statistics
         if session.req_header().method.as_str() == "POST"
@@ -942,7 +893,7 @@ impl ProxyHttp for ForwardProxy {
                 let request_path = session.req_header().uri.path().to_string();
                 let total_byte_transferred =
                     (ctx.get_request_body().len() + ctx.get_response_body().len()) as i64;
-                let correlation_id = correlation_id.clone();
+                let correlation_id = trace_id.clone();
 
                 tokio::spawn(async move {
                     Statistics::update(
@@ -957,18 +908,20 @@ impl ProxyHttp for ForwardProxy {
             }
         }
 
-        info!(
-            %correlation_id,
-            log_type=LogTypes::ACCESS_LOG,
-            status=status,
-            request_summary=session.request_summary(),
-            origin = ctx.request.header.get("origin"),
-            referer = ctx.request.header.get("referer"),
-            user_agent = ctx.request.header.get("User-Agent"),
-            latency_micro=ctx.get_latency().as_micros(),
-            response_body_size=ctx.get_response_body().len(),
-            error=?e,
-        );
+        {
+            let _guard = span.enter();
+            info!(
+                log_type=LogTypes::ACCESS_LOG,
+                status=status,
+                request_summary=session.request_summary(),
+                origin = ctx.request.header.get("origin"),
+                referer = ctx.request.header.get("referer"),
+                user_agent = ctx.request.header.get("User-Agent"),
+                latency_micro=ctx.get_latency().as_micros(),
+                response_body_size=ctx.get_response_body().len(),
+                error=?e,
+            );
+        }
     }
 
     /// Logs connection failures to upstream servers and manages retry logic.

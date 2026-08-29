@@ -51,6 +51,7 @@ fn start_reverse_proxy() {
                 cert_path: "./certs/server.crt".to_string(),
                 key_path: "./certs/server.key".to_string(),
             },
+            ctx: Default::default(),
             cors_allow_credentials: false,
             cors_allow_origins: vec!["*".to_string()],
             use_correlation_id: false,

@@ -19,7 +19,8 @@ fn load_config() -> FPConfig {
     dotenv::dotenv().ok();
 
     // Deserialize from env vars
-    let config: FPConfig = envy::from_env().expect("Failed to load config");
+    let mut config: FPConfig = envy::from_env().expect("Failed to load config");
+    config.proxy.ctx.use_otel = config.telemetry.otlp_enable;
 
     debug!(name: "FPConfig", value = ?config);
     config

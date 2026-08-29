@@ -1,17 +1,22 @@
-use std::collections::HashMap;
-use std::time::{Instant, Duration};
+use crate::utils;
+use crate::utils::get_request_body;
+use opentelemetry::global;
 use pingora::http::{Method, RequestHeader, StatusCode};
 use pingora::proxy::Session;
-use crate::utils::get_request_body;
+use std::collections::HashMap;
+use std::time::{Duration, Instant};
+use tracing::error;
+use tracing_opentelemetry::OpenTelemetrySpanExt;
 use uuid;
 
 /*
  *  Each type in this crate serves a specific purpose and may be updated as requirements evolve.
  */
 
-#[derive(Debug)]
+#[derive(Debug, Default, Clone)]
 pub struct Layer8ContextConfig {
     pub use_correlation_id: bool,
+    pub use_otel: bool,
 }
 
 /// `Layer8ContextRequestSummary` is expected to contain all request's metadata
@@ -27,10 +32,16 @@ pub struct Layer8ContextRequestSummary {
 impl Layer8ContextRequestSummary {
     pub(crate) fn from(session: &Session) -> Self {
         let method = session.req_header().method.clone();
-        let scheme = session.req_header().uri.scheme()
+        let scheme = session
+            .req_header()
+            .uri
+            .scheme()
             .map(|s| s.to_string())
             .unwrap_or_else(|| "".to_string());
-        let host = session.req_header().uri.host()
+        let host = session
+            .req_header()
+            .uri
+            .host()
             .map(|h| h.to_string())
             .unwrap_or_else(|| "".to_string());
         let path = session.req_header().uri.path().to_string();
@@ -102,7 +113,7 @@ pub struct Layer8Context {
     /// Accessed via `get(&self, key: &str)` and `set(&mut self, key: String, value: String)` methods
     memory: HashMap<String, String>,
     pub latency_start: Instant,
-    pub otel_span: Option<tracing::Span>,
+    pub request_span: tracing::Span,
 }
 
 impl Default for Layer8Context {
@@ -112,19 +123,60 @@ impl Default for Layer8Context {
             response: Default::default(),
             memory: Default::default(),
             latency_start: Instant::now(),
-            otel_span: None,
+            request_span: tracing::Span::none(),
         }
     }
 }
 
 impl Layer8Context {
-    pub async fn update(&mut self, session: &mut Session, config: Layer8ContextConfig) -> pingora::Result<bool> {
+    pub async fn update(
+        &mut self,
+        session: &mut Session,
+        config: Layer8ContextConfig,
+    ) -> pingora::Result<bool> {
         self.request.summary = Layer8ContextRequestSummary::from(session);
 
         self.set_request_header(session.req_header().clone());
-        
+
         if config.use_correlation_id {
             self.set_correlation_id();
+        }
+
+        let path = session.req_header().uri.path();
+        let method = session.req_header().method.as_str();
+
+        // Create a request lifecycle span with the HTTP method and path. This span
+        // is used for tracing the full lifetime of the request inside the proxy and
+        // is later attached to the context for downstream propagation.
+        // This span is stored in the request context so it stays alive for the lifetime of the request.
+        // It is dropped when the context is dropped or when it is explicitly released.
+        self.request_span = tracing::info_span!(
+            "request::lifecycle",
+            http.request.method = %method,
+            url.path = %path,
+
+            // Pre-declare dynamic response fields so span.record(...) works later
+            http.response.status_code = tracing::field::Empty,
+            error.type = tracing::field::Empty,
+            otel.status_code = tracing::field::Empty,
+        );
+
+        // openTelemetry instrument
+        if config.use_otel {
+            // Extract tracing metadata from incoming request headers and make it the
+            // parent of the current request span. This keeps the proxy request in the
+            // same distributed trace as the upstream caller.
+            let parent_context = global::get_text_map_propagator(|propagator| {
+                propagator.extract(&utils::PingoraHeaderExtractor {
+                    request: session.req_header(),
+                })
+            });
+
+            if let Err(err) = self.request_span.set_parent(parent_context) {
+                // Enter span so all logs emitted while processing this request inherit the same trace and span context.
+                let _guard = self.request_span.enter();
+                error!("telemetry: failed to set parent context: {:?}", err);
+            }
         }
 
         // take anything as needed later
@@ -135,11 +187,10 @@ impl Layer8Context {
     pub async fn read_request_body(&mut self, session: &mut Session) -> pingora::Result<bool> {
         match get_request_body(session).await {
             Ok(body) => self.request.body = body,
-            Err(err) => return Err(err)
+            Err(err) => return Err(err),
         };
         Ok(true)
     }
-
 }
 
 impl Layer8ContextTrait for Layer8Context {
@@ -160,8 +211,10 @@ impl Layer8ContextTrait for Layer8Context {
 
     fn set_request_header(&mut self, header: RequestHeader) {
         for (key, val) in header.headers.iter() {
-            self.request.header.insert(key.to_string(), val.to_str().unwrap_or("").to_string());
-        };
+            self.request
+                .header
+                .insert(key.to_string(), val.to_str().unwrap_or("").to_string());
+        }
     }
 
     fn get_request_header(&self) -> &Layer8Header {
@@ -169,7 +222,9 @@ impl Layer8ContextTrait for Layer8Context {
     }
 
     fn insert_request_header(&mut self, key: &str, val: &str) {
-        self.request.header.insert(key.to_lowercase().to_string(), val.to_string());
+        self.request
+            .header
+            .insert(key.to_lowercase().to_string(), val.to_string());
     }
 
     fn remove_request_header(&mut self, key: &str) -> Option<String> {
@@ -177,7 +232,9 @@ impl Layer8ContextTrait for Layer8Context {
     }
 
     fn insert_response_header(&mut self, key: &str, val: &str) {
-        self.response.header.insert(key.to_lowercase().to_string(), val.to_string());
+        self.response
+            .header
+            .insert(key.to_lowercase().to_string(), val.to_string());
     }
 
     fn remove_response_header(&mut self, key: &str) -> Option<String> {
@@ -248,12 +305,23 @@ impl Layer8ContextTrait for Layer8Context {
         self.latency_start.elapsed()
     }
 
-    fn set_otel_span(&mut self, span: tracing::Span) {
-        self.otel_span = Some(span);
+    fn set_request_span(&mut self, span: tracing::Span) {
+        self.request_span = span;
     }
 
-    fn get_otel_span(&self) -> Option<&tracing::Span> {
-        self.otel_span.as_ref()
+    fn get_request_span(&self) -> &tracing::Span {
+        &self.request_span
+    }
+
+    fn inject_otel_header(&mut self, header: &mut RequestHeader) {
+        let otel_context = self.request_span.context();
+
+        global::get_text_map_propagator(|propagator| {
+            propagator.inject_context(
+                &otel_context,
+                &mut utils::PingoraHeaderInjector { request: header },
+            );
+        });
     }
 }
 
@@ -281,11 +349,14 @@ pub trait Layer8ContextTrait {
     fn get(&self, key: &str) -> Option<&String>;
     fn set(&mut self, key: String, value: String);
     fn set_request_summary(&mut self, summary: Layer8ContextRequestSummary);
+    #[deprecated] // switched to tracing::span
     fn set_correlation_id(&mut self) -> String;
+    #[deprecated]
     fn get_correlation_id(&self) -> String;
     fn get_latency(&self) -> Duration;
-    fn set_otel_span(&mut self, span: tracing::Span);
-    fn get_otel_span(&self) -> Option<&tracing::Span>;
+    fn set_request_span(&mut self, span: tracing::Span);
+    fn get_request_span(&self) -> &tracing::Span;
+    fn inject_otel_header(&mut self, header: &mut RequestHeader);
 }
 
 /// `Layer8Header` is a type alias for a map of HTTP header key-value pairs used

@@ -10,7 +10,6 @@ use std::sync::Arc;
 use std::thread;
 use utils::cert::TLSCredentials;
 use utils::log::LogConfig;
-use utils::telemetry::{OTLPProtocol, TelemetryConfig};
 
 pub static TEST_FORWARD_PROXY: Lazy<TestServer> = Lazy::new(TestServer::start);
 
@@ -39,6 +38,7 @@ fn start_forward_proxy() {
                 cert_path: "./certs/client.crt".to_string(),
                 key_path: "./certs/client.key".to_string(),
             },
+            ctx: Default::default(),
             cors_allow_credentials: false,
             cors_allow_origins: vec!["*".to_string()],
             use_correlation_id: false,

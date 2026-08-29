@@ -2,6 +2,9 @@ use opentelemetry::global;
 use opentelemetry::trace::TracerProvider;
 use opentelemetry_otlp::{SpanExporter, WithExportConfig};
 use opentelemetry_sdk::{trace::SdkTracerProvider, Resource};
+use opentelemetry_sdk::trace::Tracer;
+use serde::Deserialize;
+use tracing_opentelemetry::OpenTelemetryLayer;
 use tracing_subscriber::Registry;
 use crate::deserializer;
 
@@ -127,41 +130,3 @@ pub fn init_telemetry(
     Some((provider, telemetry_layer))
 }
 
-use opentelemetry::propagation::Injector;
-use opentelemetry_sdk::trace::Tracer;
-use pingora::prelude::RequestHeader;
-use serde::Deserialize;
-use tracing_opentelemetry::OpenTelemetryLayer;
-
-pub struct PingoraHeaderInjector<'a> {
-    pub request: &'a mut RequestHeader,
-}
-
-impl<'a> Injector for PingoraHeaderInjector<'a> {
-    fn set(&mut self, key: &str, value: String) {
-        self.request
-            .insert_header(key.to_owned(), value)
-            .expect("failed to insert OTel header");
-    }
-}
-
-pub struct PingoraHeaderExtractor<'a> {
-    pub request: &'a pingora::http::RequestHeader,
-}
-
-impl opentelemetry::propagation::Extractor for PingoraHeaderExtractor<'_> {
-    fn get(&self, key: &str) -> Option<&str> {
-        self.request
-            .headers
-            .get(key)
-            .and_then(|value| value.to_str().ok())
-    }
-
-    fn keys(&self) -> Vec<&str> {
-        self.request
-            .headers
-            .keys()
-            .map(|name| name.as_str())
-            .collect()
-    }
-}
