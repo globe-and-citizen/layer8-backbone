@@ -53,6 +53,7 @@ fn start_reverse_proxy() {
             },
             cors_allow_credentials: false,
             cors_allow_origins: vec!["*".to_string()],
+            use_correlation_id: false,
         },
         handler: reverse_proxy::config::HandlerConfig {
             ntor_server_id: mock::data::MOCK_BACKEND_URL.to_string(),

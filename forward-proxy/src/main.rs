@@ -29,14 +29,19 @@ fn main() {
     // Load environment variables and deserialize configuration.
     let config = load_config();
 
-    // Load TLS key/certificate pair and keep it hot-reloaded if changed on disk.
-    let tls_cred = match TLSCredentials::load(&config.proxy.tls) {
-        Ok(conf) => Arc::new(conf),
-        Err(err) => {
-            panic!("Failed to load TLS config {}", err)
-        }
+    let tls_cred = if config.proxy.tls.enable_tls {
+        // Load TLS key/certificate pair and keep it hot-reloaded if changed on disk.
+        let tls_cred = match TLSCredentials::load(&config.proxy.tls) {
+            Ok(conf) => Arc::new(conf),
+            Err(err) => {
+                panic!("Failed to load TLS config {}", err)
+            }
+        };
+        watch_tls(tls_cred.clone(), config.proxy.tls.clone());
+        Some(tls_cred)
+    } else {
+        None
     };
-    watch_tls(tls_cred.clone(), config.proxy.tls.clone());
 
     // Initialize the async runtime and the influxdb statistics writer.
     // This is required before the proxy can emit metrics.
@@ -47,10 +52,7 @@ fn main() {
 
         // Initialize logging as early as possible so startup and runtime errors
         // are visible in the configured output.
-        utils::log::init_logger(
-            config.log,
-            config.telemetry
-        )
+        utils::log::init_logger(config.log, config.telemetry)
     });
 
     // Build the Pingora server and bootstrap the internal configuration.

@@ -29,6 +29,7 @@ mod test_handler {
                     },
                     cors_allow_credentials: false,
                     cors_allow_origins: vec![],
+                    use_correlation_id: false,
                 },
                 handler: handler_config,
                 log: LogConfig {
@@ -107,6 +108,7 @@ mod test_handler {
                     },
                     cors_allow_credentials: false,
                     cors_allow_origins: vec![],
+                    use_correlation_id: false,
                 },
                 handler: HandlerConfig {
                     ntor_server_id: "test_server_id".to_string(),

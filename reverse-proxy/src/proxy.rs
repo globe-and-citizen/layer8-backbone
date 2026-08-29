@@ -7,7 +7,7 @@ use opentelemetry::trace::TraceContextExt;
 use pingora::http::{ResponseHeader, StatusCode};
 use pingora::prelude::{HttpPeer, ProxyHttp};
 use pingora::proxy::Session;
-use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
+use pingora_router::ctx::{Layer8Context, Layer8ContextConfig, Layer8ContextTrait};
 use pingora_router::router::Router;
 use tracing::{debug, error, info};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
@@ -162,7 +162,13 @@ impl<T: Sync> ProxyHttp for ReverseProxy<T> {
         Self::CTX: Send + Sync,
     {
         // create Context
-        ctx.update(session).await?;
+        ctx.update(
+            session,
+            Layer8ContextConfig {
+                use_correlation_id: self.config.use_correlation_id,
+            },
+        )
+        .await?;
 
         let path = session.req_header().uri.path();
         let method = session.req_header().method.as_str();
@@ -186,7 +192,7 @@ impl<T: Sync> ProxyHttp for ReverseProxy<T> {
                 http.request.method = %method,
                 url.path = %path,
             );
-            
+
             // Enter span so all logs emitted while processing this request inherit the same trace and span context.
             let _guard = lifecycle_span.enter();
 

@@ -9,6 +9,11 @@ use uuid;
  *  Each type in this crate serves a specific purpose and may be updated as requirements evolve.
  */
 
+#[derive(Debug)]
+pub struct Layer8ContextConfig {
+    pub use_correlation_id: bool,
+}
+
 /// `Layer8ContextRequestSummary` is expected to contain all request's metadata
 #[derive(Debug, Clone, Default)]
 pub struct Layer8ContextRequestSummary {
@@ -113,10 +118,14 @@ impl Default for Layer8Context {
 }
 
 impl Layer8Context {
-    pub async fn update(&mut self, session: &mut Session) -> pingora::Result<bool> {
+    pub async fn update(&mut self, session: &mut Session, config: Layer8ContextConfig) -> pingora::Result<bool> {
         self.request.summary = Layer8ContextRequestSummary::from(session);
 
         self.set_request_header(session.req_header().clone());
+        
+        if config.use_correlation_id {
+            self.set_correlation_id();
+        }
 
         // take anything as needed later
 

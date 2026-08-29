@@ -37,18 +37,6 @@ fn load_config() -> RPConfig {
 fn main() {
     // Load environment variables from .env file
     let rp_config = load_config();
-    let tls_cred = match TLSCredentials::load(&rp_config.proxy.tls) {
-        Ok(conf) => Arc::new(conf),
-        Err(err) => {
-            panic!("Failed to load TLS config {}", err)
-        }
-    };
-    watch_tls(tls_cred.clone(), rp_config.proxy.tls.clone());
-
-    let tls_server_config = TLSServerConfig {
-        host_name: "reverse-proxy".to_string(),
-        tls_credentials: tls_cred,
-    };
 
     let rt = Runtime::new().unwrap();
     let _logger_guard = rt.block_on(async {
@@ -86,6 +74,19 @@ fn main() {
     );
 
     if rp_config.proxy.tls.enable_tls {
+        let tls_cred = match TLSCredentials::load(&rp_config.proxy.tls) {
+            Ok(conf) => Arc::new(conf),
+            Err(err) => {
+                panic!("Failed to load TLS config {}", err)
+            }
+        };
+        watch_tls(tls_cred.clone(), rp_config.proxy.tls.clone());
+
+        let tls_server_config = TLSServerConfig {
+            host_name: "reverse-proxy".to_string(),
+            tls_credentials: tls_cred,
+        };
+
         my_proxy.add_tls_with_settings(
             &format!(
                 "{}:{}",

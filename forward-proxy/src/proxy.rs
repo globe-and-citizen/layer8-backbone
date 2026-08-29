@@ -12,7 +12,7 @@ use pingora::prelude::{HttpPeer, ProxyHttp, Session};
 use pingora::upstreams::peer::PeerOptions;
 use pingora::OrErr;
 use pingora::{Error, ErrorType};
-use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
+use pingora_router::ctx::{Layer8Context, Layer8ContextConfig, Layer8ContextTrait};
 use pingora_router::handler::ResponseBodyTrait;
 use reqwest::header::TRANSFER_ENCODING;
 use std::sync::Arc;
@@ -24,14 +24,14 @@ use utils::telemetry::{PingoraHeaderExtractor, PingoraHeaderInjector};
 
 pub struct ForwardProxy {
     config: ProxyConfig,
-    tls_credentials: Arc<TLSCredentials>,
+    tls_credentials: Option<Arc<TLSCredentials>>,
     handler: ForwardHandler,
 }
 
 impl ForwardProxy {
     pub fn new(
         config: ProxyConfig,
-        tls_credentials: Arc<TLSCredentials>,
+        tls_credentials: Option<Arc<TLSCredentials>>,
         handler: ForwardHandler,
     ) -> Self {
         ForwardProxy {
@@ -431,18 +431,25 @@ impl ProxyHttp for ForwardProxy {
         };
 
         if self.config.tls.enable_tls {
+            let tls_credentials = match self.tls_credentials.clone() {
+                None => {
+                    panic!("tls_credentials is None");
+                }
+                Some(credentials) => credentials,
+            };
+
             // Configure mTLS peer options
             let mut peer_options = PeerOptions::new();
             {
                 // Step 3 of mTLS: Verify the server's certificate against CA
                 peer_options.verify_cert = true;
-                peer_options.ca = Some(Arc::new(Box::new([self.tls_credentials.ca_cert.clone()])));
+                peer_options.ca = Some(Arc::new(Box::new([tls_credentials.ca_cert.clone()])));
                 // Verify that upstream server's certificate hostname matches the SNI
                 peer_options.verify_hostname = true;
             }
 
             // Step 4 of mTLS: Present client certificate and key to upstream server
-            peer.client_cert_key = Some(self.tls_credentials.cert_key.load_full());
+            peer.client_cert_key = Some(tls_credentials.cert_key.load_full());
             peer.options = peer_options;
         }
 
@@ -487,7 +494,13 @@ impl ProxyHttp for ForwardProxy {
         Self::CTX: Send + Sync,
     {
         // initialize context with request information for later use in the processing pipeline
-        ctx.update(session).await?;
+        ctx.update(
+            session,
+            Layer8ContextConfig {
+                use_correlation_id: self.config.use_correlation_id,
+            },
+        )
+        .await?;
 
         let path = session.req_header().uri.path();
         let method = session.req_header().method.as_str();
@@ -896,10 +909,10 @@ impl ProxyHttp for ForwardProxy {
     where
         Self::CTX: Send + Sync,
     {
-        let mut status = ctx.response.status.as_u16();
-        if let Some(_err) = e {
-            status = session.response_written().unwrap().status.as_u16();
-        }
+        let status = e
+            .and_then(|_| session.response_written())
+            .map(|response| response.status.as_u16())
+            .unwrap_or_else(|| ctx.response.status.as_u16());
 
         let correlation_id = if let Some(span) = ctx.get_otel_span() {
             let _guard = span.enter();

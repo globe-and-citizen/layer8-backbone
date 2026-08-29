@@ -41,6 +41,7 @@ fn start_forward_proxy() {
             },
             cors_allow_credentials: false,
             cors_allow_origins: vec!["*".to_string()],
+            use_correlation_id: false,
         },
         handler: forward_proxy::config::HandlerConfig {
             jwt_virtual_connection_key: Vec::from(mock::data::MOCK_JWT_SECRET.to_string()),
@@ -99,7 +100,7 @@ fn start_forward_proxy() {
 
     let mut proxy = http_proxy_service(
         &server.configuration,
-        ForwardProxy::new(fp_config.proxy, tls_cred, fp_handler),
+        ForwardProxy::new(fp_config.proxy, Some(tls_cred), fp_handler),
     );
 
     proxy.add_tcp(&format!(
