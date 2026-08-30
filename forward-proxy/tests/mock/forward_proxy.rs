@@ -41,7 +41,6 @@ fn start_forward_proxy() {
             ctx: Default::default(),
             cors_allow_credentials: false,
             cors_allow_origins: vec!["*".to_string()],
-            use_correlation_id: false,
         },
         handler: forward_proxy::config::HandlerConfig {
             jwt_virtual_connection_key: Vec::from(mock::data::MOCK_JWT_SECRET.to_string()),

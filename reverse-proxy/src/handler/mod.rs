@@ -1,8 +1,8 @@
 use crate::config::{HandlerConfig, RPConfig};
 use crate::handler::common::consts::LogTypes;
 use crate::handler::healthcheck::{RpHealthcheckError, RpHealthcheckSuccess};
-use init_tunnel::InitEncryptedTunnelResponse;
 use init_tunnel::handler::InitTunnelHandler;
+use init_tunnel::InitEncryptedTunnelResponse;
 use ntor::common::{InitSessionMessage, NTorParty};
 use ntor::server::NTorServer;
 use pingora::http::StatusCode;
@@ -83,8 +83,6 @@ impl ReverseHandler {
     ///
     /// This function may return error responses from request body validation or invalid public key length.
     pub async fn handle_init_tunnel(&self, ctx: &mut Layer8Context) -> APIHandlerResponse {
-        let correlation_id = ctx.get_correlation_id();
-
         // validate request body
         let request_body = match InitTunnelHandler::validate_request_body(ctx).await {
             Ok(res) => res,
@@ -124,12 +122,12 @@ impl ReverseHandler {
             fp_rp_jwt,
         };
 
-        info!(
-            %correlation_id,
-            log_type=LogTypes::HANDLE_INIT_TUNNEL_REQUEST,
-            "Save new nTor session: {}",
-            ntor_session_id
-        );
+        ctx.info(|| {
+            info!(
+                log_type = LogTypes::HANDLE_INIT_TUNNEL_REQUEST,
+                "Save new nTor session: {}", ntor_session_id
+            );
+        });
 
         InMemorySecretsStorage::insert(
             ntor_session_id,
@@ -169,18 +167,17 @@ impl ReverseHandler {
     /// This function may return error responses from header validation, secret retrieval,
     /// request body validation, decryption operations, backend request processing, or encryption failures.
     pub async fn handle_proxy_request(&self, ctx: &mut Layer8Context) -> APIHandlerResponse {
-        let correlation_id = ctx.get_correlation_id();
-
         // validate request headers (nTor session ID)
         let session_id = match ProxyHandler::validate_request_headers(ctx, &self.jwt_secret) {
             Ok(session_id) => session_id,
             Err(err) => {
-                error!(
-                    %correlation_id,
-                    log_type=LogTypes::HANDLE_PROXY_REQUEST,
-                    "Failed to validate request headers: {}",
-                    err
-                );
+                ctx.error(|| {
+                    error!(
+                        log_type = LogTypes::HANDLE_PROXY_REQUEST,
+                        "Failed to validate request headers: {}", err
+                    );
+                });
+
                 return APIHandlerResponse {
                     status: StatusCode::UNAUTHORIZED,
                     cookies: None,
@@ -197,12 +194,13 @@ impl ReverseHandler {
         let shared_secret = match self.get_ntor_shared_secret(&session_id) {
             Ok(secret) => secret,
             Err(err) => {
-                error!(
-                    %correlation_id,
-                    log_type=LogTypes::HANDLE_PROXY_REQUEST,
-                    "Failed to retrieve nTor shared secret: {}",
-                    err
-                );
+                ctx.error(|| {
+                    error!(
+                        log_type = LogTypes::HANDLE_PROXY_REQUEST,
+                        "Failed to retrieve nTor shared secret: {}", err
+                    );
+                });
+
                 return APIHandlerResponse {
                     status: StatusCode::UNAUTHORIZED,
                     cookies: None,
@@ -215,12 +213,13 @@ impl ReverseHandler {
         let request_body = match ProxyHandler::parse_request_body(ctx) {
             Ok(res) => res,
             Err(res) => {
-                error!(
-                    %correlation_id,
-                    log_type=LogTypes::HANDLE_PROXY_REQUEST,
-                    "Failed to parse request body: {}",
-                    res
-                );
+                ctx.error(|| {
+                    error!(
+                        log_type = LogTypes::HANDLE_PROXY_REQUEST,
+                        "Failed to parse request body: {}", res
+                    );
+                });
+
                 return APIHandlerResponse {
                     status: StatusCode::BAD_REQUEST,
                     cookies: None,
@@ -242,12 +241,13 @@ impl ReverseHandler {
         ) {
             Ok(req) => req,
             Err(res) => {
-                error!(
-                    %correlation_id,
-                    log_type=LogTypes::HANDLE_PROXY_REQUEST,
-                    "Failed to decrypt request body: {}",
-                    res
-                );
+                ctx.error(|| {
+                    error!(
+                        log_type = LogTypes::HANDLE_PROXY_REQUEST,
+                        "Failed to decrypt request body: {}", res
+                    );
+                });
+
                 return APIHandlerResponse {
                     status: StatusCode::BAD_REQUEST,
                     cookies: None,
@@ -271,12 +271,13 @@ impl ReverseHandler {
         {
             Ok(res) => res,
             Err(res) => {
-                error!(
-                    %correlation_id,
-                    log_type=LogTypes::HANDLE_PROXY_REQUEST,
-                    "Failed to process backend request: {}",
-                    res
-                );
+                ctx.error(|| {
+                    error!(
+                        log_type = LogTypes::HANDLE_PROXY_REQUEST,
+                        "Failed to process backend request: {}", res
+                    );
+                });
+
                 return APIHandlerResponse {
                     status: StatusCode::BAD_GATEWAY,
                     cookies: None,
@@ -312,12 +313,12 @@ impl ReverseHandler {
                 body: Some(encrypted_message.to_bytes()),
             },
             Err(err) => {
-                error!(
-                    %correlation_id,
-                    log_type=LogTypes::HANDLE_PROXY_REQUEST,
-                    "Failed to encrypt response body: {}",
-                    err
-                );
+                ctx.error(|| {
+                    error!(
+                        log_type = LogTypes::HANDLE_PROXY_REQUEST,
+                        "Failed to encrypt response body: {}", err
+                    );
+                });
                 APIHandlerResponse {
                     status: StatusCode::INTERNAL_SERVER_ERROR,
                     cookies: None,

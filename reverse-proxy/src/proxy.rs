@@ -103,13 +103,12 @@ impl<T> ReverseProxy<T> {
                 .unwrap_or_default();
         }
 
-        {
-            let _guard = ctx.request_span.enter();
+        ctx.debug(|| {
             debug!(
                 log_type = LogTypes::HANDLE_BACKEND_RESPONSE,
                 "Response Headers: {:?}", header.headers
             );
-        }
+        });
         session.write_response_header_ref(&header, false).await
     }
 }
@@ -239,8 +238,7 @@ impl<T: Sync> ProxyHttp for ReverseProxy<T> {
             span.set_status(Status::Ok);
         }
 
-        {
-            let _guard = span.enter();
+        ctx.info(|| {
             info!(
                 log_type=LogTypes::ACCESS_LOG,
                 status=status,
@@ -252,6 +250,6 @@ impl<T: Sync> ProxyHttp for ReverseProxy<T> {
                 user_agent=ctx.request.header.get("User-Agent"),
                 error=?e,
             );
-        }
+        });
     }
 }

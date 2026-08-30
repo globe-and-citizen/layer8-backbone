@@ -1,6 +1,7 @@
 use crate::utils;
 use crate::utils::get_request_body;
 use opentelemetry::global;
+use opentelemetry::trace::TraceContextExt;
 use pingora::http::{Method, RequestHeader, StatusCode};
 use pingora::proxy::Session;
 use std::collections::HashMap;
@@ -15,7 +16,6 @@ use uuid;
 
 #[derive(Debug, Default, Clone)]
 pub struct Layer8ContextConfig {
-    pub use_correlation_id: bool,
     pub use_otel: bool,
 }
 
@@ -113,7 +113,7 @@ pub struct Layer8Context {
     /// Accessed via `get(&self, key: &str)` and `set(&mut self, key: String, value: String)` methods
     memory: HashMap<String, String>,
     pub latency_start: Instant,
-    pub request_span: tracing::Span,
+    request_span: tracing::Span,
 }
 
 impl Default for Layer8Context {
@@ -138,10 +138,6 @@ impl Layer8Context {
 
         self.set_request_header(session.req_header().clone());
 
-        if config.use_correlation_id {
-            self.set_correlation_id();
-        }
-
         let path = session.req_header().uri.path();
         let method = session.req_header().method.as_str();
 
@@ -151,9 +147,9 @@ impl Layer8Context {
         // This span is stored in the request context so it stays alive for the lifetime of the request.
         // It is dropped when the context is dropped or when it is explicitly released.
         self.request_span = tracing::info_span!(
-            "request::lifecycle",
+            "request.lifecycle",
             http.request.method = %method,
-            url.path = %path,
+            http.request.path = %path,
 
             // Pre-declare dynamic response fields so span.record(...) works later
             http.response.status_code = tracing::field::Empty,
@@ -190,6 +186,40 @@ impl Layer8Context {
             Err(err) => return Err(err),
         };
         Ok(true)
+    }
+
+    pub fn debug<F>(&self, f: F)
+    where
+        F: FnOnce(),
+    {
+        if tracing::enabled!(tracing::Level::DEBUG) {
+            let _guard = self.request_span.enter();
+            f();
+        }
+    }
+
+    pub fn info<F>(&self, f: F)
+    where
+        F: FnOnce(),
+    {
+        let _guard = self.request_span.enter();
+        f();
+    }
+
+    pub fn warn<F>(&self, f: F)
+    where
+        F: FnOnce(),
+    {
+        let _guard = self.request_span.enter();
+        f();
+    }
+
+    pub fn error<F>(&self, f: F)
+    where
+        F: FnOnce(),
+    {
+        let _guard = self.request_span.enter();
+        f();
     }
 }
 
@@ -323,6 +353,11 @@ impl Layer8ContextTrait for Layer8Context {
             );
         });
     }
+
+    fn get_trace_id(&self) -> String {
+        let cx = self.request_span.context();
+        cx.span().span_context().trace_id().to_string()
+    }
 }
 
 /// This trait appears to be redundant and could potentially be removed,
@@ -357,6 +392,8 @@ pub trait Layer8ContextTrait {
     fn set_request_span(&mut self, span: tracing::Span);
     fn get_request_span(&self) -> &tracing::Span;
     fn inject_otel_header(&mut self, header: &mut RequestHeader);
+    /// This function isn't cheap, consider when using it
+    fn get_trace_id(&self) -> String;
 }
 
 /// `Layer8Header` is a type alias for a map of HTTP header key-value pairs used

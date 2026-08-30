@@ -8,7 +8,7 @@ use pingora_router::{
 };
 use reqwest::Client;
 use serde::Deserialize;
-use tracing::{debug, error, info};
+use tracing::{debug, error};
 
 use crate::config::HandlerConfig;
 use crate::handler::consts::LogTypes;
@@ -204,9 +204,8 @@ impl ForwardHandler {
         backend_url: String,
         ctx: &mut Layer8Context,
     ) -> Result<NTorServerCertificate, APIHandlerResponse> {
-        let correlation_id = ctx.get_correlation_id();
         let auth_res = fetch_auth_server_certificate(
-            correlation_id.clone(),
+            ctx,
             self.config.auth_get_certificate_url.clone(),
             self.config.auth_access_token.clone(),
             backend_url.clone(),
@@ -220,12 +219,12 @@ impl ForwardHandler {
         );
 
         let pub_key = utils::cert::extract_x509_pem(auth_res.cert.clone()).map_err(|e| {
-            error!(
-                %correlation_id,
-                log_type=LogTypes::AUTHENTICATION_SERVER,
-                "Failed to parse x509 certificate: {:?}",
-                e
-            );
+            ctx.error(|| {
+                error!(
+                    log_type = LogTypes::AUTHENTICATION_SERVER,
+                    "Failed to parse x509 certificate: {:?}", e
+                );
+            });
             APIHandlerResponse {
                 status: StatusCode::INTERNAL_SERVER_ERROR,
                 cookies: None,
@@ -233,13 +232,14 @@ impl ForwardHandler {
             }
         })?;
 
-        debug!(%correlation_id, "AuthenticationServer response: {:?}", auth_res);
-        info!(
-            %correlation_id,
-            log_type=LogTypes::AUTHENTICATION_SERVER,
-            "Obtained ntor credentials for backend_url: {}",
-            backend_url
-        );
+        ctx.debug(|| {
+            debug!(
+                log_type = LogTypes::AUTHENTICATION_SERVER,
+                "Obtained ntor credentials for backend_url:{} response: {:?}",
+                backend_url,
+                auth_res
+            );
+        });
 
         Ok(NTorServerCertificate {
             server_id: backend_url, // todo I still prefer taking the server_id value from certificate's subject
@@ -379,7 +379,10 @@ impl ForwardHandler {
                 Ok(cert) => cert,
                 Err(err) => return err,
             };
-            debug!("Server certificate: {:?}", server_certificate);
+
+            ctx.debug(|| {
+                debug!("Server certificate: {:?}", server_certificate);
+            });
 
             ctx.set(
                 consts::CtxKeys::NTOR_SERVER_ID.to_string(),
@@ -479,12 +482,13 @@ impl ForwardHandler {
 
         match utils::bytes_to_json::<InitTunnelResponseFromRP>(response_body) {
             Err(e) => {
-                error!(
-                    correlation_id = ctx.get_correlation_id(),
-                    log_type = LogTypes::HANDLE_UPSTREAM_RESPONSE,
-                    "Error parsing RP response: {:?}",
-                    e
-                );
+                ctx.error(|| {
+                    error!(
+                        log_type = LogTypes::HANDLE_UPSTREAM_RESPONSE,
+                        "Error parsing RP response: {:?}", e
+                    );
+                });
+
                 APIHandlerResponse {
                     status: StatusCode::INTERNAL_SERVER_ERROR,
                     cookies: None,
@@ -573,7 +577,7 @@ struct AuthServerResponse {
 }
 
 async fn fetch_auth_server_certificate(
-    correlation_id: String,
+    ctx: &mut Layer8Context,
     auth_get_certificate_url: String,
     auth_access_token: String,
     backend_url: String,
@@ -607,11 +611,13 @@ async fn fetch_auth_server_certificate(
                 res.status().as_u16()
             ),
         };
-        error!(
-            %correlation_id,
-            log_type=LogTypes::AUTHENTICATION_SERVER,
-            "Failed to get ntor certificate for {request_path}: {response_body:?}"
-        );
+
+        ctx.error(|| {
+            error!(
+                log_type = LogTypes::AUTHENTICATION_SERVER,
+                "Failed to get ntor certificate for {request_path}: {response_body:?}"
+            );
+        });
 
         // ctx.insert_response_header("Connection", "close"); // Ensure connection closes???
 
@@ -622,12 +628,13 @@ async fn fetch_auth_server_certificate(
         })
     } else {
         let auth_res: AuthServerResponse = res.json().await.map_err(|err| {
-            error!(
-                %correlation_id,
-                log_type=LogTypes::AUTHENTICATION_SERVER,
-                "Failed to parse authentication server response: {:?}",
-                err
-            );
+            ctx.error(|| {
+                error!(
+                    log_type = LogTypes::AUTHENTICATION_SERVER,
+                    "Failed to parse authentication server response: {:?}", err
+                );
+            });
+
             APIHandlerResponse {
                 status: StatusCode::INTERNAL_SERVER_ERROR,
                 cookies: None,

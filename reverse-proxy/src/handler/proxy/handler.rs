@@ -6,7 +6,7 @@ use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
 use pingora_router::handler::{DefaultHandlerTrait, ResponseBodyTrait};
 use reqwest::header::HeaderMap;
 use reqwest::{Client, Response};
-use tracing::{info, trace};
+use tracing::{debug, info};
 use utils::jwt::JWTClaims;
 
 /// Struct containing only associated methods (no instance methods or fields)
@@ -171,9 +171,6 @@ impl ProxyHandler {
         backend_url: String,
         wrapped_request: L8RequestObject,
     ) -> Result<(Response, String), String> {
-        // Get correlation ID for logging
-        let correlation_id = ctx.get_correlation_id();
-
         // Reconstruct headers for the backend request, starting with headers from the wrapped request
         let mut header_map = utils::hashmap_to_headermap(&wrapped_request.headers)
             .unwrap_or_else(|_| HeaderMap::new());
@@ -188,12 +185,12 @@ impl ProxyHandler {
         // Construct the full backend URL by appending the URI from the wrapped request to configured base backend URL
         let origin_url = format!("{}{}", backend_url, wrapped_request.uri);
 
-        trace!(
-            %correlation_id,
-            log_type=LogTypes::HANDLE_PROXY_REQUEST,
-            "Send reconstructed request to origin backend URL: {}",
-            origin_url
-        );
+        ctx.debug(|| {
+            debug!(
+                log_type = LogTypes::HANDLE_PROXY_REQUEST,
+                "Send reconstructed request to origin backend URL: {}", origin_url
+            );
+        });
 
         let client = Client::new();
         let response = client
@@ -239,14 +236,14 @@ impl ProxyHandler {
         let serialized_headers = utils::headermap_to_hashmap(be_response.headers());
         let serialized_body = be_response.bytes().await.unwrap_or_default().to_vec();
 
-        // Get correlation ID for logging
-        info!(
-            correlation_id = ctx.get_correlation_id(),
-            log_type = LogTypes::HANDLE_BACKEND_RESPONSE,
-            "Received response from backend: status={}, url={}",
-            status,
-            url.as_str()
-        );
+        ctx.info(|| {
+            info!(
+                log_type = LogTypes::HANDLE_BACKEND_RESPONSE,
+                "Received response from backend: status={}, url={}",
+                status,
+                url.as_str()
+            );
+        });
 
         L8ResponseObject {
             status,

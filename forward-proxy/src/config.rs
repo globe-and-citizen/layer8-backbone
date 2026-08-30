@@ -42,8 +42,6 @@ pub struct ProxyConfig {
     pub cors_allow_credentials: bool,
     #[serde(deserialize_with = "deserializer::string_to_vec")]
     pub cors_allow_origins: Vec<String>,
-    #[serde(default, deserialize_with = "utils::deserializer::string_to_bool")]
-    pub use_correlation_id: bool
 }
 
 #[derive(Debug, Deserialize)]
