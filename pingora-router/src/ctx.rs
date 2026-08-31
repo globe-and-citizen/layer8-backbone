@@ -155,6 +155,8 @@ impl Layer8Context {
             http.response.status_code = tracing::field::Empty,
             error.type = tracing::field::Empty,
             otel.status_code = tracing::field::Empty,
+            request.body.size = tracing::field::Empty,
+            response.body.size = tracing::field::Empty,
         );
 
         // openTelemetry instrument

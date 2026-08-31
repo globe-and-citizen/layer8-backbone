@@ -6,7 +6,7 @@ use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
 use pingora_router::handler::{DefaultHandlerTrait, ResponseBodyTrait};
 use reqwest::header::HeaderMap;
 use reqwest::{Client, Response};
-use tracing::{debug, info};
+use tracing::{debug, info, Instrument};
 use utils::jwt::JWTClaims;
 
 /// Struct containing only associated methods (no instance methods or fields)
@@ -193,6 +193,7 @@ impl ProxyHandler {
         });
 
         let client = Client::new();
+        let be_request_span = tracing::info_span!("backend.request.send");
         let response = client
             .request(
                 wrapped_request.method.parse().unwrap_or_default(),
@@ -201,6 +202,7 @@ impl ProxyHandler {
             .headers(header_map.clone())
             .body(wrapped_request.body)
             .send()
+            .instrument(be_request_span)
             .await;
 
         match response {
@@ -234,7 +236,13 @@ impl ProxyHandler {
         let redirected = be_response.url().as_str() != origin_url;
 
         let serialized_headers = utils::headermap_to_hashmap(be_response.headers());
-        let serialized_body = be_response.bytes().await.unwrap_or_default().to_vec();
+        let be_response_span = tracing::info_span!("backend.response.receive");
+        let serialized_body = be_response
+            .bytes()
+            .instrument(be_response_span)
+            .await
+            .unwrap_or_default()
+            .to_vec();
 
         ctx.info(|| {
             info!(

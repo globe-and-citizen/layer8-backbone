@@ -225,6 +225,8 @@ impl<T: Sync> ProxyHttp for ReverseProxy<T> {
 
         // Record the HTTP response status code
         span.record("http.response.status_code", status);
+        span.record("request.body.size", ctx.get_request_body().len());
+        span.record("response.body.size", ctx.get_response_body().len());
 
         if let Some(err) = e {
             span.record("error.type", tracing::field::display(&err));
@@ -245,8 +247,6 @@ impl<T: Sync> ProxyHttp for ReverseProxy<T> {
                 request_summary = session.request_summary(),
                 origin = ctx.request.header.get("origin"),
                 referer = ctx.request.header.get("referer"),
-                latency_micros=ctx.get_latency().as_micros() as i64,
-                response_body_size=ctx.get_response_body().len(),
                 user_agent=ctx.request.header.get("User-Agent"),
                 error=?e,
             );

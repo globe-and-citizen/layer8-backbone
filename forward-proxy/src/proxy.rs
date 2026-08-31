@@ -871,6 +871,8 @@ impl ProxyHttp for ForwardProxy {
 
         // Record the HTTP response status code
         span.record("http.response.status_code", status);
+        span.record("request.body.size", ctx.get_request_body().len());
+        span.record("response.body.size", ctx.get_response_body().len());
 
         if let Some(err) = e {
             span.record("error.type", tracing::field::display(&err));
@@ -922,8 +924,6 @@ impl ProxyHttp for ForwardProxy {
                 origin = ctx.request.header.get("origin"),
                 referer = ctx.request.header.get("referer"),
                 user_agent = ctx.request.header.get("User-Agent"),
-                latency_micro=ctx.get_latency().as_micros(),
-                response_body_size=ctx.get_response_body().len(),
                 error=?e,
             );
         });

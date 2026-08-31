@@ -167,6 +167,10 @@ impl ReverseHandler {
     /// This function may return error responses from header validation, secret retrieval,
     /// request body validation, decryption operations, backend request processing, or encryption failures.
     pub async fn handle_proxy_request(&self, ctx: &mut Layer8Context) -> APIHandlerResponse {
+        let request_handler_span =
+            tracing::info_span!(parent: ctx.get_request_span(), "handler.request");
+        let _request_handler_guard = request_handler_span.enter();
+
         // validate request headers (nTor session ID)
         let session_id = match ProxyHandler::validate_request_headers(ctx, &self.jwt_secret) {
             Ok(session_id) => session_id,
@@ -261,6 +265,16 @@ impl ReverseHandler {
             }
         };
 
+        drop(_request_handler_guard);
+
+        let be_request_span = tracing::info_span!(
+            parent: ctx.get_request_span(),
+            "backend.request",
+            request_size_bytes = wrapped_request.body.len(),
+            response_size_bytes = tracing::field::Empty,
+        );
+        let _be_request_guard = be_request_span.enter();
+
         // reconstruct user request
         let (response, origin_url) = match ProxyHandler::rebuild_user_request(
             ctx,
@@ -295,6 +309,13 @@ impl ReverseHandler {
         let wrapped_response =
             ProxyHandler::wrap_backend_response(ctx, response, &origin_url).await;
 
+        be_request_span.record("response_size_bytes", wrapped_response.body.len());
+
+        drop(_be_request_guard);
+
+        let handle_response_span =
+            tracing::info_span!(parent: ctx.get_request_span(), "handler.response");
+        let _handle_response_guard = handle_response_span.enter();
         // get cookies from backend response if exist to set in the response to client
         let cookies: Option<String> = wrapped_response
             .headers
@@ -302,7 +323,7 @@ impl ReverseHandler {
             .and_then(|v| v.as_str().map(|s| s.to_string()));
 
         // encrypt backend response using nTor shared secret and return to client
-        match ProxyHandler::encrypt_response_body(
+        let response = match ProxyHandler::encrypt_response_body(
             wrapped_response,
             self.config.ntor_server_id.clone(),
             &shared_secret,
@@ -330,7 +351,9 @@ impl ReverseHandler {
                     ),
                 }
             }
-        }
+        };
+        drop(_handle_response_guard);
+        response
     }
 
     /// Handles health check requests for the reverse proxy.

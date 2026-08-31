@@ -8,7 +8,7 @@ use pingora_router::{
 };
 use reqwest::Client;
 use serde::Deserialize;
-use tracing::{debug, error};
+use tracing::{debug, error, Instrument};
 
 use crate::config::HandlerConfig;
 use crate::handler::consts::LogTypes;
@@ -204,12 +204,14 @@ impl ForwardHandler {
         backend_url: String,
         ctx: &mut Layer8Context,
     ) -> Result<NTorServerCertificate, APIHandlerResponse> {
+        let auth_span = tracing::info_span!(parent: ctx.get_request_span(), "auth_server.request");
         let auth_res = fetch_auth_server_certificate(
             ctx,
             self.config.auth_get_certificate_url.clone(),
             self.config.auth_access_token.clone(),
             backend_url.clone(),
         )
+        .instrument(auth_span)
         .await?;
 
         // save `client_id` to ctx for later use
