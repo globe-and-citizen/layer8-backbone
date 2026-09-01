@@ -243,8 +243,6 @@ impl<T: Sync> ProxyHttp for ReverseProxy<T> {
         ctx.info(|| {
             info!(
                 log_type=LogTypes::ACCESS_LOG,
-                status=status,
-                request_summary = session.request_summary(),
                 origin = ctx.request.header.get("origin"),
                 referer = ctx.request.header.get("referer"),
                 user_agent=ctx.request.header.get("User-Agent"),

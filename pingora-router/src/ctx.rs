@@ -5,7 +5,6 @@ use opentelemetry::trace::TraceContextExt;
 use pingora::http::{Method, RequestHeader, StatusCode};
 use pingora::proxy::Session;
 use std::collections::HashMap;
-use std::time::{Duration, Instant};
 use tracing::error;
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 use uuid;
@@ -112,7 +111,6 @@ pub struct Layer8Context {
     /// during request processing.
     /// Accessed via `get(&self, key: &str)` and `set(&mut self, key: String, value: String)` methods
     memory: HashMap<String, String>,
-    pub latency_start: Instant,
     request_span: tracing::Span,
 }
 
@@ -122,7 +120,6 @@ impl Default for Layer8Context {
             request: Default::default(),
             response: Default::default(),
             memory: Default::default(),
-            latency_start: Instant::now(),
             request_span: tracing::Span::none(),
         }
     }
@@ -333,10 +330,6 @@ impl Layer8ContextTrait for Layer8Context {
             .clone()
     }
 
-    fn get_latency(&self) -> Duration {
-        self.latency_start.elapsed()
-    }
-
     fn set_request_span(&mut self, span: tracing::Span) {
         self.request_span = span;
     }
@@ -390,7 +383,6 @@ pub trait Layer8ContextTrait {
     fn set_correlation_id(&mut self) -> String;
     #[deprecated]
     fn get_correlation_id(&self) -> String;
-    fn get_latency(&self) -> Duration;
     fn set_request_span(&mut self, span: tracing::Span);
     fn get_request_span(&self) -> &tracing::Span;
     fn inject_otel_header(&mut self, header: &mut RequestHeader);
