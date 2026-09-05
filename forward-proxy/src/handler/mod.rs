@@ -204,14 +204,12 @@ impl ForwardHandler {
         backend_url: String,
         ctx: &mut Layer8Context,
     ) -> Result<NTorServerCertificate, APIHandlerResponse> {
-        let auth_span = tracing::info_span!(parent: ctx.get_request_span(), "auth_server.request");
         let auth_res = fetch_auth_server_certificate(
             ctx,
             self.config.auth_get_certificate_url.clone(),
             self.config.auth_access_token.clone(),
             backend_url.clone(),
         )
-        .instrument(auth_span)
         .await?;
 
         // save `client_id` to ctx for later use
@@ -585,12 +583,32 @@ async fn fetch_auth_server_certificate(
     backend_url: String,
 ) -> Result<AuthServerResponse, APIHandlerResponse> {
     let client = Client::new();
-
     let request_path = format!("{}{}", auth_get_certificate_url, backend_url);
-    let res = client
+
+    let auth_span = tracing::info_span!(parent: ctx.get_request_span(), "auth_server.request");
+    // build request so we can mutate headers on the resulting `reqwest::Request`
+    let mut req = client
         .get(&request_path)
         .header("Authorization", auth_access_token.clone())
-        .send()
+        .build()
+        .map_err(|e| {
+            let response_body = ErrorResponse {
+                error: format!("Failed to build request to layer8: {}", e),
+            };
+
+            APIHandlerResponse {
+                status: StatusCode::INTERNAL_SERVER_ERROR,
+                cookies: None,
+                body: Some(response_body.to_bytes()),
+            }
+        })?;
+
+    // inject tracing headers into the built request
+    ctx.inject_otel_reqwest_headers(req.headers_mut());
+
+    let res = client
+        .execute(req)
+        .instrument(auth_span)
         .await
         // unable to connect
         .map_err(|e| {

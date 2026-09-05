@@ -708,7 +708,7 @@ impl ProxyHttp for ForwardProxy {
         }
 
         // Inject OpenTelemetry span context into upstream request headers for distributed tracing
-        ctx.inject_otel_header(upstream_request);
+        ctx.inject_otel_pingora_header(upstream_request);
 
         Ok(())
     }

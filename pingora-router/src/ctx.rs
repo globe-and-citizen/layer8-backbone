@@ -338,13 +338,23 @@ impl Layer8ContextTrait for Layer8Context {
         &self.request_span
     }
 
-    fn inject_otel_header(&mut self, header: &mut RequestHeader) {
+    fn inject_otel_pingora_header(&mut self, header: &mut RequestHeader) {
         let otel_context = self.request_span.context();
 
         global::get_text_map_propagator(|propagator| {
             propagator.inject_context(
                 &otel_context,
                 &mut utils::PingoraHeaderInjector { request: header },
+            );
+        });
+    }
+
+    fn inject_otel_reqwest_headers(&mut self, header: &mut reqwest::header::HeaderMap) {
+        let otel_context = self.request_span.context();
+        opentelemetry::global::get_text_map_propagator(|prop| {
+            prop.inject_context(
+                &otel_context,
+                &mut opentelemetry_http::HeaderInjector(header),
             );
         });
     }
@@ -385,7 +395,8 @@ pub trait Layer8ContextTrait {
     fn get_correlation_id(&self) -> String;
     fn set_request_span(&mut self, span: tracing::Span);
     fn get_request_span(&self) -> &tracing::Span;
-    fn inject_otel_header(&mut self, header: &mut RequestHeader);
+    fn inject_otel_pingora_header(&mut self, header: &mut RequestHeader);
+    fn inject_otel_reqwest_headers(&mut self, req: &mut reqwest::header::HeaderMap);
     /// This function isn't cheap, consider when using it
     fn get_trace_id(&self) -> String;
 }
