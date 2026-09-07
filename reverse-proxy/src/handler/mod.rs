@@ -167,10 +167,15 @@ impl ReverseHandler {
     /// This function may return error responses from header validation, secret retrieval,
     /// request body validation, decryption operations, backend request processing, or encryption failures.
     pub async fn handle_proxy_request(&self, ctx: &mut Layer8Context) -> APIHandlerResponse {
+        let mut parent_span = tracing::Span::current();
+        if parent_span.is_none() {
+            parent_span = ctx.get_request_span().clone();
+        }
+
         // Synchronous request parsing and decryption block
         let (_session_id, shared_secret, wrapped_request) = {
             let request_handler_span =
-                tracing::info_span!(parent: ctx.get_request_span(), "handler.request");
+                tracing::info_span!(parent: parent_span.clone(), "FP.request.validate_and_decrypt");
             let _request_handler_guard = request_handler_span.enter();
 
             // validate request headers (nTor session ID)
@@ -272,8 +277,8 @@ impl ReverseHandler {
 
         // Asynchronous backend round-trip block instrumented with a single span
         let be_request_span = tracing::info_span!(
-            parent: ctx.get_request_span(),
-            "backend.request",
+            parent: parent_span.clone(),
+            "BE.request",
             request_size_bytes = wrapped_request.body.len(),
             response_size_bytes = tracing::field::Empty,
         );
@@ -323,7 +328,7 @@ impl ReverseHandler {
 
         // Synchronous response encryption and return block
         let handle_response_span =
-            tracing::info_span!(parent: ctx.get_request_span(), "handler.response");
+            tracing::info_span!(parent: parent_span, "BE.response.wrap_and_encrypt");
         let _handle_response_guard = handle_response_span.enter();
 
         // get cookies from backend response if exist to set in the response to client

@@ -212,6 +212,7 @@ impl Layer8Context {
             http.response.status_code = tracing::field::Empty,
             error.type = tracing::field::Empty,
             otel.status_code = tracing::field::Empty,
+            mtls.enabled = false,
             request.body.size = tracing::field::Empty,
             response.body.size = tracing::field::Empty,
         );
@@ -400,7 +401,7 @@ impl Layer8ContextTrait for Layer8Context {
 
     fn start_upstream_connect_span(&mut self) {
         self.upstream_connect_span =
-            tracing::info_span!(parent: &self.request_span, "upstream.connect.establish");
+            tracing::info_span!(parent: &self.request_span, "upstream.connection.establish");
     }
 
     fn get_upstream_connect_span(&self) -> &tracing::Span {
@@ -423,19 +424,20 @@ impl Layer8ContextTrait for Layer8Context {
     }
 
     fn start_upstream_response_span(&mut self) {
-        self.upstream_response_span = tracing::info_span!(parent: &self.request_span, "upstream.response.download");
+        self.upstream_response_span =
+            tracing::info_span!(parent: &self.request_span, "upstream.response_body.download");
     }
-    
+
     fn get_upstream_response_span(&self) -> &tracing::Span {
         &self.upstream_response_span
     }
-    
+
     fn end_upstream_response_span(&mut self) {
         self.upstream_response_span = tracing::Span::none()
     }
 
-    fn inject_otel_pingora_header(&mut self, header: &mut RequestHeader) {
-        let otel_context = self.request_span.context();
+    fn inject_otel_pingora_header(&mut self, span: &mut tracing::Span, header: &mut RequestHeader) {
+        let otel_context = span.context();
 
         global::get_text_map_propagator(|propagator| {
             propagator.inject_context(
@@ -445,8 +447,12 @@ impl Layer8ContextTrait for Layer8Context {
         });
     }
 
-    fn inject_otel_reqwest_headers(&mut self, header: &mut reqwest::header::HeaderMap) {
-        let otel_context = self.request_span.context();
+    fn inject_otel_reqwest_headers(
+        &mut self,
+        span: &mut tracing::Span,
+        header: &mut reqwest::header::HeaderMap,
+    ) {
+        let otel_context = span.context();
         opentelemetry::global::get_text_map_propagator(|prop| {
             prop.inject_context(
                 &otel_context,
@@ -500,8 +506,12 @@ pub trait Layer8ContextTrait {
     fn start_upstream_response_span(&mut self);
     fn get_upstream_response_span(&self) -> &tracing::Span;
     fn end_upstream_response_span(&mut self);
-    fn inject_otel_pingora_header(&mut self, header: &mut RequestHeader);
-    fn inject_otel_reqwest_headers(&mut self, req: &mut reqwest::header::HeaderMap);
+    fn inject_otel_pingora_header(&mut self, span: &mut tracing::Span, header: &mut RequestHeader);
+    fn inject_otel_reqwest_headers(
+        &mut self,
+        span: &mut tracing::Span,
+        req: &mut reqwest::header::HeaderMap,
+    );
     /// This function isn't cheap, consider when using it
     fn get_trace_id(&self) -> String;
 }

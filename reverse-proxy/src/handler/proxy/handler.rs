@@ -167,7 +167,7 @@ impl ProxyHandler {
     /// headers, body, and metadata
     /// * `Err(String)` - An error response if the request fails or backend is unreachable
     pub async fn rebuild_user_request(
-        ctx: &Layer8Context,
+        ctx: &mut Layer8Context,
         backend_url: String,
         wrapped_request: L8RequestObject,
     ) -> Result<(Response, String), String> {
@@ -193,17 +193,20 @@ impl ProxyHandler {
         });
 
         let client = Client::new();
-        let be_request_span = tracing::info_span!("backend.request.send");
-        let response = client
+        let mut be_request_span = tracing::info_span!("BE.request.send");
+        let mut req = client
             .request(
                 wrapped_request.method.parse().unwrap_or_default(),
                 origin_url.as_str(),
             )
             .headers(header_map.clone())
             .body(wrapped_request.body)
-            .send()
-            .instrument(be_request_span)
-            .await;
+            .build()
+            .map_err(|err| -> String { format!("Error while building request to BE: {}", err) })?;
+
+        ctx.inject_otel_reqwest_headers(&mut be_request_span, req.headers_mut());
+
+        let response = client.execute(req).instrument(be_request_span).await;
 
         match response {
             Ok(success_res) => Ok((success_res, origin_url)),
@@ -213,7 +216,7 @@ impl ProxyHandler {
                     .unwrap_or(reqwest::StatusCode::INTERNAL_SERVER_ERROR);
 
                 Err(format!(
-                    "Error while building request to BE: status={}, error={}",
+                    "Error while building sending to BE: status={}, error={}",
                     status, err
                 ))
             }
@@ -236,7 +239,7 @@ impl ProxyHandler {
         let redirected = be_response.url().as_str() != origin_url;
 
         let serialized_headers = utils::headermap_to_hashmap(be_response.headers());
-        let be_response_span = tracing::info_span!("backend.response.receive");
+        let be_response_span = tracing::info_span!("BE.response_body.download");
         let serialized_body = be_response
             .bytes()
             .instrument(be_response_span)

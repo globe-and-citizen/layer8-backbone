@@ -436,7 +436,7 @@ mod test_proxy_handler {
             };
 
             let result = ProxyHandler::rebuild_user_request(
-                &ctx,
+                &mut ctx,
                 mock::data::MOCK_BACKEND_URL.to_string(),
                 l8_request,
             )

@@ -585,7 +585,7 @@ async fn fetch_auth_server_certificate(
     let client = Client::new();
     let request_path = format!("{}{}", auth_get_certificate_url, backend_url);
 
-    let auth_span = tracing::info_span!(parent: ctx.get_request_span(), "auth_server.request");
+    let mut auth_span = tracing::info_span!(parent: ctx.get_request_span(), "auth_server.request");
     // build request so we can mutate headers on the resulting `reqwest::Request`
     let mut req = client
         .get(&request_path)
@@ -604,7 +604,7 @@ async fn fetch_auth_server_certificate(
         })?;
 
     // inject tracing headers into the built request
-    ctx.inject_otel_reqwest_headers(req.headers_mut());
+    ctx.inject_otel_reqwest_headers(&mut auth_span, req.headers_mut());
 
     let res = client
         .execute(req)

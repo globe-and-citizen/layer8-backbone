@@ -443,6 +443,9 @@ impl ProxyHttp for ForwardProxy {
         };
 
         if self.config.tls.enable_tls {
+            let lifecycle_span = ctx.get_request_span();
+            lifecycle_span.record("mtls.enabled", true);
+            
             let tls_credentials = match self.tls_credentials.clone() {
                 None => {
                     panic!("tls_credentials is None");
@@ -590,6 +593,10 @@ impl ProxyHttp for ForwardProxy {
                 });
 
                 *body = Some(Bytes::copy_from_slice(ctx.get_request_body().as_slice()));
+
+                // The request will be sent to upstream when this phase finished
+                ctx.start_upstream_ttfb_span();
+
                 return Ok(());
             }
 
@@ -622,6 +629,9 @@ impl ProxyHttp for ForwardProxy {
             let fp_req_body = handler_response.body.as_ref().unwrap_or(&vec![]).clone();
 
             *body = Some(Bytes::copy_from_slice(fp_req_body.as_slice()));
+
+            // The request will be sent to upstream when this phase finished
+            ctx.start_upstream_ttfb_span();
         }
 
         Ok(())
@@ -715,10 +725,9 @@ impl ProxyHttp for ForwardProxy {
         }
 
         // Inject OpenTelemetry span context into upstream request headers for distributed tracing
-        ctx.inject_otel_pingora_header(upstream_request);
+        let mut request_span = ctx.get_request_span().clone();
+        ctx.inject_otel_pingora_header(&mut request_span, upstream_request);
 
-        // The request will be sent to upstream when this phase finished
-        ctx.start_upstream_ttfb_span();
         Ok(())
     }
 
