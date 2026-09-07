@@ -8,6 +8,7 @@ use bytes::Bytes;
 use opentelemetry::trace::Status;
 use pingora::http::{RequestHeader, ResponseHeader, StatusCode};
 use pingora::prelude::{HttpPeer, ProxyHttp, Session};
+use pingora::protocols::Digest;
 use pingora::upstreams::peer::PeerOptions;
 use pingora::OrErr;
 use pingora::{Error, ErrorType};
@@ -388,6 +389,12 @@ impl ProxyHttp for ForwardProxy {
         let mut address_list: Vec<&str> = addrs.split(',').collect();
         let upstream_sni = sni.to_string(); // clone for move into closure
         let mut opt_peer = None;
+
+        // Start measuring FP -> RP network/connection latency
+        if ctx.get_upstream_connect_span().is_none() {
+            ctx.start_upstream_connect_span();
+        }
+
         for addr in address_list.clone() {
             match std::panic::catch_unwind(|| {
                 HttpPeer::new(addr, self.config.tls.enable_tls, upstream_sni.clone())
@@ -710,6 +717,36 @@ impl ProxyHttp for ForwardProxy {
         // Inject OpenTelemetry span context into upstream request headers for distributed tracing
         ctx.inject_otel_pingora_header(upstream_request);
 
+        // The request will be sent to upstream when this phase finished
+        ctx.start_upstream_ttfb_span();
+        Ok(())
+    }
+
+    /// Handles upstream response headers received from the backend.
+    ///
+    /// This hook marks the end of the upstream TTFB measurement and starts the
+    /// response-processing span for tracing and observability. Response header
+    /// mutation is intentionally deferred to `response_filter()`.
+    ///
+    /// # Arguments
+    /// * `session` - The active HTTP session; currently unused.
+    /// * `upstream_response` - The raw response headers returned by the upstream server.
+    /// * `ctx` - The request context used to manage tracing spans and timing data.
+    ///
+    /// # Returns
+    /// * `Ok(())` - The upstream response hook completed successfully.
+    /// * `Err(Error)` - If the hook fails when updating tracing state.
+    async fn upstream_response_filter(
+        &self,
+        _session: &mut Session,
+        _upstream_response: &mut ResponseHeader,
+        ctx: &mut Self::CTX,
+    ) -> pingora::Result<()>
+    where
+        Self::CTX: Send + Sync,
+    {
+        ctx.end_upstream_ttfb_span();
+        ctx.start_upstream_response_span();
         Ok(())
     }
 
@@ -754,6 +791,7 @@ impl ProxyHttp for ForwardProxy {
     /// Processes the upstream response body in chunks and handles init-tunnel response transformation.
     /// This function is responsible for:
     /// - Accumulating the response body in chunks until end_of_stream is received
+    /// - Stop measuring upstream response body download latency when the last chunk is received
     /// - For init-tunnel requests: delegating to the handler for processing and transformation
     /// - For other requests: passing through the response body unchanged
     /// - Clearing individual chunks after storing them to free memory
@@ -786,6 +824,9 @@ impl ProxyHttp for ForwardProxy {
         }
 
         if end_of_stream {
+            // The response download process has been completed
+            ctx.end_upstream_ttfb_span();
+
             if session.req_header().uri.path() != RequestPaths::INIT_TUNNEL {
                 ctx.info(|| {
                     info!(
@@ -991,5 +1032,36 @@ impl ProxyHttp for ForwardProxy {
         }
         e.set_retry(retry);
         e
+    }
+
+    /// Called after the upstream connection is established.
+    ///
+    /// This hook finalizes the upstream connect timing for non-reused connections and
+    /// ensures the corresponding tracing span is closed when the connection is fresh.
+    ///
+    /// # Arguments
+    /// * `session` - The active HTTP session.
+    /// * `reused` - Whether the upstream connection was reused from a pool.
+    /// * `peer` - The upstream peer that was connected.
+    /// * `ctx` - The request context used to track tracing spans and metrics.
+    ///
+    /// # Returns
+    /// * `Ok(())` - The connection hook completed successfully.
+    /// * `Err(Error)` - If the hook failed while updating tracing state.
+    async fn connected_to_upstream(
+        &self,
+        _session: &mut Session,
+        _reused: bool,
+        _peer: &HttpPeer,
+        #[cfg(unix)] _fd: std::os::unix::io::RawFd,
+        #[cfg(windows)] _sock: std::os::windows::io::RawSocket,
+        _digest: Option<&Digest>,
+        ctx: &mut Self::CTX,
+    ) -> pingora::Result<()>
+    where
+        Self::CTX: Send + Sync,
+    {
+        ctx.end_upstream_connect_span();
+        Ok(())
     }
 }

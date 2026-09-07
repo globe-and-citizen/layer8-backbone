@@ -112,6 +112,63 @@ pub struct Layer8Context {
     /// Accessed via `get(&self, key: &str)` and `set(&mut self, key: String, value: String)` methods
     memory: HashMap<String, String>,
     request_span: tracing::Span,
+    /// Measures the time taken to establish a connection to the upstream server.
+    ///
+    /// upstream_peer() --(start)--> TCP + TLS/mTLS --> connected_to_upstream() --(stop)-->
+    /// upstream.connect.latency_ms
+    ///
+    /// This measures upstream connection establishment latency and is useful for
+    /// detecting deployment and network differences.
+    ///
+    /// Includes:
+    /// - Network latency
+    /// - TCP connection establishment
+    /// - TLS/mTLS handshake
+    /// - Connection establishment overhead
+    ///
+    /// Note:
+    /// This is not pure network latency because the measurement also includes
+    /// TCP/TLS/mTLS handshake and processing overhead.
+    upstream_connect_span: tracing::Span,
+    /// Measures the time from when the upstream request is ready to be sent
+    /// until the first response body data is received from the upstream server.
+    ///
+    /// upstream_request_filter() --(start)--> request sent --> upstream server
+    /// --> response processing --> first response data --> upstream_response_filter() --(stop)-->
+    /// upstream.ttfb.latency_ms
+    ///
+    /// This measures upstream Time To First Byte (TTFB) and is useful for
+    /// detecting request/response latency differences between deployments.
+    ///
+    /// Includes:
+    /// - Request transmission latency
+    /// - Upstream server processing time
+    /// - Response transmission latency until the first response data
+    ///
+    /// Note:
+    /// This is not pure network latency because the measurement also includes
+    /// upstream server processing and proxy/protocol overhead.
+    upstream_ttfb_span: tracing::Span,
+    /// Measures the time taken to receive the complete upstream response
+    /// after the first response body data has been received.
+    ///
+    /// upstream_response_filter() --(start)--> response body chunks
+    /// --> upstream_response_body_filter() --(end_of_stream)--> upstream.response.download.latency_ms
+    ///
+    /// This measures the duration of downloading the upstream response body
+    /// and is useful for detecting response transfer and deployment/network
+    /// differences.
+    ///
+    /// Includes:
+    /// - Response transmission latency
+    /// - Network latency while receiving the response
+    /// - Upstream response streaming time
+    /// - Network/proxy buffering and flow-control overhead
+    ///
+    /// Note:
+    /// This is not pure network latency because the measurement can also include
+    /// upstream server streaming behavior and proxy processing overhead.
+    upstream_response_span: tracing::Span,
 }
 
 impl Default for Layer8Context {
@@ -121,6 +178,9 @@ impl Default for Layer8Context {
             response: Default::default(),
             memory: Default::default(),
             request_span: tracing::Span::none(),
+            upstream_connect_span: tracing::Span::none(),
+            upstream_ttfb_span: tracing::Span::none(),
+            upstream_response_span: tracing::Span::none(),
         }
     }
 }
@@ -338,6 +398,42 @@ impl Layer8ContextTrait for Layer8Context {
         &self.request_span
     }
 
+    fn start_upstream_connect_span(&mut self) {
+        self.upstream_connect_span =
+            tracing::info_span!(parent: &self.request_span, "upstream.connect.establish");
+    }
+
+    fn get_upstream_connect_span(&self) -> &tracing::Span {
+        &self.upstream_connect_span
+    }
+
+    fn end_upstream_connect_span(&mut self) {
+        self.upstream_connect_span = tracing::Span::none()
+    }
+    fn start_upstream_ttfb_span(&mut self) {
+        self.upstream_ttfb_span = tracing::info_span!(parent: &self.request_span, "upstream.ttfb");
+    }
+
+    fn get_upstream_ttfb_span(&self) -> &tracing::Span {
+        &self.upstream_ttfb_span
+    }
+
+    fn end_upstream_ttfb_span(&mut self) {
+        self.upstream_ttfb_span = tracing::Span::none()
+    }
+
+    fn start_upstream_response_span(&mut self) {
+        self.upstream_response_span = tracing::info_span!(parent: &self.request_span, "upstream.response.download");
+    }
+    
+    fn get_upstream_response_span(&self) -> &tracing::Span {
+        &self.upstream_response_span
+    }
+    
+    fn end_upstream_response_span(&mut self) {
+        self.upstream_response_span = tracing::Span::none()
+    }
+
     fn inject_otel_pingora_header(&mut self, header: &mut RequestHeader) {
         let otel_context = self.request_span.context();
 
@@ -395,6 +491,15 @@ pub trait Layer8ContextTrait {
     fn get_correlation_id(&self) -> String;
     fn set_request_span(&mut self, span: tracing::Span);
     fn get_request_span(&self) -> &tracing::Span;
+    fn start_upstream_connect_span(&mut self);
+    fn get_upstream_connect_span(&self) -> &tracing::Span;
+    fn end_upstream_connect_span(&mut self);
+    fn start_upstream_ttfb_span(&mut self);
+    fn get_upstream_ttfb_span(&self) -> &tracing::Span;
+    fn end_upstream_ttfb_span(&mut self);
+    fn start_upstream_response_span(&mut self);
+    fn get_upstream_response_span(&self) -> &tracing::Span;
+    fn end_upstream_response_span(&mut self);
     fn inject_otel_pingora_header(&mut self, header: &mut RequestHeader);
     fn inject_otel_reqwest_headers(&mut self, req: &mut reqwest::header::HeaderMap);
     /// This function isn't cheap, consider when using it
