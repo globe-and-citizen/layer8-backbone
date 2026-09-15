@@ -5,7 +5,7 @@ use ntor::server::NTorServer;
 use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
 use pingora_router::handler::{DefaultHandlerTrait, ResponseBodyTrait};
 use reqwest::header::HeaderMap;
-use reqwest::{Client, Response};
+use reqwest::Response;
 use tracing::{debug, info, Instrument};
 use utils::jwt::JWTClaims;
 
@@ -167,6 +167,7 @@ impl ProxyHandler {
     /// headers, body, and metadata
     /// * `Err(String)` - An error response if the request fails or backend is unreachable
     pub async fn rebuild_user_request(
+        reqwest_client: &reqwest::Client,
         ctx: &mut Layer8Context,
         backend_url: String,
         wrapped_request: L8RequestObject,
@@ -192,9 +193,8 @@ impl ProxyHandler {
             );
         });
 
-        let client = Client::new();
         let mut be_request_span = tracing::info_span!("BE.request.send");
-        let mut req = client
+        let mut req = reqwest_client
             .request(
                 wrapped_request.method.parse().unwrap_or_default(),
                 origin_url.as_str(),
@@ -206,7 +206,10 @@ impl ProxyHandler {
 
         ctx.inject_otel_reqwest_headers(&mut be_request_span, req.headers_mut());
 
-        let response = client.execute(req).instrument(be_request_span).await;
+        let response = reqwest_client
+            .execute(req)
+            .instrument(be_request_span)
+            .await;
 
         match response {
             Ok(success_res) => Ok((success_res, origin_url)),

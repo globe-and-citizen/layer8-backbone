@@ -25,18 +25,25 @@ pub struct ReverseHandler {
     config: HandlerConfig,
     jwt_secret: Vec<u8>,
     ntor_static_secret: [u8; 32],
+    reqwest_client: reqwest::Client,
 }
 
 impl ReverseHandler {
-    pub fn new(config: RPConfig) -> Self {
+    pub fn new(config: RPConfig) -> Result<Self, reqwest::Error> {
         let ntor_secret = config.handler.ntor_static_secret;
         let jwt_secret = config.handler.jwt_virtual_connection_secret.clone();
 
-        ReverseHandler {
+        let reqwest_client = reqwest::Client::builder()
+            .pool_max_idle_per_host(100)
+            .tcp_keepalive(std::time::Duration::from_secs(60))
+            .build()?;
+
+        Ok(ReverseHandler {
             config: config.handler,
             jwt_secret,
             ntor_static_secret: ntor_secret,
-        }
+            reqwest_client,
+        })
     }
 
     /// Retrieves the nTor shared secret for a given session ID.
@@ -286,6 +293,7 @@ impl ReverseHandler {
         let wrapped_response = match async {
             // reconstruct user request
             let (response, origin_url) = ProxyHandler::rebuild_user_request(
+                &self.reqwest_client,
                 ctx,
                 self.config.backend_url.clone(),
                 wrapped_request,

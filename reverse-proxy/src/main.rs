@@ -63,7 +63,11 @@ fn main() {
     let handle_healthcheck: APIHandler<Arc<ReverseHandler>> =
         Box::new(|h, ctx| async move { h.handle_healthcheck(ctx).await }.boxed());
 
-    let rp_handler = Arc::new(ReverseHandler::new(rp_config.clone()));
+    let rp_handler = ReverseHandler::new(rp_config.clone()).map_err(|e| {
+        error!("Failed to create ReverseHandler: {}", e);
+    }).unwrap();
+    
+    let rp_handler = Arc::new(rp_handler);
     let mut router: Router<Arc<ReverseHandler>> = Router::new(rp_handler);
     router.post("/init-tunnel".to_string(), Box::new([handle_init_tunnel]));
     router.post("/proxy".to_string(), Box::new([handle_proxy]));

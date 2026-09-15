@@ -12,10 +12,12 @@ mod test_proxy_request {
     use ntor::common::EncryptedMessage;
     use reverse_proxy::handler::InMemorySecretsStorage;
     use std::collections::HashMap;
+    use std::thread::sleep;
 
     #[tokio::test]
     async fn test_success() {
         start_mock_services();
+        sleep(std::time::Duration::from_secs(10)); // wait for mock services to start
 
         // add mock session data to in-memory storage
         let sessions = HashMap::from([

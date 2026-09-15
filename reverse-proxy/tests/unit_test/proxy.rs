@@ -434,8 +434,11 @@ mod test_proxy_handler {
                 headers: HashMap::from([("Content-Type".to_string(), "application/json".into())]),
                 body: b"{\"key\": \"value\"}".to_vec(),
             };
+            
+            let client = reqwest::Client::new();
 
             let result = ProxyHandler::rebuild_user_request(
+                &client,
                 &mut ctx,
                 mock::data::MOCK_BACKEND_URL.to_string(),
                 l8_request,

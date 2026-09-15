@@ -10,6 +10,7 @@ use reverse_proxy::proxy::ReverseProxy;
 use reverse_proxy::tls_conf::TLSServerConfig;
 use std::sync::Arc;
 use std::thread;
+use tracing::error;
 use utils::cert::TLSCredentials;
 use utils::log::LogConfig;
 
@@ -93,7 +94,11 @@ fn start_reverse_proxy() {
     let handle_healthcheck: APIHandler<Arc<ReverseHandler>> =
         Box::new(|h, ctx| async move { h.handle_healthcheck(ctx).await }.boxed());
 
-    let rp_handler = Arc::new(ReverseHandler::new(rp_config.clone()));
+    let rp_handler = ReverseHandler::new(rp_config.clone()).map_err(|e| {
+        error!("Failed to create ReverseHandler: {}", e);
+    }).unwrap();
+
+    let rp_handler = Arc::new(rp_handler);
     let mut router: Router<Arc<ReverseHandler>> = Router::new(rp_handler);
     router.post("/init-tunnel".to_string(), Box::new([handle_init_tunnel]));
     router.post("/proxy".to_string(), Box::new([handle_proxy]));

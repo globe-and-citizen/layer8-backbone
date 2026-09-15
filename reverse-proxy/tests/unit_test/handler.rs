@@ -4,7 +4,7 @@ mod mock;
 #[cfg(test)]
 mod test_handler {
     mod test_get_ntor_shared_secret {
-
+        use tracing::error;
         use reverse_proxy::config::{HandlerConfig, ServerConfig};
 
         use reverse_proxy::handler::{InMemorySecretsStorage, ReverseHandler};
@@ -45,7 +45,9 @@ mod test_handler {
                 telemetry: Default::default(),
             };
 
-            ReverseHandler::new(rp_config)
+            ReverseHandler::new(rp_config.clone()).map_err(|e| {
+                error!("Failed to create ReverseHandler: {}", e);
+            }).unwrap()
         }
 
         #[test]
@@ -84,6 +86,7 @@ mod test_handler {
         };
         use reverse_proxy::handler::{InMemorySecretsStorage, ReverseHandler};
         use serde_json::json;
+        use tracing::error;
         use utils::cert::TLSConfig;
         use utils::log::LogConfig;
 
@@ -122,7 +125,11 @@ mod test_handler {
                 },
                 telemetry: Default::default(),
             };
-            (ReverseHandler::new(config.clone()), config)
+
+            let rp_handler = ReverseHandler::new(config.clone()).map_err(|e| {
+                error!("Failed to create ReverseHandler: {}", e);
+            }).unwrap();
+            (rp_handler, config)
         }
 
         #[tokio::test]
@@ -276,6 +283,7 @@ mod test_handler {
         };
         use ntor::common::EncryptedMessage;
         use pingora::http::StatusCode;
+        use tracing::error;
         use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
         use pingora_router::handler::ResponseBodyTrait;
         use reverse_proxy::config::RPConfig;
@@ -287,7 +295,10 @@ mod test_handler {
             let mut config = RPConfig::default();
             config.handler.jwt_virtual_connection_secret = VALID_JWT_SECRET.to_vec();
             config.handler.backend_url = MOCK_BACKEND_URL.to_string();
-            ReverseHandler::new(config)
+
+            ReverseHandler::new(config.clone()).map_err(|e| {
+                error!("Failed to create ReverseHandler: {}", e);
+            }).unwrap()
         }
 
         #[tokio::test]
