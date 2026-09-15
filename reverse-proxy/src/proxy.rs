@@ -169,38 +169,37 @@ impl<T: Sync> ProxyHttp for ReverseProxy<T> {
 
         let handle_request_span =
             tracing::info_span!(parent: ctx.get_request_span(), "request.handle");
+        let handler_response = async { self.router.call_handler(ctx).await }
+            .instrument(handle_request_span)
+            .await;
 
-        async {
-            let handler_response = self.router.call_handler(ctx).await;
-            if handler_response.status == StatusCode::NOT_FOUND && handler_response.body.is_none() {
-                let header = ResponseHeader::build(StatusCode::NOT_FOUND, None)?;
-                session.write_response_header_ref(&header, false).await?;
-                session.set_keepalive(None);
-                return Ok(true);
-            }
-
-            let mut response_bytes = vec![];
-            if let Some(body_bytes) = handler_response.body {
-                ctx.insert_response_header("Content-length", &body_bytes.len().to_string());
-                response_bytes = body_bytes;
-            }
-
-            if let Some(cookies) = handler_response.cookies {
-                ctx.insert_response_header("Set-Cookie", &cookies);
-            }
-
-            self.set_headers(session, ctx, handler_response.status)
-                .await?;
-            ctx.set_response_body(response_bytes.clone());
-
-            session
-                .write_response_body(Some(Bytes::from(response_bytes)), true)
-                .await?;
-
-            Ok(true)
+        if handler_response.status == StatusCode::NOT_FOUND && handler_response.body.is_none() {
+            let header = ResponseHeader::build(StatusCode::NOT_FOUND, None)?;
+            session.write_response_header_ref(&header, false).await?;
+            session.set_keepalive(None);
+            return Ok(true);
         }
-        .instrument(handle_request_span)
-        .await
+
+        let mut response_bytes = vec![];
+        if let Some(body_bytes) = handler_response.body {
+            ctx.insert_response_header("Content-length", &body_bytes.len().to_string());
+            response_bytes = body_bytes;
+        }
+
+        if let Some(cookies) = handler_response.cookies {
+            ctx.insert_response_header("Set-Cookie", &cookies);
+        }
+
+        self.set_headers(session, ctx, handler_response.status).await?;
+        ctx.set_response_body(response_bytes.clone());
+
+        let write_response_span = tracing::info_span!(parent: ctx.get_request_span(), "response_body.write");
+        session
+            .write_response_body(Some(Bytes::from(response_bytes)), true)
+            .instrument(write_response_span)
+            .await?;
+
+        Ok(true)
     }
 
     /// Log details about the completed request/response transaction.
