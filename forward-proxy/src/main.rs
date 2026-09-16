@@ -12,6 +12,7 @@ use proxy::ForwardProxy;
 use std::sync::Arc;
 use tokio::runtime::Runtime;
 use tracing::{debug, info};
+use pingora_router::ctx::Layer8ContextConfig;
 use utils::cert::{watch_tls, TLSCredentials};
 
 fn load_config() -> FPConfig {
@@ -20,7 +21,10 @@ fn load_config() -> FPConfig {
 
     // Deserialize from env vars
     let mut config: FPConfig = envy::from_env().expect("Failed to load config");
-    config.proxy.ctx.use_otel = config.telemetry.otlp_enable;
+    config.proxy.ctx = Layer8ContextConfig {
+        use_otel: config.telemetry.otlp_enable,
+        mtls_enabled: config.proxy.tls.enable_tls,
+    };
 
     debug!(name: "FPConfig", value = ?config);
     config

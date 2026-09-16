@@ -15,6 +15,7 @@ use pingora_router::router::Router;
 use std::sync::Arc;
 use tokio::runtime::Runtime;
 use tracing::{debug, error, info};
+use pingora_router::ctx::Layer8ContextConfig;
 use utils::cert::{TLSCredentials, watch_tls};
 
 mod config;
@@ -29,7 +30,11 @@ fn load_config() -> RPConfig {
             error!("Failed to load configuration: {}", e);
         })
         .unwrap();
-    config.proxy.ctx.use_otel = config.telemetry.otlp_enable;
+
+    config.proxy.ctx = Layer8ContextConfig {
+        use_otel: config.telemetry.otlp_enable,
+        mtls_enabled: config.proxy.tls.enable_tls,
+    };
 
     debug!(name: "RPConfig", value = ?config);
     config

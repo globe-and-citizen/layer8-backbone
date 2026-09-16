@@ -443,9 +443,6 @@ impl ProxyHttp for ForwardProxy {
         };
 
         if self.config.tls.enable_tls {
-            let lifecycle_span = ctx.get_request_span();
-            lifecycle_span.record("mtls.enabled", true);
-            
             let tls_credentials = match self.tls_credentials.clone() {
                 None => {
                     panic!("tls_credentials is None");

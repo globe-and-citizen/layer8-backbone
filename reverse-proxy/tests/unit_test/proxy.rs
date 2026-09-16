@@ -434,7 +434,7 @@ mod test_proxy_handler {
                 headers: HashMap::from([("Content-Type".to_string(), "application/json".into())]),
                 body: b"{\"key\": \"value\"}".to_vec(),
             };
-            
+
             let client = reqwest::Client::new();
 
             let result = ProxyHandler::rebuild_user_request(
@@ -458,7 +458,7 @@ mod test_proxy_handler {
             );
             let cookie = l8_response.headers.get("set-cookie").unwrap().to_string();
             assert_eq!(
-                "\"session_id=abc123; HttpOnly; Path=/; Max-Age=3600\"".to_string(),
+                "session_id=abc123; HttpOnly; Path=/; Max-Age=3600".to_string(),
                 cookie,
                 "Set-Cookie header does not match expected value"
             );
