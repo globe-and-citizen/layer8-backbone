@@ -8,7 +8,7 @@ use std::collections::HashMap;
 pub struct L8RequestObject {
     pub method: String,
     pub uri: String,
-    pub headers: HashMap<String, serde_json::Value>,
+    pub headers: HashMap<String, String>,
     pub body: Vec<u8>,
 }
 impl RequestBodyTrait for L8RequestObject {}
@@ -17,7 +17,7 @@ impl RequestBodyTrait for L8RequestObject {}
 pub struct L8ResponseObject {
     pub status: u16,
     pub status_text: String,
-    pub headers: HashMap<String, serde_json::Value>,
+    pub headers: HashMap<String, String>,
     pub body: Vec<u8>,
     pub ok: bool,
     pub url: String,

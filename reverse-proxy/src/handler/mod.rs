@@ -343,7 +343,7 @@ impl ReverseHandler {
         let cookies: Option<String> = wrapped_response
             .headers
             .get("set-cookie")
-            .and_then(|v| v.as_str().map(|s| s.to_string()));
+            .and_then(|value| Some(value.to_string()));
 
         // encrypt backend response using nTor shared secret and return to client
         match ProxyHandler::encrypt_response_body(
