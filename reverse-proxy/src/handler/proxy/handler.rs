@@ -3,7 +3,7 @@ use crate::handler::proxy::{L8RequestObject, L8ResponseObject};
 use ntor::common::{EncryptedMessage, NTorParty};
 use ntor::server::NTorServer;
 use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
-use pingora_router::handler::{DefaultHandlerTrait, ResponseBodyTrait};
+use pingora_router::handler::DefaultHandlerTrait;
 use reqwest::header::HeaderMap;
 use reqwest::Response;
 use tracing::{debug, info, Instrument};
@@ -140,7 +140,7 @@ impl ProxyHandler {
         // let decrypted_data = request_body.data;
 
         // parse decrypted data into WrappedUserRequest
-        let wrapped_request: L8RequestObject = utils::bytes_to_json(decrypted_data)
+        let wrapped_request = L8RequestObject::from_bincode_bytes(&decrypted_data)
             .map_err(|err| format!("Failed to parse request body: {}", err))?;
 
         Ok(wrapped_request)
@@ -294,7 +294,9 @@ impl ProxyHandler {
         let mut ntor_server = NTorServer::new(ntor_server_id);
         ntor_server.set_shared_secret(shared_secret.to_vec());
 
-        let data = response_body.to_bytes();
+        let data = response_body
+            .to_bincode_bytes()
+            .map_err(|err| format!("Failed to serialize response body: {}", err))?;
 
         // Encrypt the response body using nTor shared secret
         let encrypted_data = ntor_server
