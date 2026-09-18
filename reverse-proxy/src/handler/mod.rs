@@ -9,7 +9,7 @@ use pingora::http::StatusCode;
 use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
 use pingora_router::handler::{APIHandlerResponse, ResponseBodyTrait};
 use proxy::handler::ProxyHandler;
-use tracing::{error, info, Instrument};
+use tracing::{debug, error, Instrument};
 use utils::jwt::JWTClaims;
 use utils::new_uuid;
 
@@ -129,8 +129,8 @@ impl ReverseHandler {
             fp_rp_jwt,
         };
 
-        ctx.info(|| {
-            info!(
+        ctx.debug(|| {
+            debug!(
                 log_type = LogTypes::HANDLE_INIT_TUNNEL_REQUEST,
                 "Save new nTor session: {}", ntor_session_id
             );

@@ -253,7 +253,7 @@ impl ProxyHandler {
         ctx.info(|| {
             info!(
                 log_type = LogTypes::HANDLE_BACKEND_RESPONSE,
-                "Received response from backend: status={}, url={}",
+                "BE response: status={}, url={}",
                 status,
                 url.as_str()
             );

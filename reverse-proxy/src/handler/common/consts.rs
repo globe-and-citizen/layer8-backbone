@@ -16,3 +16,11 @@ impl LogTypes {
     pub const HEALTHCHECK: &'static str = "HEALTHCHECK";
     pub const TLS_HANDSHAKE: &'static str = "TLS_HANDSHAKE";
 }
+
+pub struct RequestPaths;
+
+impl RequestPaths {
+    pub const PROXY: &'static str = "/proxy";
+    pub const INIT_TUNNEL: &'static str = "/init-tunnel";
+    pub const HEALTHCHECK: &'static str = "/healthcheck";
+}

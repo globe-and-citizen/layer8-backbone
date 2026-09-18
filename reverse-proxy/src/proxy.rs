@@ -1,5 +1,5 @@
 use crate::config::ProxyConfig;
-use crate::handler::common::consts::LogTypes;
+use crate::handler::common::consts::{LogTypes, RequestPaths};
 use async_trait::async_trait;
 use bytes::Bytes;
 use opentelemetry::trace::Status;
@@ -7,7 +7,7 @@ use pingora::http::{ResponseHeader, StatusCode};
 use pingora::prelude::{HttpPeer, ProxyHttp};
 use pingora::proxy::Session;
 use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
-use pingora_router::router::Router;
+use pingora_router::{router::Router, utils as pingora_utils};
 use tracing::{debug, info, Instrument};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
@@ -161,6 +161,26 @@ impl<T: Sync> ProxyHttp for ReverseProxy<T> {
         // create Context
         ctx.update(session, self.config.ctx.clone()).await?;
 
+        // This proxy only accepts server-to-server traffic on 3 known routes.
+        // OPTIONS/CORS preflight is intentionally not supported here — call_handler's
+        // OPTIONS branch exists for other (browser-facing) consumers of this router.
+        match (
+            session.req_header().uri.path(),
+            session.req_header().method.as_str(),
+        ) {
+            (RequestPaths::HEALTHCHECK, "GET") => {}
+            (RequestPaths::INIT_TUNNEL, "POST") => {}
+            (RequestPaths::PROXY, "POST") => {}
+            _ => {
+                // return to downstream
+                ctx.response.status = StatusCode::NOT_FOUND;
+                let header = ResponseHeader::build(StatusCode::NOT_FOUND, None)?;
+                session.write_response_header_ref(&header, false).await?;
+                session.set_keepalive(None);
+                return Ok(true);
+            }
+        }
+
         let read_body_span =
             tracing::info_span!(parent: ctx.get_request_span(), "request_body.read");
         ctx.read_request_body(session)
@@ -256,6 +276,7 @@ impl<T: Sync> ProxyHttp for ReverseProxy<T> {
                 origin = ctx.request.header.get("origin"),
                 referer = ctx.request.header.get("referer"),
                 user_agent=ctx.request.header.get("User-Agent"),
+                client_ip = pingora_utils::get_client_ip(session).map(|ip| ip.to_string()).unwrap_or_default(),
                 error=?e,
             );
         });
