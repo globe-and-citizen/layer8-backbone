@@ -206,6 +206,7 @@ impl Layer8Context {
         // It is dropped when the context is dropped or when it is explicitly released.
         self.request_span = tracing::info_span!(
             "request.lifecycle",
+            otel.kind = "server", // Explicitly marks this as a Server entrypoint for OpenTelemetry / OTLP
             http.request.method = %method,
             http.request.path = %path,
 
