@@ -14,7 +14,7 @@ pub struct RPConfig {
     pub proxy: ProxyConfig,
     #[serde(flatten)]
     pub handler: HandlerConfig,
-    #[serde(flatten)]
+    #[serde(flatten, default)]
     pub telemetry: TelemetryConfig,
 }
 

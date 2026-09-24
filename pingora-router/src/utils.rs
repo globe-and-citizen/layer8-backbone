@@ -103,11 +103,11 @@ pub fn get_client_ip(session: &Session) -> Option<IpAddr> {
         .and_then(|v| v.to_str().ok())
     {
         let cleaned = raw.trim().trim_matches('"');
-        let ip_str = cleaned
-            .trim_start_matches('[')
-            .split(&[']', ':'][..])
-            .next()
-            .unwrap_or(cleaned);
+        let ip_str = if let Some(rest) = cleaned.strip_prefix('[') {
+            rest.split_once(']').map(|(ip, _)| ip).unwrap_or(rest)
+        } else {
+            cleaned.rsplit_once(':').map(|(ip, _)| ip).unwrap_or(cleaned)
+        };
         // guard against IPv6 addresses that contain multiple colons but no brackets
         if let Ok(ip) = ip_str.parse::<IpAddr>() {
             return Some(ip);

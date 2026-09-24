@@ -18,7 +18,7 @@ pub struct FPConfig {
     pub handler: HandlerConfig,
     #[serde(flatten)]
     pub influxdb: InfluxDBConfig,
-    #[serde(flatten)]
+    #[serde(flatten, default)]
     pub telemetry: TelemetryConfig,
 }
 

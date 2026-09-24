@@ -45,6 +45,7 @@ impl<'de> serde::Deserialize<'de> for OTLPProtocol {
 }
 
 #[derive(Debug, Deserialize, Clone)]
+#[serde(default)]
 pub struct TelemetryConfig {
     #[serde(deserialize_with = "deserializer::string_to_bool")]
     pub otlp_enable: bool,
