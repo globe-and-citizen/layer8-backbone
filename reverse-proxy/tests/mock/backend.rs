@@ -1,4 +1,4 @@
-use crate::mock::data::MOCK_BACKEND_PORT;
+use crate::mock::data::{MOCK_API_PATH_1, MOCK_BACKEND_PORT};
 use axum::http::header::SET_COOKIE;
 use axum::http::{HeaderMap, HeaderValue, StatusCode};
 use axum::response::IntoResponse;
@@ -59,23 +59,57 @@ async fn test_api(
     (StatusCode::OK, headers, Json(response))
 }
 
-pub fn run_mock_be() {
+// pub fn run_mock_be() {
+//     let mut app = Router::new();
+//     app = app.route(MOCK_API_PATH_1, get(test_api_get_me));
+//     app = app.route("/profile/test", get(test_api_get_profile));
+//     app = app.route("/test/api", post(test_api));
+//
+//     let addr = SocketAddr::from(([127, 0, 0, 1], MOCK_BACKEND_PORT));
+//     println!("Mock upstream server listening on {:?}", addr.clone());
+//
+//     // Run server in background
+//     tokio::spawn(async move {
+//         let listener = tokio::net::TcpListener::bind(addr)
+//             .await
+//             .unwrap();
+//
+//         axum::serve(listener, app)
+//             .await
+//             .unwrap();
+//     });
+// }
+
+pub async fn run_mock_be() {
     let mut app = Router::new();
-    app = app.route("/me", get(test_api_get_me));
+    app = app.route(MOCK_API_PATH_1, get(test_api_get_me));
     app = app.route("/profile/test", get(test_api_get_profile));
     app = app.route("/test/api", post(test_api));
 
     let addr = SocketAddr::from(([127, 0, 0, 1], MOCK_BACKEND_PORT));
-    println!("Mock upstream server listening on {:?}", addr.clone());
+    let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
+    println!("Mock upstream server listening on {:?}", addr);
 
-    // Run server in background
+    let (ready_tx, ready_rx) = tokio::sync::oneshot::channel::<()>();
+
     tokio::spawn(async move {
-        let listener = tokio::net::TcpListener::bind(addr)
-            .await
-            .unwrap();
-
-        axum::serve(listener, app)
-            .await
-            .unwrap();
+        let _ = ready_tx.send(());
+        axum::serve(listener, app).await.unwrap();
     });
+
+    let _ = ready_rx.await;
 }
+
+// use tokio::sync::OnceCell;
+// 
+// static MOCK_BE_STARTED: OnceCell<()> = OnceCell::const_new();
+// 
+// pub async fn ensure_mock_be_started() {
+//     MOCK_BE_STARTED
+//         .get_or_init(|| async {
+//             run_mock_be().await;
+//         })
+//         .await;
+// }
+
+// ensure_mock_be_started().await;

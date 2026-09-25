@@ -11,7 +11,12 @@ pub struct L8RequestObject {
     pub body: Vec<u8>,
 }
 impl L8RequestObject {
-    fn from_bincode_bytes(bytes: &[u8]) -> Result<Self, bincode::error::DecodeError> {
+    #[allow(dead_code)]
+    pub fn to_bincode_bytes(&self) -> Result<Vec<u8>, bincode::error::EncodeError> {
+        bincode::encode_to_vec(self, bincode::config::standard())
+    }
+
+    pub fn from_bincode_bytes(bytes: &[u8]) -> Result<Self, bincode::error::DecodeError> {
         let (obj, _len) = bincode::decode_from_slice(bytes, bincode::config::standard())?;
         Ok(obj)
     }
@@ -30,7 +35,13 @@ pub struct L8ResponseObject {
 }
 
 impl L8ResponseObject {
-    fn to_bincode_bytes(&self) -> Result<Vec<u8>, bincode::error::EncodeError> {
+    pub fn to_bincode_bytes(&self) -> Result<Vec<u8>, bincode::error::EncodeError> {
         bincode::encode_to_vec(self, bincode::config::standard())
+    }
+
+    #[allow(dead_code)]
+    pub fn from_bincode_bytes(bytes: &[u8]) -> Result<Self, bincode::error::DecodeError> {
+        let (obj, _len) = bincode::decode_from_slice(bytes, bincode::config::standard())?;
+        Ok(obj)
     }
 }

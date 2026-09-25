@@ -49,3 +49,6 @@ path = "tests/integration_test/init_tunnel.rs"
 name = "integration_test_proxy"
 path = "tests/integration_test/proxy.rs"
 
+[dev-dependencies]
+serial_test = "3"
+

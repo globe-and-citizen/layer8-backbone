@@ -283,6 +283,7 @@ mod test_handler {
         };
         use ntor::common::EncryptedMessage;
         use pingora::http::StatusCode;
+        use serial_test::serial;
         use tracing::error;
         use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
         use pingora_router::handler::ResponseBodyTrait;
@@ -301,9 +302,10 @@ mod test_handler {
             }).unwrap()
         }
 
+        #[serial]
         #[tokio::test]
         async fn test_success() {
-            mock::backend::run_mock_be();
+            mock::backend::run_mock_be().await;
             let handler = create_test_handler();
             InMemorySecretsStorage::insert(
                 MOCK_SESSION_ID_1.to_string(),
@@ -370,12 +372,13 @@ mod test_handler {
             }
         }
 
+        #[serial]
         #[tokio::test]
         async fn test_invalid_tokens() {
             // running the mock backend is not necessary for this test since we are testing JWT
             // validation before any backend call, but to be fair to the test, we want to have the
             // backend running to ensure any failures are due to JWT validation and not backend connectivity issues
-            mock::backend::run_mock_be();
+            mock::backend::run_mock_be().await;
             let handler = create_test_handler();
             InMemorySecretsStorage::insert(
                 MOCK_SESSION_ID_1.to_string(),
@@ -500,9 +503,10 @@ mod test_handler {
             }
         }
 
+        #[serial]
         #[tokio::test]
         async fn test_invalid_body() {
-            mock::backend::run_mock_be();
+            mock::backend::run_mock_be().await;
             let handler = create_test_handler();
             InMemorySecretsStorage::insert(
                 MOCK_SESSION_ID_1.to_string(),

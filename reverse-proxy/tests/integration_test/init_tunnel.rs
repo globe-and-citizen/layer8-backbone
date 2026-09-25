@@ -3,7 +3,6 @@ mod mock;
 
 #[cfg(test)]
 mod test_init_tunnel_request {
-    use std::thread::sleep;
     use crate::mock;
     use crate::mock::start_mock_services;
     use reverse_proxy::handler::init_tunnel::{
@@ -12,8 +11,7 @@ mod test_init_tunnel_request {
 
     #[tokio::test]
     async fn test() {
-        start_mock_services();
-        sleep(std::time::Duration::from_secs(10)); // wait for mock services to start
+        start_mock_services().await;
 
         let client = reqwest::Client::new();
         let body = InitEncryptedTunnelRequest {
