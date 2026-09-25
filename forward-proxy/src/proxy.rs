@@ -13,11 +13,11 @@ use pingora::upstreams::peer::PeerOptions;
 use pingora::OrErr;
 use pingora::{Error, ErrorType};
 use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
-use pingora_router::handler::ResponseBodyTrait;
+use pingora_router::{handler::ResponseBodyTrait, utils as pingora_utils};
 use reqwest::header::TRANSFER_ENCODING;
 use std::sync::Arc;
 use std::time::Duration;
-use tracing::{error, info};
+use tracing::{debug, error, info};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 use utils::cert::TLSCredentials;
 
@@ -375,8 +375,8 @@ impl ProxyHttp for ForwardProxy {
             .unwrap_or(&"".to_string())
             .clone();
 
-        ctx.info(|| {
-            info!(
+        ctx.debug(|| {
+            debug!(
                 log_type = LogTypes::UPSTREAM_CONNECT,
                 addresses = addrs,
                 sni = sni
@@ -581,8 +581,8 @@ impl ProxyHttp for ForwardProxy {
 
         if end_of_stream {
             if session.req_header().uri.path() != RequestPaths::INIT_TUNNEL {
-                ctx.info(|| {
-                    info!(
+                ctx.debug(|| {
+                    debug!(
                         log_type = LogTypes::HANDLE_CLIENT_REQUEST,
                         request_summary = session.request_summary(),
                         "Forward proxy passing through request body unchanged."
@@ -614,8 +614,8 @@ impl ProxyHttp for ForwardProxy {
                 )));
             }
 
-            ctx.info(|| {
-                info!(
+            ctx.debug(|| {
+                debug!(
                     log_type = LogTypes::HANDLE_CLIENT_REQUEST,
                     request_summary = session.request_summary(),
                     "Handle init-tunnel Request response with status: {}",
@@ -834,8 +834,8 @@ impl ProxyHttp for ForwardProxy {
             ctx.end_upstream_response_span();
 
             if session.req_header().uri.path() != RequestPaths::INIT_TUNNEL {
-                ctx.info(|| {
-                    info!(
+                ctx.debug(|| {
+                    debug!(
                         log_type = LogTypes::HANDLE_UPSTREAM_RESPONSE,
                         request_summary = session.request_summary(),
                         "Forward proxy passing through response body unchanged."
@@ -864,8 +864,8 @@ impl ProxyHttp for ForwardProxy {
                 )));
             }
 
-            ctx.info(|| {
-                info!(
+            ctx.debug(|| {
+                debug!(
                     log_type = LogTypes::HANDLE_UPSTREAM_RESPONSE,
                     request_summary = session.request_summary(),
                     "Handle init-tunnel Response response with status: {}",
@@ -932,7 +932,11 @@ impl ProxyHttp for ForwardProxy {
             // Explicitly set OK so Jaeger marks it green
             span.set_status(Status::Ok);
         }
-        let trace_id = ctx.get_trace_id();
+        let trace_id = if self.config.ctx.use_otel {
+            ctx.get_trace_id()
+        } else {
+            ctx.get_correlation_id()
+        };
 
         // Update client usage statistics
         if session.req_header().method.as_str() == "POST"
@@ -968,7 +972,8 @@ impl ProxyHttp for ForwardProxy {
                 log_type=LogTypes::ACCESS_LOG,
                 origin = ctx.request.header.get("origin"),
                 referer = ctx.request.header.get("referer"),
-                user_agent = ctx.request.header.get("User-Agent"),
+                user_agent=ctx.request.header.get("User-Agent"),
+                client_ip = pingora_utils::get_client_ip(session).map(|ip| ip.to_string()).unwrap_or_default(),
                 error=?e,
             );
         });

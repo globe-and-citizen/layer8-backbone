@@ -235,6 +235,8 @@ impl Layer8Context {
                 let _guard = self.request_span.enter();
                 error!("telemetry: failed to set parent context: {:?}", err);
             }
+        } else {
+            self.set_correlation_id();
         }
 
         // take anything as needed later
@@ -383,12 +385,12 @@ impl Layer8ContextTrait for Layer8Context {
             correlation_id = uuid::Uuid::new_v4().to_string();
         }
 
-        self.set("x-correlation-id".to_string(), correlation_id.clone());
+        self.set("l8-correlation-id".to_string(), correlation_id.clone());
         correlation_id
     }
 
     fn get_correlation_id(&self) -> String {
-        self.get("x-correlation-id")
+        self.get("l8-correlation-id")
             .unwrap_or(&"".to_string())
             .clone()
     }
@@ -493,9 +495,7 @@ pub trait Layer8ContextTrait {
     fn get(&self, key: &str) -> Option<&String>;
     fn set(&mut self, key: String, value: String);
     fn set_request_summary(&mut self, summary: Layer8ContextRequestSummary);
-    #[deprecated] // switched to tracing::span
     fn set_correlation_id(&mut self) -> String;
-    #[deprecated]
     fn get_correlation_id(&self) -> String;
     fn set_request_span(&mut self, span: tracing::Span);
     fn get_request_span(&self) -> &tracing::Span;
