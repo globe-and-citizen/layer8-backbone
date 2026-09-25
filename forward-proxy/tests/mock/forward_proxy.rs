@@ -9,6 +9,7 @@ use pingora::prelude::{Opt, Server, http_proxy_service};
 use std::sync::Arc;
 use std::thread;
 use utils::cert::TLSCredentials;
+use utils::log::LogConfig;
 
 pub static TEST_FORWARD_PROXY: Lazy<TestServer> = Lazy::new(TestServer::start);
 
@@ -37,6 +38,7 @@ fn start_forward_proxy() {
                 cert_path: "./certs/client.crt".to_string(),
                 key_path: "./certs/client.key".to_string(),
             },
+            ctx: Default::default(),
             cors_allow_credentials: false,
             cors_allow_origins: vec!["*".to_string()],
         },
@@ -49,7 +51,7 @@ fn start_forward_proxy() {
                 AUTH_SERVER_PORT, AUTH_NTOR_CERT_API_PATH
             ),
         },
-        log: forward_proxy::config::LogConfig {
+        log: LogConfig {
             log_level: "info".to_string(),
             log_format: "plain".to_string(),
             log_path: "console".to_string(),
@@ -63,6 +65,7 @@ fn start_forward_proxy() {
         },
         listen_address: "localhost".to_string(),
         listen_port: FORWARD_PROXY_PORT,
+        telemetry: Default::default(),
     };
 
     let tls_cred = match TLSCredentials::load(&fp_config.proxy.tls) {
@@ -73,10 +76,8 @@ fn start_forward_proxy() {
     };
 
     let _logger_guard = utils::log::init_logger(
-        fp_config.log.log_level.clone(),
-        fp_config.log.log_format.clone(),
-        fp_config.log.log_path.clone(),
-        fp_config.log.log_filename.clone(),
+        fp_config.log,
+        fp_config.telemetry
     );
 
     let mut server = Server::new(Some(Opt {
@@ -98,7 +99,7 @@ fn start_forward_proxy() {
 
     let mut proxy = http_proxy_service(
         &server.configuration,
-        ForwardProxy::new(fp_config.proxy, tls_cred, fp_handler),
+        ForwardProxy::new(fp_config.proxy, Some(tls_cred), fp_handler),
     );
 
     proxy.add_tcp(&format!(

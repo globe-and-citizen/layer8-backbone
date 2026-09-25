@@ -1,5 +1,8 @@
 use serde::Deserialize;
+use pingora_router::ctx::Layer8ContextConfig;
 use utils::cert::TLSConfig;
+use utils::log::LogConfig;
+use utils::telemetry::TelemetryConfig;
 
 #[derive(Debug, Deserialize, Clone, Default)]
 pub struct RPConfig {
@@ -11,17 +14,8 @@ pub struct RPConfig {
     pub proxy: ProxyConfig,
     #[serde(flatten)]
     pub handler: HandlerConfig,
-}
-
-#[derive(Debug, Deserialize, Clone, Default)]
-pub struct LogConfig {
-    pub log_level: String,
-    /// default to "json" if not "plain"
-    pub log_format: String,
-    /// "console" or folder path
-    pub log_path: String,
-    /// required if log_path is not "console"
-    pub log_filename: String,
+    #[serde(flatten, default)]
+    pub telemetry: TelemetryConfig,
 }
 
 #[derive(Debug, Deserialize, Clone, Default)]
@@ -47,8 +41,10 @@ pub struct HandlerConfig {
 pub struct ProxyConfig {
     #[serde(flatten)]
     pub tls: TLSConfig,
-    #[serde(deserialize_with = "utils::deserializer::string_to_bool")]
+    #[serde(skip_deserializing)]
+    pub ctx: Layer8ContextConfig,
+    #[serde(default, deserialize_with = "utils::deserializer::string_to_bool")]
     pub cors_allow_credentials: bool,
-    #[serde(deserialize_with = "utils::deserializer::string_to_vec")]
+    #[serde(default, deserialize_with = "utils::deserializer::string_to_vec")]
     pub cors_allow_origins: Vec<String>,
 }

@@ -1,13 +1,15 @@
 use crate::config::ProxyConfig;
-use crate::handler::common::consts::LogTypes;
+use crate::handler::common::consts::{LogTypes, RequestPaths};
 use async_trait::async_trait;
 use bytes::Bytes;
+use opentelemetry::trace::Status;
 use pingora::http::{ResponseHeader, StatusCode};
 use pingora::prelude::{HttpPeer, ProxyHttp};
 use pingora::proxy::Session;
 use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
-use pingora_router::router::Router;
-use tracing::{debug, info};
+use pingora_router::{router::Router, utils as pingora_utils};
+use tracing::{debug, info, Instrument};
+use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 /// Reverse proxy server for routing and processing HTTP requests.
 ///
@@ -101,13 +103,12 @@ impl<T> ReverseProxy<T> {
                 .unwrap_or_default();
         }
 
-        let correlation_id = ctx.get_correlation_id();
-        debug!(
-            %correlation_id,
-            log_type=LogTypes::HANDLE_BACKEND_RESPONSE,
-            "Response Headers: {:?}",
-            header.headers
-        );
+        ctx.debug(|| {
+            debug!(
+                log_type = LogTypes::HANDLE_BACKEND_RESPONSE,
+                "Response Headers: {:?}", header.headers
+            );
+        });
         session.write_response_header_ref(&header, false).await
     }
 }
@@ -158,10 +159,40 @@ impl<T: Sync> ProxyHttp for ReverseProxy<T> {
         Self::CTX: Send + Sync,
     {
         // create Context
-        ctx.update(session).await?;
-        ctx.read_request_body(session).await?;
+        ctx.update(session, self.config.ctx.clone()).await?;
 
-        let handler_response = self.router.call_handler(ctx).await;
+        // This proxy only accepts server-to-server traffic on 3 known routes.
+        // OPTIONS/CORS preflight is intentionally not supported here — call_handler's
+        // OPTIONS branch exists for other (browser-facing) consumers of this router.
+        match (
+            session.req_header().uri.path(),
+            session.req_header().method.as_str(),
+        ) {
+            (RequestPaths::HEALTHCHECK, "GET") => {}
+            (RequestPaths::INIT_TUNNEL, "POST") => {}
+            (RequestPaths::PROXY, "POST") => {}
+            _ => {
+                // return to downstream
+                ctx.response.status = StatusCode::NOT_FOUND;
+                let header = ResponseHeader::build(StatusCode::NOT_FOUND, None)?;
+                session.write_response_header_ref(&header, false).await?;
+                session.set_keepalive(None);
+                return Ok(true);
+            }
+        }
+
+        let read_body_span =
+            tracing::info_span!(parent: ctx.get_request_span(), "request_body.read");
+        ctx.read_request_body(session)
+            .instrument(read_body_span)
+            .await?;
+
+        let handle_request_span =
+            tracing::info_span!(parent: ctx.get_request_span(), "request.handle");
+        let handler_response = async { self.router.call_handler(ctx).await }
+            .instrument(handle_request_span)
+            .await;
+
         if handler_response.status == StatusCode::NOT_FOUND && handler_response.body.is_none() {
             let header = ResponseHeader::build(StatusCode::NOT_FOUND, None)?;
             session.write_response_header_ref(&header, false).await?;
@@ -173,19 +204,19 @@ impl<T: Sync> ProxyHttp for ReverseProxy<T> {
         if let Some(body_bytes) = handler_response.body {
             ctx.insert_response_header("Content-length", &body_bytes.len().to_string());
             response_bytes = body_bytes;
-        };
+        }
 
-        // set cookies to response
         if let Some(cookies) = handler_response.cookies {
             ctx.insert_response_header("Set-Cookie", &cookies);
         }
-        self.set_headers(session, ctx, handler_response.status)
-            .await?;
-        ctx.set_response_body(response_bytes.clone()); // store response body in context for logging
 
-        // Write the response body to the session after setting headers
+        self.set_headers(session, ctx, handler_response.status).await?;
+        ctx.set_response_body(response_bytes.clone());
+
+        let write_response_span = tracing::info_span!(parent: ctx.get_request_span(), "response_body.write");
         session
             .write_response_body(Some(Bytes::from(response_bytes)), true)
+            .instrument(write_response_span)
             .await?;
 
         Ok(true)
@@ -219,19 +250,35 @@ impl<T: Sync> ProxyHttp for ReverseProxy<T> {
         if let Some(_err) = e {
             status = session.response_written().unwrap().status.as_u16();
         }
-        let correlation_id = ctx.get_correlation_id();
 
-        info!(
-            %correlation_id,
-            log_type=LogTypes::ACCESS_LOG,
-            status=status,
-            request_summary = session.request_summary(),
-            origin = ctx.request.header.get("origin"),
-            referer = ctx.request.header.get("referer"),
-            latency_micros=ctx.get_latency().as_micros() as i64,
-            response_body_size=ctx.get_response_body().len(),
-            user_agent=ctx.request.header.get("User-Agent"),
-            error=?e,
-        );
+        let span = ctx.get_request_span();
+
+        // Record the HTTP response status code
+        span.record("http.response.status_code", status);
+        span.record("request.body.size", ctx.get_request_body().len());
+        span.record("response.body.size", ctx.get_response_body().len());
+
+        if let Some(err) = e {
+            span.record("error.type", tracing::field::display(&err));
+            // Set OpenTelemetry status to Error
+            span.set_status(Status::error(err.to_string()));
+        } else if status >= 400 {
+            // Flag HTTP errors explicitly if applicable
+            span.set_status(Status::error(format!("HTTP {}", status)));
+        } else {
+            // Explicitly set OK so Jaeger marks it green
+            span.set_status(Status::Ok);
+        }
+
+        ctx.info(|| {
+            info!(
+                log_type=LogTypes::ACCESS_LOG,
+                origin = ctx.request.header.get("origin"),
+                referer = ctx.request.header.get("referer"),
+                user_agent=ctx.request.header.get("User-Agent"),
+                client_ip = pingora_utils::get_client_ip(session).map(|ip| ip.to_string()).unwrap_or_default(),
+                error=?e,
+            );
+        });
     }
 }

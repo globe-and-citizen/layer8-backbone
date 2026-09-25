@@ -15,7 +15,7 @@ mod test_proxy_request {
 
     #[tokio::test]
     async fn test_success() {
-        start_mock_services();
+        start_mock_services().await;
 
         // add mock session data to in-memory storage
         let sessions = HashMap::from([

@@ -1,15 +1,15 @@
 use crate::config::{HandlerConfig, RPConfig};
 use crate::handler::common::consts::LogTypes;
 use crate::handler::healthcheck::{RpHealthcheckError, RpHealthcheckSuccess};
-use init_tunnel::InitEncryptedTunnelResponse;
 use init_tunnel::handler::InitTunnelHandler;
+use init_tunnel::InitEncryptedTunnelResponse;
 use ntor::common::{InitSessionMessage, NTorParty};
 use ntor::server::NTorServer;
 use pingora::http::StatusCode;
 use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
 use pingora_router::handler::{APIHandlerResponse, ResponseBodyTrait};
 use proxy::handler::ProxyHandler;
-use tracing::{error, info};
+use tracing::{debug, error, Instrument};
 use utils::jwt::JWTClaims;
 use utils::new_uuid;
 
@@ -25,18 +25,25 @@ pub struct ReverseHandler {
     config: HandlerConfig,
     jwt_secret: Vec<u8>,
     ntor_static_secret: [u8; 32],
+    reqwest_client: reqwest::Client,
 }
 
 impl ReverseHandler {
-    pub fn new(config: RPConfig) -> Self {
+    pub fn new(config: RPConfig) -> Result<Self, reqwest::Error> {
         let ntor_secret = config.handler.ntor_static_secret;
         let jwt_secret = config.handler.jwt_virtual_connection_secret.clone();
 
-        ReverseHandler {
+        let reqwest_client = reqwest::Client::builder()
+            .pool_max_idle_per_host(100)
+            .tcp_keepalive(std::time::Duration::from_secs(60))
+            .build()?;
+
+        Ok(ReverseHandler {
             config: config.handler,
             jwt_secret,
             ntor_static_secret: ntor_secret,
-        }
+            reqwest_client,
+        })
     }
 
     /// Retrieves the nTor shared secret for a given session ID.
@@ -83,8 +90,6 @@ impl ReverseHandler {
     ///
     /// This function may return error responses from request body validation or invalid public key length.
     pub async fn handle_init_tunnel(&self, ctx: &mut Layer8Context) -> APIHandlerResponse {
-        let correlation_id = ctx.get_correlation_id();
-
         // validate request body
         let request_body = match InitTunnelHandler::validate_request_body(ctx).await {
             Ok(res) => res,
@@ -124,12 +129,12 @@ impl ReverseHandler {
             fp_rp_jwt,
         };
 
-        info!(
-            %correlation_id,
-            log_type=LogTypes::HANDLE_INIT_TUNNEL_REQUEST,
-            "Save new nTor session: {}",
-            ntor_session_id
-        );
+        ctx.debug(|| {
+            debug!(
+                log_type = LogTypes::HANDLE_INIT_TUNNEL_REQUEST,
+                "Save new nTor session: {}", ntor_session_id
+            );
+        });
 
         InMemorySecretsStorage::insert(
             ntor_session_id,
@@ -169,115 +174,140 @@ impl ReverseHandler {
     /// This function may return error responses from header validation, secret retrieval,
     /// request body validation, decryption operations, backend request processing, or encryption failures.
     pub async fn handle_proxy_request(&self, ctx: &mut Layer8Context) -> APIHandlerResponse {
-        let correlation_id = ctx.get_correlation_id();
+        let mut parent_span = tracing::Span::current();
+        if parent_span.is_none() {
+            parent_span = ctx.get_request_span().clone();
+        }
 
-        // validate request headers (nTor session ID)
-        let session_id = match ProxyHandler::validate_request_headers(ctx, &self.jwt_secret) {
-            Ok(session_id) => session_id,
-            Err(err) => {
-                error!(
-                    %correlation_id,
-                    log_type=LogTypes::HANDLE_PROXY_REQUEST,
-                    "Failed to validate request headers: {}",
-                    err
-                );
-                return APIHandlerResponse {
-                    status: StatusCode::UNAUTHORIZED,
-                    cookies: None,
-                    body: Some(
-                        ErrorResponse {
-                            error: "Failed to validate request headers".to_string(),
-                        }
-                        .to_bytes(),
-                    ),
-                };
-            }
+        // Synchronous request parsing and decryption block
+        let (_session_id, shared_secret, wrapped_request) = {
+            let request_handler_span =
+                tracing::info_span!(parent: parent_span.clone(), "FP.request.validate_and_decrypt");
+            let _request_handler_guard = request_handler_span.enter();
+
+            // validate request headers (nTor session ID)
+            let session_id = match ProxyHandler::validate_request_headers(ctx, &self.jwt_secret) {
+                Ok(session_id) => session_id,
+                Err(err) => {
+                    ctx.error(|| {
+                        error!(
+                            log_type = LogTypes::HANDLE_PROXY_REQUEST,
+                            "Failed to validate request headers: {}", err
+                        );
+                    });
+
+                    return APIHandlerResponse {
+                        status: StatusCode::UNAUTHORIZED,
+                        cookies: None,
+                        body: Some(
+                            ErrorResponse {
+                                error: "Failed to validate request headers".to_string(),
+                            }
+                            .to_bytes(),
+                        ),
+                    };
+                }
+            };
+
+            let shared_secret = match self.get_ntor_shared_secret(&session_id) {
+                Ok(secret) => secret,
+                Err(err) => {
+                    ctx.error(|| {
+                        error!(
+                            log_type = LogTypes::HANDLE_PROXY_REQUEST,
+                            "Failed to retrieve nTor shared secret: {}", err
+                        );
+                    });
+
+                    return APIHandlerResponse {
+                        status: StatusCode::UNAUTHORIZED,
+                        cookies: None,
+                        body: Some(ErrorResponse { error: err }.to_bytes()),
+                    };
+                }
+            };
+
+            // validate request body
+            let request_body = match ProxyHandler::parse_request_body(ctx) {
+                Ok(res) => res,
+                Err(res) => {
+                    ctx.error(|| {
+                        error!(
+                            log_type = LogTypes::HANDLE_PROXY_REQUEST,
+                            "Failed to parse request body: {}", res
+                        );
+                    });
+
+                    return APIHandlerResponse {
+                        status: StatusCode::BAD_REQUEST,
+                        cookies: None,
+                        body: Some(
+                            ErrorResponse {
+                                error: "Failed to parse request body".to_string(),
+                            }
+                            .to_bytes(),
+                        ),
+                    };
+                }
+            };
+
+            // decrypt request body using nTor shared secret
+            let wrapped_request = match ProxyHandler::decrypt_request_body(
+                request_body,
+                self.config.ntor_server_id.clone(),
+                &shared_secret,
+            ) {
+                Ok(req) => req,
+                Err(res) => {
+                    ctx.error(|| {
+                        error!(
+                            log_type = LogTypes::HANDLE_PROXY_REQUEST,
+                            "Failed to decrypt request body: {}", res
+                        );
+                    });
+
+                    return APIHandlerResponse {
+                        status: StatusCode::BAD_REQUEST,
+                        cookies: None,
+                        body: Some(
+                            ErrorResponse {
+                                error: "Failed to decrypt request body".to_string(),
+                            }
+                            .to_bytes(),
+                        ),
+                    };
+                }
+            };
+
+            (session_id, shared_secret, wrapped_request)
         };
 
-        let shared_secret = match self.get_ntor_shared_secret(&session_id) {
-            Ok(secret) => secret,
-            Err(err) => {
-                error!(
-                    %correlation_id,
-                    log_type=LogTypes::HANDLE_PROXY_REQUEST,
-                    "Failed to retrieve nTor shared secret: {}",
-                    err
-                );
-                return APIHandlerResponse {
-                    status: StatusCode::UNAUTHORIZED,
-                    cookies: None,
-                    body: Some(ErrorResponse { error: err }.to_bytes()),
-                };
-            }
-        };
+        // Asynchronous backend round-trip block instrumented with a single span
+        let be_request_span = tracing::info_span!(
+            parent: parent_span.clone(),
+            "BE.request",
+            request_size_bytes = wrapped_request.body.len(),
+            response_size_bytes = tracing::field::Empty,
+        );
 
-        // validate request body
-        let request_body = match ProxyHandler::parse_request_body(ctx) {
-            Ok(res) => res,
-            Err(res) => {
-                error!(
-                    %correlation_id,
-                    log_type=LogTypes::HANDLE_PROXY_REQUEST,
-                    "Failed to parse request body: {}",
-                    res
-                );
-                return APIHandlerResponse {
-                    status: StatusCode::BAD_REQUEST,
-                    cookies: None,
-                    body: Some(
-                        ErrorResponse {
-                            error: "Failed to parse request body".to_string(),
-                        }
-                        .to_bytes(),
-                    ),
-                };
-            }
-        };
+        let wrapped_response = match async {
+            // reconstruct user request
+            let (response, origin_url) = ProxyHandler::rebuild_user_request(
+                &self.reqwest_client,
+                ctx,
+                self.config.backend_url.clone(),
+                wrapped_request,
+            )
+            .await
+            .map_err(|res| {
+                ctx.error(|| {
+                    error!(
+                        log_type = LogTypes::HANDLE_PROXY_REQUEST,
+                        "Failed to process backend request: {}", res
+                    );
+                });
 
-        // decrypt request body using nTor shared secret
-        let wrapped_request = match ProxyHandler::decrypt_request_body(
-            request_body,
-            self.config.ntor_server_id.clone(),
-            &shared_secret,
-        ) {
-            Ok(req) => req,
-            Err(res) => {
-                error!(
-                    %correlation_id,
-                    log_type=LogTypes::HANDLE_PROXY_REQUEST,
-                    "Failed to decrypt request body: {}",
-                    res
-                );
-                return APIHandlerResponse {
-                    status: StatusCode::BAD_REQUEST,
-                    cookies: None,
-                    body: Some(
-                        ErrorResponse {
-                            error: "Failed to decrypt request body".to_string(),
-                        }
-                        .to_bytes(),
-                    ),
-                };
-            }
-        };
-
-        // reconstruct user request
-        let (response, origin_url) = match ProxyHandler::rebuild_user_request(
-            ctx,
-            self.config.backend_url.clone(),
-            wrapped_request,
-        )
-        .await
-        {
-            Ok(res) => res,
-            Err(res) => {
-                error!(
-                    %correlation_id,
-                    log_type=LogTypes::HANDLE_PROXY_REQUEST,
-                    "Failed to process backend request: {}",
-                    res
-                );
-                return APIHandlerResponse {
+                APIHandlerResponse {
                     status: StatusCode::BAD_GATEWAY,
                     cookies: None,
                     body: Some(
@@ -286,19 +316,34 @@ impl ReverseHandler {
                         }
                         .to_bytes(),
                     ),
-                };
-            }
+                }
+            })?;
+
+            // wrap backend response into L8ResponseObject
+            let wrapped_resp =
+                ProxyHandler::wrap_backend_response(ctx, response, &origin_url).await;
+
+            tracing::Span::current().record("response_size_bytes", wrapped_resp.body.len());
+
+            Ok(wrapped_resp)
+        }
+        .instrument(be_request_span)
+        .await
+        {
+            Ok(res) => res,
+            Err(error_response) => return error_response,
         };
 
-        // wrap backend response into L8ResponseObject
-        let wrapped_response =
-            ProxyHandler::wrap_backend_response(ctx, response, &origin_url).await;
+        // Synchronous response encryption and return block
+        let handle_response_span =
+            tracing::info_span!(parent: parent_span, "BE.response.wrap_and_encrypt");
+        let _handle_response_guard = handle_response_span.enter();
 
         // get cookies from backend response if exist to set in the response to client
         let cookies: Option<String> = wrapped_response
             .headers
             .get("set-cookie")
-            .and_then(|v| v.as_str().map(|s| s.to_string()));
+            .and_then(|value| Some(value.to_string()));
 
         // encrypt backend response using nTor shared secret and return to client
         match ProxyHandler::encrypt_response_body(
@@ -312,12 +357,12 @@ impl ReverseHandler {
                 body: Some(encrypted_message.to_bytes()),
             },
             Err(err) => {
-                error!(
-                    %correlation_id,
-                    log_type=LogTypes::HANDLE_PROXY_REQUEST,
-                    "Failed to encrypt response body: {}",
-                    err
-                );
+                ctx.error(|| {
+                    error!(
+                        log_type = LogTypes::HANDLE_PROXY_REQUEST,
+                        "Failed to encrypt response body: {}", err
+                    );
+                });
                 APIHandlerResponse {
                     status: StatusCode::INTERNAL_SERVER_ERROR,
                     cookies: None,

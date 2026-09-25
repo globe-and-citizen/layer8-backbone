@@ -11,23 +11,23 @@ mod test_proxy_handler {
     // pub const INVALID_JWT_SECRET: &[u8] = b"test_invalid_jwt_secret";
     // const MOCK_SESSION_ID: &str = "d92db61d-e8d8-4f91-9ab4-b9fa9c53e65c";
     const MOCK_SHARED_SECRET: [u8; 16] = [
-        245, 239, 74, 167, 84, 191, 140, 194, 16, 59, 154, 244, 108, 221, 148, 85,
+        233, 27, 171, 53, 222, 167, 4, 49, 178, 16, 154, 109, 97, 127, 121, 172,
     ];
-    const MOCK_PROXY_REQUEST_BODY: [u8; 80] = [
-        159, 207, 157, 116, 32, 92, 248, 78, 122, 253, 236, 125, 67, 223, 157, 30, 30, 45, 49, 165,
-        234, 211, 72, 242, 252, 31, 128, 60, 245, 158, 182, 126, 117, 152, 232, 172, 52, 155, 246,
-        122, 86, 89, 78, 162, 110, 171, 73, 84, 127, 41, 195, 46, 85, 31, 71, 121, 234, 63, 27,
-        236, 43, 190, 186, 124, 94, 212, 238, 13, 254, 32, 147, 59, 239, 30, 176, 138, 54, 167,
-        161, 132,
+    const MOCK_PROXY_REQUEST_BODY: [u8; 90] = [
+        21, 194, 226, 232, 59, 31, 250, 27, 220, 125, 64, 37, 77, 99, 189, 33, 212, 139, 185, 242,
+        119, 3, 121, 99, 43, 129, 224, 118, 36, 146, 122, 189, 233, 62, 104, 223, 200, 85, 176,
+        220, 112, 35, 5, 35, 127, 84, 166, 149, 175, 54, 186, 90, 134, 49, 47, 145, 76, 19, 158,
+        107, 54, 180, 112, 170, 184, 151, 72, 154, 251, 86, 90, 131, 215, 182, 66, 32, 6, 238, 106,
+        41, 196, 239, 17, 252, 116, 39, 87, 227, 171, 98,
     ];
     const MOCK_NTOR_SERVER_ID: &str = "http://localhost:6193";
     const MOCK_ENCRYPTED_MESSAGE_NONCE: [u8; 12] =
-        [159, 207, 157, 116, 32, 92, 248, 78, 122, 253, 236, 125];
-    const MOCK_ENCRYPTED_MESSAGE_DATA: [u8; 67] = [
-        223, 157, 30, 30, 45, 49, 165, 234, 211, 72, 242, 252, 31, 128, 60, 245, 158, 182, 126,
-        117, 152, 232, 172, 52, 155, 246, 122, 86, 89, 78, 162, 110, 171, 73, 84, 127, 41, 195, 46,
-        85, 31, 71, 121, 234, 63, 27, 236, 43, 190, 186, 124, 94, 212, 238, 13, 254, 32, 147, 59,
-        239, 30, 176, 138, 54, 167, 161, 132,
+        [21, 194, 226, 232, 59, 31, 250, 27, 220, 125, 64, 37];
+    const MOCK_ENCRYPTED_MESSAGE_DATA: [u8; 77] = [
+        99, 189, 33, 212, 139, 185, 242, 119, 3, 121, 99, 43, 129, 224, 118, 36, 146, 122, 189,
+        233, 62, 104, 223, 200, 85, 176, 220, 112, 35, 5, 35, 127, 84, 166, 149, 175, 54, 186, 90,
+        134, 49, 47, 145, 76, 19, 158, 107, 54, 180, 112, 170, 184, 151, 72, 154, 251, 86, 90, 131,
+        215, 182, 66, 32, 6, 238, 106, 41, 196, 239, 17, 252, 116, 39, 87, 227, 171, 98,
     ];
 
     fn create_int_rp_jwt(secret: &[u8], expiry_hrs: i64) -> (String, String) {
@@ -53,7 +53,7 @@ mod test_proxy_handler {
         use reverse_proxy::handler::proxy::handler::ProxyHandler;
 
         #[test]
-        #[allow(clippy::unnecessary_unwrap,clippy::match_single_binding)]
+        #[allow(clippy::unnecessary_unwrap, clippy::match_single_binding)]
         fn test_validate_jwt_token() {
             let invalid_jwt_secret = utils::new_uuid().into_bytes();
 
@@ -347,7 +347,6 @@ mod test_proxy_handler {
         use ntor::server::NTorServer;
         use reverse_proxy::handler::proxy::handler::ProxyHandler;
         use reverse_proxy::handler::proxy::L8ResponseObject;
-        use utils::bytes_to_json;
 
         #[test]
         fn test_encrypt_response_body_success() {
@@ -389,7 +388,7 @@ mod test_proxy_handler {
                 let decrypted = ntor_server.decrypt(encrypted);
 
                 assert!(decrypted.is_ok());
-                let decrypted_result = bytes_to_json::<L8ResponseObject>(decrypted.unwrap());
+                let decrypted_result = L8ResponseObject::from_bincode_bytes(&decrypted.unwrap());
                 assert!(decrypted_result.is_ok());
                 let decrypted_data = decrypted_result.unwrap();
                 assert_eq!(
@@ -407,16 +406,14 @@ mod test_proxy_handler {
     mod test_rebuild_user_request {
         use crate::mock;
         use pingora_router::ctx::{Layer8Context, Layer8ContextRequestSummary, Layer8ContextTrait};
+        use reverse_proxy::handler::proxy::handler::ProxyHandler;
         use reverse_proxy::handler::proxy::L8RequestObject;
         use std::collections::HashMap;
-        use tokio::time::sleep;
-        use reverse_proxy::handler::proxy::handler::ProxyHandler;
 
         #[tokio::test]
         async fn test_rebuild_user_request() {
-            mock::backend::run_mock_be();
+            mock::backend::run_mock_be().await;
 
-            sleep(std::time::Duration::from_secs(1)).await;
             let summary = Layer8ContextRequestSummary {
                 method: "POST".parse().unwrap(),
                 scheme: "http".to_string(),
@@ -435,8 +432,11 @@ mod test_proxy_handler {
                 body: b"{\"key\": \"value\"}".to_vec(),
             };
 
+            let client = reqwest::Client::new();
+
             let result = ProxyHandler::rebuild_user_request(
-                &ctx,
+                &client,
+                &mut ctx,
                 mock::data::MOCK_BACKEND_URL.to_string(),
                 l8_request,
             )
@@ -455,7 +455,7 @@ mod test_proxy_handler {
             );
             let cookie = l8_response.headers.get("set-cookie").unwrap().to_string();
             assert_eq!(
-                "\"session_id=abc123; HttpOnly; Path=/; Max-Age=3600\"".to_string(),
+                "session_id=abc123; HttpOnly; Path=/; Max-Age=3600".to_string(),
                 cookie,
                 "Set-Cookie header does not match expected value"
             );

@@ -4,10 +4,11 @@ mod mock;
 #[cfg(test)]
 mod test_handler {
     mod test_get_ntor_shared_secret {
-
+        use tracing::error;
         use reverse_proxy::config::{HandlerConfig, ServerConfig};
 
         use reverse_proxy::handler::{InMemorySecretsStorage, ReverseHandler};
+        use utils::log::LogConfig;
 
         fn create_test_handler() -> ReverseHandler {
             let handler_config = HandlerConfig {
@@ -26,11 +27,12 @@ mod test_handler {
                         cert_path: "path/to/cert.pem".to_string(),
                         key_path: "path/to/key.pem".to_string(),
                     },
+                    ctx: Default::default(),
                     cors_allow_credentials: false,
                     cors_allow_origins: vec![],
                 },
                 handler: handler_config,
-                log: reverse_proxy::config::LogConfig {
+                log: LogConfig {
                     log_level: "debug".to_string(),
                     log_format: "json".to_string(),
                     log_path: "./logs".to_string(),
@@ -40,9 +42,12 @@ mod test_handler {
                     listen_address: "".to_string(),
                     listen_port: 0,
                 },
+                telemetry: Default::default(),
             };
 
-            ReverseHandler::new(rp_config)
+            ReverseHandler::new(rp_config.clone()).map_err(|e| {
+                error!("Failed to create ReverseHandler: {}", e);
+            }).unwrap()
         }
 
         #[test]
@@ -74,14 +79,16 @@ mod test_handler {
         use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
         use pingora_router::handler::{RequestBodyTrait, ResponseBodyTrait};
         use reverse_proxy::config::{
-            HandlerConfig, LogConfig, ProxyConfig, RPConfig, ServerConfig,
+            HandlerConfig, ProxyConfig, RPConfig, ServerConfig,
         };
         use reverse_proxy::handler::init_tunnel::{
             InitEncryptedTunnelRequest, InitEncryptedTunnelResponse,
         };
         use reverse_proxy::handler::{InMemorySecretsStorage, ReverseHandler};
         use serde_json::json;
+        use tracing::error;
         use utils::cert::TLSConfig;
+        use utils::log::LogConfig;
 
         fn create_test_handler() -> (ReverseHandler, RPConfig) {
             let config = RPConfig {
@@ -102,6 +109,7 @@ mod test_handler {
                         cert_path: "".to_string(),
                         key_path: "".to_string(),
                     },
+                    ctx: Default::default(),
                     cors_allow_credentials: false,
                     cors_allow_origins: vec![],
                 },
@@ -115,8 +123,13 @@ mod test_handler {
                     jwt_exp_in_hours: 24,
                     backend_url: "http://localhost:8080".to_string(),
                 },
+                telemetry: Default::default(),
             };
-            (ReverseHandler::new(config.clone()), config)
+
+            let rp_handler = ReverseHandler::new(config.clone()).map_err(|e| {
+                error!("Failed to create ReverseHandler: {}", e);
+            }).unwrap();
+            (rp_handler, config)
         }
 
         #[tokio::test]
@@ -270,6 +283,8 @@ mod test_handler {
         };
         use ntor::common::EncryptedMessage;
         use pingora::http::StatusCode;
+        use serial_test::serial;
+        use tracing::error;
         use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
         use pingora_router::handler::ResponseBodyTrait;
         use reverse_proxy::config::RPConfig;
@@ -281,12 +296,16 @@ mod test_handler {
             let mut config = RPConfig::default();
             config.handler.jwt_virtual_connection_secret = VALID_JWT_SECRET.to_vec();
             config.handler.backend_url = MOCK_BACKEND_URL.to_string();
-            ReverseHandler::new(config)
+
+            ReverseHandler::new(config.clone()).map_err(|e| {
+                error!("Failed to create ReverseHandler: {}", e);
+            }).unwrap()
         }
 
+        #[serial]
         #[tokio::test]
         async fn test_success() {
-            mock::backend::run_mock_be();
+            mock::backend::run_mock_be().await;
             let handler = create_test_handler();
             InMemorySecretsStorage::insert(
                 MOCK_SESSION_ID_1.to_string(),
@@ -353,12 +372,13 @@ mod test_handler {
             }
         }
 
+        #[serial]
         #[tokio::test]
         async fn test_invalid_tokens() {
             // running the mock backend is not necessary for this test since we are testing JWT
             // validation before any backend call, but to be fair to the test, we want to have the
             // backend running to ensure any failures are due to JWT validation and not backend connectivity issues
-            mock::backend::run_mock_be();
+            mock::backend::run_mock_be().await;
             let handler = create_test_handler();
             InMemorySecretsStorage::insert(
                 MOCK_SESSION_ID_1.to_string(),
@@ -483,9 +503,10 @@ mod test_handler {
             }
         }
 
+        #[serial]
         #[tokio::test]
         async fn test_invalid_body() {
-            mock::backend::run_mock_be();
+            mock::backend::run_mock_be().await;
             let handler = create_test_handler();
             InMemorySecretsStorage::insert(
                 MOCK_SESSION_ID_1.to_string(),

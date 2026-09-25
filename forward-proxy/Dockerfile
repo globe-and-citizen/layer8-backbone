@@ -2,7 +2,7 @@
 # Stage 1: Build stage
 # ------------------------------
 #FROM rust:1.87 as builder
-FROM rustlang/rust:nightly-bullseye AS builder
+FROM rustlang/rust:nightly-bookworm AS builder
 
 # Install required build dependencies for boring-sys, etc.
 RUN apt-get update && apt-get install -y \
@@ -37,7 +37,7 @@ RUN cargo build --release
 # ------------------------------
 # Stage 2: Runtime stage
 # ------------------------------
-FROM debian:bullseye-slim
+FROM debian:bookworm-slim
 
 ARG TARGETARCH
 ENV STEP_CLI_VERSION=0.25.2

@@ -13,7 +13,9 @@ use pingora::{listeners::tls::TlsSettings, prelude::http_proxy_service};
 use pingora_router::handler::APIHandler;
 use pingora_router::router::Router;
 use std::sync::Arc;
-use tracing::{debug, error};
+use tokio::runtime::Runtime;
+use tracing::{debug, error, info};
+use pingora_router::ctx::Layer8ContextConfig;
 use utils::cert::{TLSCredentials, watch_tls};
 
 mod config;
@@ -23,11 +25,16 @@ fn load_config() -> RPConfig {
     dotenv::dotenv().ok();
 
     // Deserialize from env vars
-    let config: RPConfig = envy::from_env()
+    let mut config: RPConfig = envy::from_env()
         .map_err(|e| {
             error!("Failed to load configuration: {}", e);
         })
         .unwrap();
+
+    config.proxy.ctx = Layer8ContextConfig {
+        use_otel: config.telemetry.otlp_enable,
+        mtls_enabled: config.proxy.tls.enable_tls,
+    };
 
     debug!(name: "RPConfig", value = ?config);
     config
@@ -36,25 +43,14 @@ fn load_config() -> RPConfig {
 fn main() {
     // Load environment variables from .env file
     let rp_config = load_config();
-    let tls_cred = match TLSCredentials::load(&rp_config.proxy.tls) {
-        Ok(conf) => Arc::new(conf),
-        Err(err) => {
-            panic!("Failed to load TLS config {}", err)
-        }
-    };
-    watch_tls(tls_cred.clone(), rp_config.proxy.tls.clone());
 
-    let tls_server_config = TLSServerConfig {
-        host_name: "reverse-proxy".to_string(),
-        tls_credentials: tls_cred,
-    };
-
-    let _logger_guard = utils::log::init_logger(
-        rp_config.log.log_level.clone(),
-        rp_config.log.log_format.clone(),
-        rp_config.log.log_path.clone(),
-        rp_config.log.log_filename.clone(),
-    );
+    let rt = Runtime::new().unwrap();
+    let _logger_guard = rt.block_on(async {
+        utils::log::init_logger(
+            rp_config.log.clone(),
+            rp_config.telemetry.clone(),
+        )
+    });
 
     let mut my_server = Server::new(Some(Opt {
         conf: std::env::var("SERVER_CONF").ok(),
@@ -72,7 +68,11 @@ fn main() {
     let handle_healthcheck: APIHandler<Arc<ReverseHandler>> =
         Box::new(|h, ctx| async move { h.handle_healthcheck(ctx).await }.boxed());
 
-    let rp_handler = Arc::new(ReverseHandler::new(rp_config.clone()));
+    let rp_handler = ReverseHandler::new(rp_config.clone()).map_err(|e| {
+        error!("Failed to create ReverseHandler: {}", e);
+    }).unwrap();
+    
+    let rp_handler = Arc::new(rp_handler);
     let mut router: Router<Arc<ReverseHandler>> = Router::new(rp_handler);
     router.post("/init-tunnel".to_string(), Box::new([handle_init_tunnel]));
     router.post("/proxy".to_string(), Box::new([handle_proxy]));
@@ -84,6 +84,19 @@ fn main() {
     );
 
     if rp_config.proxy.tls.enable_tls {
+        let tls_cred = match TLSCredentials::load(&rp_config.proxy.tls) {
+            Ok(conf) => Arc::new(conf),
+            Err(err) => {
+                panic!("Failed to load TLS config {}", err)
+            }
+        };
+        watch_tls(tls_cred.clone(), rp_config.proxy.tls.clone());
+
+        let tls_server_config = TLSServerConfig {
+            host_name: "reverse-proxy".to_string(),
+            tls_credentials: tls_cred,
+        };
+
         my_proxy.add_tls_with_settings(
             &format!(
                 "{}:{}",
@@ -105,5 +118,10 @@ fn main() {
     // my_proxy.add_tcp("127.0.0.1:6194"); // Localhost only
 
     my_server.add_service(my_proxy);
+
+    info!(
+        "Starting server at {}:{}",
+        rp_config.server.listen_address, rp_config.server.listen_port
+    );
     my_server.run_forever();
 }

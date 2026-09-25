@@ -1,13 +1,23 @@
-use std::collections::HashMap;
-use std::time::{Instant, Duration};
+use crate::utils;
+use crate::utils::get_request_body;
+use opentelemetry::global;
+use opentelemetry::trace::TraceContextExt;
 use pingora::http::{Method, RequestHeader, StatusCode};
 use pingora::proxy::Session;
-use crate::utils::get_request_body;
+use std::collections::HashMap;
+use tracing::error;
+use tracing_opentelemetry::OpenTelemetrySpanExt;
 use uuid;
 
 /*
  *  Each type in this crate serves a specific purpose and may be updated as requirements evolve.
  */
+
+#[derive(Debug, Default, Clone)]
+pub struct Layer8ContextConfig {
+    pub use_otel: bool,
+    pub mtls_enabled: bool,
+}
 
 /// `Layer8ContextRequestSummary` is expected to contain all request's metadata
 #[derive(Debug, Clone, Default)]
@@ -22,10 +32,16 @@ pub struct Layer8ContextRequestSummary {
 impl Layer8ContextRequestSummary {
     pub(crate) fn from(session: &Session) -> Self {
         let method = session.req_header().method.clone();
-        let scheme = session.req_header().uri.scheme()
+        let scheme = session
+            .req_header()
+            .uri
+            .scheme()
             .map(|s| s.to_string())
             .unwrap_or_else(|| "".to_string());
-        let host = session.req_header().uri.host()
+        let host = session
+            .req_header()
+            .uri
+            .host()
             .map(|h| h.to_string())
             .unwrap_or_else(|| "".to_string());
         let path = session.req_header().uri.path().to_string();
@@ -96,7 +112,64 @@ pub struct Layer8Context {
     /// during request processing.
     /// Accessed via `get(&self, key: &str)` and `set(&mut self, key: String, value: String)` methods
     memory: HashMap<String, String>,
-    pub latency_start: Instant,
+    request_span: tracing::Span,
+    /// Measures the time taken to establish a connection to the upstream server.
+    ///
+    /// upstream_peer() --(start)--> TCP + TLS/mTLS --> connected_to_upstream() --(stop)-->
+    /// upstream.connect.latency_ms
+    ///
+    /// This measures upstream connection establishment latency and is useful for
+    /// detecting deployment and network differences.
+    ///
+    /// Includes:
+    /// - Network latency
+    /// - TCP connection establishment
+    /// - TLS/mTLS handshake
+    /// - Connection establishment overhead
+    ///
+    /// Note:
+    /// This is not pure network latency because the measurement also includes
+    /// TCP/TLS/mTLS handshake and processing overhead.
+    upstream_connect_span: tracing::Span,
+    /// Measures the time from when the upstream request is ready to be sent
+    /// until the first response body data is received from the upstream server.
+    ///
+    /// upstream_request_filter() --(start)--> request sent --> upstream server
+    /// --> response processing --> first response data --> upstream_response_filter() --(stop)-->
+    /// upstream.ttfb.latency_ms
+    ///
+    /// This measures upstream Time To First Byte (TTFB) and is useful for
+    /// detecting request/response latency differences between deployments.
+    ///
+    /// Includes:
+    /// - Request transmission latency
+    /// - Upstream server processing time
+    /// - Response transmission latency until the first response data
+    ///
+    /// Note:
+    /// This is not pure network latency because the measurement also includes
+    /// upstream server processing and proxy/protocol overhead.
+    upstream_ttfb_span: tracing::Span,
+    /// Measures the time taken to receive the complete upstream response
+    /// after the first response body data has been received.
+    ///
+    /// upstream_response_filter() --(start)--> response body chunks
+    /// --> upstream_response_body_filter() --(end_of_stream)--> upstream.response.download.latency_ms
+    ///
+    /// This measures the duration of downloading the upstream response body
+    /// and is useful for detecting response transfer and deployment/network
+    /// differences.
+    ///
+    /// Includes:
+    /// - Response transmission latency
+    /// - Network latency while receiving the response
+    /// - Upstream response streaming time
+    /// - Network/proxy buffering and flow-control overhead
+    ///
+    /// Note:
+    /// This is not pure network latency because the measurement can also include
+    /// upstream server streaming behavior and proxy processing overhead.
+    upstream_response_span: tracing::Span,
 }
 
 impl Default for Layer8Context {
@@ -105,16 +178,66 @@ impl Default for Layer8Context {
             request: Default::default(),
             response: Default::default(),
             memory: Default::default(),
-            latency_start: Instant::now(),
+            request_span: tracing::Span::none(),
+            upstream_connect_span: tracing::Span::none(),
+            upstream_ttfb_span: tracing::Span::none(),
+            upstream_response_span: tracing::Span::none(),
         }
     }
 }
 
 impl Layer8Context {
-    pub async fn update(&mut self, session: &mut Session) -> pingora::Result<bool> {
+    pub async fn update(
+        &mut self,
+        session: &mut Session,
+        config: Layer8ContextConfig,
+    ) -> pingora::Result<bool> {
         self.request.summary = Layer8ContextRequestSummary::from(session);
 
         self.set_request_header(session.req_header().clone());
+
+        let path = session.req_header().uri.path();
+        let method = session.req_header().method.as_str();
+
+        // Create a request lifecycle span with the HTTP method and path. This span
+        // is used for tracing the full lifetime of the request inside the proxy and
+        // is later attached to the context for downstream propagation.
+        // This span is stored in the request context so it stays alive for the lifetime of the request.
+        // It is dropped when the context is dropped or when it is explicitly released.
+        self.request_span = tracing::info_span!(
+            "request.lifecycle",
+            otel.kind = "server", // Explicitly marks this as a Server entrypoint for OpenTelemetry / OTLP
+            http.request.method = %method,
+            http.request.path = %path,
+
+            // Pre-declare dynamic response fields so span.record(...) works later
+            http.response.status_code = tracing::field::Empty,
+            error.type = tracing::field::Empty,
+            otel.status_code = tracing::field::Empty,
+            mtls.enabled = config.mtls_enabled,
+            request.body.size = tracing::field::Empty,
+            response.body.size = tracing::field::Empty,
+        );
+
+        // openTelemetry instrument
+        if config.use_otel {
+            // Extract tracing metadata from incoming request headers and make it the
+            // parent of the current request span. This keeps the proxy request in the
+            // same distributed trace as the upstream caller.
+            let parent_context = global::get_text_map_propagator(|propagator| {
+                propagator.extract(&utils::PingoraHeaderExtractor {
+                    request: session.req_header(),
+                })
+            });
+
+            if let Err(err) = self.request_span.set_parent(parent_context) {
+                // Enter span so all logs emitted while processing this request inherit the same trace and span context.
+                let _guard = self.request_span.enter();
+                error!("telemetry: failed to set parent context: {:?}", err);
+            }
+        } else {
+            self.set_correlation_id();
+        }
 
         // take anything as needed later
 
@@ -124,11 +247,44 @@ impl Layer8Context {
     pub async fn read_request_body(&mut self, session: &mut Session) -> pingora::Result<bool> {
         match get_request_body(session).await {
             Ok(body) => self.request.body = body,
-            Err(err) => return Err(err)
+            Err(err) => return Err(err),
         };
         Ok(true)
     }
 
+    pub fn debug<F>(&self, f: F)
+    where
+        F: FnOnce(),
+    {
+        if tracing::enabled!(tracing::Level::DEBUG) {
+            let _guard = self.request_span.enter();
+            f();
+        }
+    }
+
+    pub fn info<F>(&self, f: F)
+    where
+        F: FnOnce(),
+    {
+        let _guard = self.request_span.enter();
+        f();
+    }
+
+    pub fn warn<F>(&self, f: F)
+    where
+        F: FnOnce(),
+    {
+        let _guard = self.request_span.enter();
+        f();
+    }
+
+    pub fn error<F>(&self, f: F)
+    where
+        F: FnOnce(),
+    {
+        let _guard = self.request_span.enter();
+        f();
+    }
 }
 
 impl Layer8ContextTrait for Layer8Context {
@@ -149,8 +305,10 @@ impl Layer8ContextTrait for Layer8Context {
 
     fn set_request_header(&mut self, header: RequestHeader) {
         for (key, val) in header.headers.iter() {
-            self.request.header.insert(key.to_string(), val.to_str().unwrap_or("").to_string());
-        };
+            self.request
+                .header
+                .insert(key.to_string(), val.to_str().unwrap_or("").to_string());
+        }
     }
 
     fn get_request_header(&self) -> &Layer8Header {
@@ -158,7 +316,9 @@ impl Layer8ContextTrait for Layer8Context {
     }
 
     fn insert_request_header(&mut self, key: &str, val: &str) {
-        self.request.header.insert(key.to_lowercase().to_string(), val.to_string());
+        self.request
+            .header
+            .insert(key.to_lowercase().to_string(), val.to_string());
     }
 
     fn remove_request_header(&mut self, key: &str) -> Option<String> {
@@ -166,7 +326,9 @@ impl Layer8ContextTrait for Layer8Context {
     }
 
     fn insert_response_header(&mut self, key: &str, val: &str) {
-        self.response.header.insert(key.to_lowercase().to_string(), val.to_string());
+        self.response
+            .header
+            .insert(key.to_lowercase().to_string(), val.to_string());
     }
 
     fn remove_response_header(&mut self, key: &str) -> Option<String> {
@@ -223,18 +385,89 @@ impl Layer8ContextTrait for Layer8Context {
             correlation_id = uuid::Uuid::new_v4().to_string();
         }
 
-        self.set("x-correlation-id".to_string(), correlation_id.clone());
+        self.set("l8-correlation-id".to_string(), correlation_id.clone());
         correlation_id
     }
 
     fn get_correlation_id(&self) -> String {
-        self.get("x-correlation-id")
+        self.get("l8-correlation-id")
             .unwrap_or(&"".to_string())
             .clone()
     }
 
-    fn get_latency(&self) -> Duration {
-        self.latency_start.elapsed()
+    fn set_request_span(&mut self, span: tracing::Span) {
+        self.request_span = span;
+    }
+
+    fn get_request_span(&self) -> &tracing::Span {
+        &self.request_span
+    }
+
+    fn start_upstream_connect_span(&mut self) {
+        self.upstream_connect_span =
+            tracing::info_span!(parent: &self.request_span, "upstream.connection.establish");
+    }
+
+    fn get_upstream_connect_span(&self) -> &tracing::Span {
+        &self.upstream_connect_span
+    }
+
+    fn end_upstream_connect_span(&mut self) {
+        self.upstream_connect_span = tracing::Span::none()
+    }
+    fn start_upstream_ttfb_span(&mut self) {
+        self.upstream_ttfb_span = tracing::info_span!(parent: &self.request_span, "upstream.ttfb");
+    }
+
+    fn get_upstream_ttfb_span(&self) -> &tracing::Span {
+        &self.upstream_ttfb_span
+    }
+
+    fn end_upstream_ttfb_span(&mut self) {
+        self.upstream_ttfb_span = tracing::Span::none()
+    }
+
+    fn start_upstream_response_span(&mut self) {
+        self.upstream_response_span =
+            tracing::info_span!(parent: &self.request_span, "upstream.response_body.download");
+    }
+
+    fn get_upstream_response_span(&self) -> &tracing::Span {
+        &self.upstream_response_span
+    }
+
+    fn end_upstream_response_span(&mut self) {
+        self.upstream_response_span = tracing::Span::none()
+    }
+
+    fn inject_otel_pingora_header(&mut self, span: &mut tracing::Span, header: &mut RequestHeader) {
+        let otel_context = span.context();
+
+        global::get_text_map_propagator(|propagator| {
+            propagator.inject_context(
+                &otel_context,
+                &mut utils::PingoraHeaderInjector { request: header },
+            );
+        });
+    }
+
+    fn inject_otel_reqwest_headers(
+        &mut self,
+        span: &mut tracing::Span,
+        header: &mut reqwest::header::HeaderMap,
+    ) {
+        let otel_context = span.context();
+        opentelemetry::global::get_text_map_propagator(|prop| {
+            prop.inject_context(
+                &otel_context,
+                &mut opentelemetry_http::HeaderInjector(header),
+            );
+        });
+    }
+
+    fn get_trace_id(&self) -> String {
+        let cx = self.request_span.context();
+        cx.span().span_context().trace_id().to_string()
     }
 }
 
@@ -264,7 +497,25 @@ pub trait Layer8ContextTrait {
     fn set_request_summary(&mut self, summary: Layer8ContextRequestSummary);
     fn set_correlation_id(&mut self) -> String;
     fn get_correlation_id(&self) -> String;
-    fn get_latency(&self) -> Duration;
+    fn set_request_span(&mut self, span: tracing::Span);
+    fn get_request_span(&self) -> &tracing::Span;
+    fn start_upstream_connect_span(&mut self);
+    fn get_upstream_connect_span(&self) -> &tracing::Span;
+    fn end_upstream_connect_span(&mut self);
+    fn start_upstream_ttfb_span(&mut self);
+    fn get_upstream_ttfb_span(&self) -> &tracing::Span;
+    fn end_upstream_ttfb_span(&mut self);
+    fn start_upstream_response_span(&mut self);
+    fn get_upstream_response_span(&self) -> &tracing::Span;
+    fn end_upstream_response_span(&mut self);
+    fn inject_otel_pingora_header(&mut self, span: &mut tracing::Span, header: &mut RequestHeader);
+    fn inject_otel_reqwest_headers(
+        &mut self,
+        span: &mut tracing::Span,
+        req: &mut reqwest::header::HeaderMap,
+    );
+    /// This function isn't cheap, consider when using it
+    fn get_trace_id(&self) -> String;
 }
 
 /// `Layer8Header` is a type alias for a map of HTTP header key-value pairs used

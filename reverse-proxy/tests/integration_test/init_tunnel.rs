@@ -11,7 +11,8 @@ mod test_init_tunnel_request {
 
     #[tokio::test]
     async fn test() {
-        start_mock_services();
+        start_mock_services().await;
+
         let client = reqwest::Client::new();
         let body = InitEncryptedTunnelRequest {
             public_key: Vec::from(mock::data::MOCK_NTOR_CLIENT_PUBLIC_KEY),

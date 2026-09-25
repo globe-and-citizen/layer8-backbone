@@ -3,10 +3,10 @@ use crate::handler::proxy::{L8RequestObject, L8ResponseObject};
 use ntor::common::{EncryptedMessage, NTorParty};
 use ntor::server::NTorServer;
 use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
-use pingora_router::handler::{DefaultHandlerTrait, ResponseBodyTrait};
+use pingora_router::handler::DefaultHandlerTrait;
 use reqwest::header::HeaderMap;
-use reqwest::{Client, Response};
-use tracing::{info, trace};
+use reqwest::Response;
+use tracing::{debug, info, Instrument};
 use utils::jwt::JWTClaims;
 
 /// Struct containing only associated methods (no instance methods or fields)
@@ -140,7 +140,7 @@ impl ProxyHandler {
         // let decrypted_data = request_body.data;
 
         // parse decrypted data into WrappedUserRequest
-        let wrapped_request: L8RequestObject = utils::bytes_to_json(decrypted_data)
+        let wrapped_request = L8RequestObject::from_bincode_bytes(&decrypted_data)
             .map_err(|err| format!("Failed to parse request body: {}", err))?;
 
         Ok(wrapped_request)
@@ -167,15 +167,13 @@ impl ProxyHandler {
     /// headers, body, and metadata
     /// * `Err(String)` - An error response if the request fails or backend is unreachable
     pub async fn rebuild_user_request(
-        ctx: &Layer8Context,
+        reqwest_client: &reqwest::Client,
+        ctx: &mut Layer8Context,
         backend_url: String,
         wrapped_request: L8RequestObject,
     ) -> Result<(Response, String), String> {
-        // Get correlation ID for logging
-        let correlation_id = ctx.get_correlation_id();
-
         // Reconstruct headers for the backend request, starting with headers from the wrapped request
-        let mut header_map = utils::hashmap_to_headermap(&wrapped_request.headers)
+        let mut header_map = utils::hashmap_string_string_to_headermap(&wrapped_request.headers)
             .unwrap_or_else(|_| HeaderMap::new());
 
         // Append cookies from the original request context if present
@@ -188,22 +186,29 @@ impl ProxyHandler {
         // Construct the full backend URL by appending the URI from the wrapped request to configured base backend URL
         let origin_url = format!("{}{}", backend_url, wrapped_request.uri);
 
-        trace!(
-            %correlation_id,
-            log_type=LogTypes::HANDLE_PROXY_REQUEST,
-            "Send reconstructed request to origin backend URL: {}",
-            origin_url
-        );
+        ctx.debug(|| {
+            debug!(
+                log_type = LogTypes::HANDLE_PROXY_REQUEST,
+                "Send reconstructed request to origin backend URL: {}", origin_url
+            );
+        });
 
-        let client = Client::new();
-        let response = client
+        let mut be_request_span = tracing::info_span!("BE.request.send");
+        let mut req = reqwest_client
             .request(
                 wrapped_request.method.parse().unwrap_or_default(),
                 origin_url.as_str(),
             )
             .headers(header_map.clone())
             .body(wrapped_request.body)
-            .send()
+            .build()
+            .map_err(|err| -> String { format!("Error while building request to BE: {}", err) })?;
+
+        ctx.inject_otel_reqwest_headers(&mut be_request_span, req.headers_mut());
+
+        let response = reqwest_client
+            .execute(req)
+            .instrument(be_request_span)
             .await;
 
         match response {
@@ -214,7 +219,7 @@ impl ProxyHandler {
                     .unwrap_or(reqwest::StatusCode::INTERNAL_SERVER_ERROR);
 
                 Err(format!(
-                    "Error while building request to BE: status={}, error={}",
+                    "Error while sending to BE: status={}, error={}",
                     status, err
                 ))
             }
@@ -236,17 +241,23 @@ impl ProxyHandler {
         let url = be_response.url().to_string();
         let redirected = be_response.url().as_str() != origin_url;
 
-        let serialized_headers = utils::headermap_to_hashmap(be_response.headers());
-        let serialized_body = be_response.bytes().await.unwrap_or_default().to_vec();
+        let serialized_headers = utils::headermap_to_hashmap_string_string(be_response.headers());
+        let be_response_span = tracing::info_span!("BE.response_body.download");
+        let serialized_body = be_response
+            .bytes()
+            .instrument(be_response_span)
+            .await
+            .unwrap_or_default()
+            .to_vec();
 
-        // Get correlation ID for logging
-        info!(
-            correlation_id = ctx.get_correlation_id(),
-            log_type = LogTypes::HANDLE_BACKEND_RESPONSE,
-            "Received response from backend: status={}, url={}",
-            status,
-            url.as_str()
-        );
+        ctx.info(|| {
+            info!(
+                log_type = LogTypes::HANDLE_BACKEND_RESPONSE,
+                "BE response: status={}, url={}",
+                status,
+                url.as_str()
+            );
+        });
 
         L8ResponseObject {
             status,
@@ -283,7 +294,9 @@ impl ProxyHandler {
         let mut ntor_server = NTorServer::new(ntor_server_id);
         ntor_server.set_shared_secret(shared_secret.to_vec());
 
-        let data = response_body.to_bytes();
+        let data = response_body
+            .to_bincode_bytes()
+            .map_err(|err| format!("Failed to serialize response body: {}", err))?;
 
         // Encrypt the response body using nTor shared secret
         let encrypted_data = ntor_server

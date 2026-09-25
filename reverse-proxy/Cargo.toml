@@ -8,7 +8,7 @@ async-trait = "0.1"
 bytes = "1.10.1"
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.140"
-reqwest = { version="0.11", default-features=false, features=["json", "rustls-tls"] }
+reqwest = { version="0.13.4", default-features=false, features=["json", "rustls"] }
 tokio = "1.44.2"
 pingora-router = { path = "../pingora-router", version = "0.1.0" }
 pingora = { version = "0.8.0", features = ["lb", "boringssl"] }
@@ -24,6 +24,10 @@ bincode = "2.0.1"
 axum = { version = "0.8.9", features = ["json"] }
 dashmap = "6.1.0"
 secrecy = "0.8"
+
+# opentelemetry
+opentelemetry = "0.32.0"
+tracing-opentelemetry = "0.33.0"
 
 [[test]]
 name = "unit_test_handler"
@@ -44,4 +48,7 @@ path = "tests/integration_test/init_tunnel.rs"
 [[test]]
 name = "integration_test_proxy"
 path = "tests/integration_test/proxy.rs"
+
+[dev-dependencies]
+serial_test = "3"
 
