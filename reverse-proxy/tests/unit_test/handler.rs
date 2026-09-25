@@ -4,8 +4,8 @@ mod mock;
 #[cfg(test)]
 mod test_handler {
     mod test_get_ntor_shared_secret {
-        use tracing::error;
         use reverse_proxy::config::{HandlerConfig, ServerConfig};
+        use tracing::error;
 
         use reverse_proxy::handler::{InMemorySecretsStorage, ReverseHandler};
         use utils::log::LogConfig;
@@ -45,9 +45,11 @@ mod test_handler {
                 telemetry: Default::default(),
             };
 
-            ReverseHandler::new(rp_config.clone()).map_err(|e| {
-                error!("Failed to create ReverseHandler: {}", e);
-            }).unwrap()
+            ReverseHandler::new(rp_config.clone())
+                .map_err(|e| {
+                    error!("Failed to create ReverseHandler: {}", e);
+                })
+                .unwrap()
         }
 
         #[test]
@@ -78,9 +80,7 @@ mod test_handler {
         use pingora::http::StatusCode;
         use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
         use pingora_router::handler::{RequestBodyTrait, ResponseBodyTrait};
-        use reverse_proxy::config::{
-            HandlerConfig, ProxyConfig, RPConfig, ServerConfig,
-        };
+        use reverse_proxy::config::{HandlerConfig, ProxyConfig, RPConfig, ServerConfig};
         use reverse_proxy::handler::init_tunnel::{
             InitEncryptedTunnelRequest, InitEncryptedTunnelResponse,
         };
@@ -126,9 +126,11 @@ mod test_handler {
                 telemetry: Default::default(),
             };
 
-            let rp_handler = ReverseHandler::new(config.clone()).map_err(|e| {
-                error!("Failed to create ReverseHandler: {}", e);
-            }).unwrap();
+            let rp_handler = ReverseHandler::new(config.clone())
+                .map_err(|e| {
+                    error!("Failed to create ReverseHandler: {}", e);
+                })
+                .unwrap();
             (rp_handler, config)
         }
 
@@ -283,13 +285,13 @@ mod test_handler {
         };
         use ntor::common::EncryptedMessage;
         use pingora::http::StatusCode;
-        use serial_test::serial;
-        use tracing::error;
         use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
         use pingora_router::handler::ResponseBodyTrait;
         use reverse_proxy::config::RPConfig;
         use reverse_proxy::handler::common::types::ErrorResponse;
         use reverse_proxy::handler::{InMemorySecretsStorage, ReverseHandler};
+        use serial_test::serial;
+        use tracing::error;
         use utils::jwt::JWTClaims;
 
         pub fn create_test_handler() -> ReverseHandler {
@@ -297,9 +299,11 @@ mod test_handler {
             config.handler.jwt_virtual_connection_secret = VALID_JWT_SECRET.to_vec();
             config.handler.backend_url = MOCK_BACKEND_URL.to_string();
 
-            ReverseHandler::new(config.clone()).map_err(|e| {
-                error!("Failed to create ReverseHandler: {}", e);
-            }).unwrap()
+            ReverseHandler::new(config.clone())
+                .map_err(|e| {
+                    error!("Failed to create ReverseHandler: {}", e);
+                })
+                .unwrap()
         }
 
         #[serial]

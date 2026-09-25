@@ -5,15 +5,15 @@ mod statistics;
 
 use crate::config::FPConfig;
 use crate::handler::ForwardHandler;
-use crate::statistics::influxdb_client::InfluxDBClient;
 use crate::statistics::Statistics;
+use crate::statistics::influxdb_client::InfluxDBClient;
 use pingora::prelude::*;
+use pingora_router::ctx::Layer8ContextConfig;
 use proxy::ForwardProxy;
 use std::sync::Arc;
 use tokio::runtime::Runtime;
 use tracing::{debug, info};
-use pingora_router::ctx::Layer8ContextConfig;
-use utils::cert::{watch_tls, TLSCredentials};
+use utils::cert::{TLSCredentials, watch_tls};
 
 fn load_config() -> FPConfig {
     // Load environment variables from .env file

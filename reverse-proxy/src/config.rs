@@ -1,5 +1,5 @@
-use serde::Deserialize;
 use pingora_router::ctx::Layer8ContextConfig;
+use serde::Deserialize;
 use utils::cert::TLSConfig;
 use utils::log::LogConfig;
 use utils::telemetry::TelemetryConfig;

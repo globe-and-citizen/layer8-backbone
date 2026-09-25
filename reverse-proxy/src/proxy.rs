@@ -8,7 +8,7 @@ use pingora::prelude::{HttpPeer, ProxyHttp};
 use pingora::proxy::Session;
 use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
 use pingora_router::{router::Router, utils as pingora_utils};
-use tracing::{debug, info, Instrument};
+use tracing::{Instrument, debug, info};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 /// Reverse proxy server for routing and processing HTTP requests.
@@ -210,10 +210,12 @@ impl<T: Sync> ProxyHttp for ReverseProxy<T> {
             ctx.insert_response_header("Set-Cookie", &cookies);
         }
 
-        self.set_headers(session, ctx, handler_response.status).await?;
+        self.set_headers(session, ctx, handler_response.status)
+            .await?;
         ctx.set_response_body(response_bytes.clone());
 
-        let write_response_span = tracing::info_span!(parent: ctx.get_request_span(), "response_body.write");
+        let write_response_span =
+            tracing::info_span!(parent: ctx.get_request_span(), "response_body.write");
         session
             .write_response_body(Some(Bytes::from(response_bytes)), true)
             .instrument(write_response_span)

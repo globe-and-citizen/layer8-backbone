@@ -1,7 +1,7 @@
-use std::collections::HashMap;
-use pingora::http::{Method, StatusCode};
 use crate::ctx::{Layer8Context, Layer8ContextTrait};
 use crate::handler::{APIHandler, APIHandlerResponse};
+use pingora::http::{Method, StatusCode};
+use std::collections::HashMap;
 
 /// `Router` is a generic struct that manages HTTP route registration and handler dispatching.
 ///
@@ -131,5 +131,3 @@ impl<T> Router<T> {
         self.deletes.insert(self.get_base_path(&path), handlers);
     }
 }
-
-

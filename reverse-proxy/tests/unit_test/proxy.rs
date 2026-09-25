@@ -48,7 +48,7 @@ mod test_proxy_handler {
     }
 
     mod test_validate_jwt_token {
-        use crate::test_proxy_handler::{create_int_rp_jwt, VALID_JWT_SECRET};
+        use crate::test_proxy_handler::{VALID_JWT_SECRET, create_int_rp_jwt};
         use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
         use reverse_proxy::handler::proxy::handler::ProxyHandler;
 
@@ -117,8 +117,8 @@ mod test_proxy_handler {
 
     mod test_validate_request_headers {
         use crate::test_proxy_handler::{
-            create_fp_rp_jwt, create_int_rp_jwt, FP_RP_JWT_HEADER, INT_RP_JWT_HEADER,
-            VALID_JWT_SECRET,
+            FP_RP_JWT_HEADER, INT_RP_JWT_HEADER, VALID_JWT_SECRET, create_fp_rp_jwt,
+            create_int_rp_jwt,
         };
         use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
         use reverse_proxy::handler::proxy::handler::ProxyHandler;
@@ -345,8 +345,8 @@ mod test_proxy_handler {
         use crate::test_proxy_handler::{MOCK_NTOR_SERVER_ID, MOCK_SHARED_SECRET};
         use ntor::common::NTorParty;
         use ntor::server::NTorServer;
-        use reverse_proxy::handler::proxy::handler::ProxyHandler;
         use reverse_proxy::handler::proxy::L8ResponseObject;
+        use reverse_proxy::handler::proxy::handler::ProxyHandler;
 
         #[test]
         fn test_encrypt_response_body_success() {
@@ -406,8 +406,8 @@ mod test_proxy_handler {
     mod test_rebuild_user_request {
         use crate::mock;
         use pingora_router::ctx::{Layer8Context, Layer8ContextRequestSummary, Layer8ContextTrait};
-        use reverse_proxy::handler::proxy::handler::ProxyHandler;
         use reverse_proxy::handler::proxy::L8RequestObject;
+        use reverse_proxy::handler::proxy::handler::ProxyHandler;
         use std::collections::HashMap;
 
         #[tokio::test]

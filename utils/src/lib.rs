@@ -6,8 +6,8 @@ pub mod telemetry;
 
 use url::Url;
 
-use base64::engine::general_purpose;
 use base64::Engine;
+use base64::engine::general_purpose;
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use std::collections::HashMap;
 use uuid::Uuid;

@@ -22,13 +22,9 @@ pub(crate) async fn start_mock_auth_server() {
 
     // Run server in background
     tokio::spawn(async move {
-        let listener = tokio::net::TcpListener::bind(addr)
-            .await
-            .unwrap();
+        let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
 
-        axum::serve(listener, app)
-            .await
-            .unwrap();
+        axum::serve(listener, app).await.unwrap();
     });
 }
 

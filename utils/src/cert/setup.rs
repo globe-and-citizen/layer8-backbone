@@ -1,10 +1,10 @@
-use std::sync::Arc;
+use crate::deserializer;
 use arc_swap::ArcSwap;
 use boring::pkey::PKey;
 use boring::x509::X509;
 use pingora::utils::tls::CertKey;
 use serde::Deserialize;
-use crate::deserializer;
+use std::sync::Arc;
 
 #[derive(Debug, Deserialize, Clone, Default)]
 pub struct TLSConfig {
@@ -31,14 +31,14 @@ impl TLSCredentials {
         let cert_pem = std::fs::read(&conf.cert_path)
             .map_err(|e| format!("Failed to read certificate: {}", e))?;
 
-        let key_pem = std::fs::read(&conf.key_path)
-            .map_err(|e| format!("Failed to read key: {}", e))?;
+        let key_pem =
+            std::fs::read(&conf.key_path).map_err(|e| format!("Failed to read key: {}", e))?;
 
-        let ca_cert = X509::from_pem(&ca_pem)
-            .map_err(|e| format!("Invalid CA certificate: {}", e))?;
+        let ca_cert =
+            X509::from_pem(&ca_pem).map_err(|e| format!("Invalid CA certificate: {}", e))?;
 
-        let cert = X509::stack_from_pem(&cert_pem)
-            .map_err(|e| format!("Invalid certificate: {}", e))?;
+        let cert =
+            X509::stack_from_pem(&cert_pem).map_err(|e| format!("Invalid certificate: {}", e))?;
 
         let key = PKey::private_key_from_pem(&key_pem)
             .map_err(|e| format!("Invalid private key: {}", e))?;
@@ -55,11 +55,11 @@ impl TLSCredentials {
     pub fn reload(&self, path: &TLSConfig) -> Result<(), String> {
         let cert_pem = std::fs::read(&path.cert_path)
             .map_err(|e| format!("Failed to reload certificate: {}", e))?;
-        let key_pem = std::fs::read(&path.key_path)
-            .map_err(|e| format!("Failed to reload key: {}", e))?;
+        let key_pem =
+            std::fs::read(&path.key_path).map_err(|e| format!("Failed to reload key: {}", e))?;
 
-        let cert = X509::stack_from_pem(&cert_pem)
-            .map_err(|e| format!("Invalid certificate: {}", e))?;
+        let cert =
+            X509::stack_from_pem(&cert_pem).map_err(|e| format!("Invalid certificate: {}", e))?;
         let key = PKey::private_key_from_pem(&key_pem)
             .map_err(|e| format!("Invalid private key: {}", e))?;
 
@@ -70,4 +70,3 @@ impl TLSCredentials {
         Ok(())
     }
 }
-

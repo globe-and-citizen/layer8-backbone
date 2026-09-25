@@ -1,11 +1,11 @@
 mod setup;
 pub use setup::*;
 
+use blake3;
 use std::sync::Arc;
 use tracing::{error, info};
 use x509_parser::parse_x509_certificate;
 use x509_parser::pem::parse_x509_pem;
-use blake3;
 
 pub fn extract_x509_pem(pem: String) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
     let (_, pem) = parse_x509_pem(pem.as_bytes())?;

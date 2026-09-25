@@ -3,9 +3,9 @@ mod test_init_tunnel_handler {
     mod test_validate_request_body {
         use pingora::http::StatusCode;
         use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
-        use reverse_proxy::handler::init_tunnel::{InitEncryptedTunnelRequest};
-        use serde_json::json;
+        use reverse_proxy::handler::init_tunnel::InitEncryptedTunnelRequest;
         use reverse_proxy::handler::init_tunnel::handler::InitTunnelHandler;
+        use serde_json::json;
 
         #[tokio::test]
         async fn test_validate_request_body_valid_public_key() {

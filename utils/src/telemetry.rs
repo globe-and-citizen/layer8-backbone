@@ -1,12 +1,12 @@
+use crate::deserializer;
 use opentelemetry::global;
 use opentelemetry::trace::TracerProvider;
 use opentelemetry_otlp::{SpanExporter, WithExportConfig};
-use opentelemetry_sdk::{trace::SdkTracerProvider, Resource};
 use opentelemetry_sdk::trace::Tracer;
+use opentelemetry_sdk::{Resource, trace::SdkTracerProvider};
 use serde::Deserialize;
 use tracing_opentelemetry::OpenTelemetryLayer;
 use tracing_subscriber::Registry;
-use crate::deserializer;
 
 #[derive(Debug, Clone)]
 pub enum OTLPProtocol {
@@ -74,21 +74,17 @@ pub fn init_telemetry(
     // Create an OTLP span exporter using the tonic (gRPC) implementation.
     // This exporter will send collected spans to an OTLP collector/endpoint.
     let exporter = match config.otlp_protocol {
-        OTLPProtocol::Grpc => {
-            SpanExporter::builder()
-                .with_tonic()
-                .with_endpoint(config.otlp_endpoint)
-                .build()
-                .expect("Failed to create OTLP gRPC exporter")
-        }
+        OTLPProtocol::Grpc => SpanExporter::builder()
+            .with_tonic()
+            .with_endpoint(config.otlp_endpoint)
+            .build()
+            .expect("Failed to create OTLP gRPC exporter"),
 
-        OTLPProtocol::Http => {
-            SpanExporter::builder()
-                .with_http()
-                .with_endpoint(config.otlp_endpoint)
-                .build()
-                .expect("Failed to create OTLP HTTP exporter")
-        }
+        OTLPProtocol::Http => SpanExporter::builder()
+            .with_http()
+            .with_endpoint(config.otlp_endpoint)
+            .build()
+            .expect("Failed to create OTLP HTTP exporter"),
     };
 
     // Build a tracer provider with a Resource that identifies this service.
@@ -119,9 +115,7 @@ pub fn init_telemetry(
     //     .init();
 
     // registers a propagator in OpenTelemetry's global context
-    global::set_text_map_propagator(
-        opentelemetry_sdk::propagation::TraceContextPropagator::new(),
-    );
+    global::set_text_map_propagator(opentelemetry_sdk::propagation::TraceContextPropagator::new());
 
     // Set the OpenTelemetry global tracer provider so other libraries can
     // retrieve tracers from the global API.
@@ -130,4 +124,3 @@ pub fn init_telemetry(
     // Return the configured provider so the caller can keep ownership if needed.
     Some((provider, telemetry_layer))
 }
-

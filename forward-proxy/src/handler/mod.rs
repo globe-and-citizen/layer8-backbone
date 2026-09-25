@@ -8,7 +8,7 @@ use pingora_router::{
 };
 use reqwest::Client;
 use serde::Deserialize;
-use tracing::{debug, error, Instrument};
+use tracing::{Instrument, debug, error};
 
 use crate::config::HandlerConfig;
 use crate::handler::consts::LogTypes;

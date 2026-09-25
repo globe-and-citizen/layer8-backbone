@@ -4,7 +4,7 @@ use tracing_subscriber::{fmt, prelude::*};
 
 use opentelemetry_sdk::trace::SdkTracerProvider;
 
-use crate::telemetry::{init_telemetry, TelemetryConfig};
+use crate::telemetry::{TelemetryConfig, init_telemetry};
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize, Clone)]
@@ -34,35 +34,22 @@ pub struct LogAndTraceGuard {
     _trace_provider: Option<SdkTracerProvider>,
 }
 
-pub fn init_logger(
-    log_config: LogConfig,
-    telemetry_config: TelemetryConfig,
-) -> LogAndTraceGuard {
+pub fn init_logger(log_config: LogConfig, telemetry_config: TelemetryConfig) -> LogAndTraceGuard {
     // 1) Map the configured string level to the tracing filter.
     let level_filter = to_level_filter(log_config.log_level);
 
     // 2) Select the destination writer.
     let (writer, file_guard) = if log_config.log_path == "console" {
-        let (non_blocking, guard) =
-            tracing_appender::non_blocking(std::io::stdout());
+        let (non_blocking, guard) = tracing_appender::non_blocking(std::io::stdout());
 
-        (
-            fmt::writer::BoxMakeWriter::new(non_blocking),
-            Some(guard),
-        )
+        (fmt::writer::BoxMakeWriter::new(non_blocking), Some(guard))
     } else {
-        let file_appender = tracing_appender::rolling::daily(
-            log_config.log_path,
-            log_config.log_filename,
-        );
+        let file_appender =
+            tracing_appender::rolling::daily(log_config.log_path, log_config.log_filename);
 
-        let (non_blocking, guard) =
-            tracing_appender::non_blocking(file_appender);
+        let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
 
-        (
-            fmt::writer::BoxMakeWriter::new(non_blocking),
-            Some(guard),
-        )
+        (fmt::writer::BoxMakeWriter::new(non_blocking), Some(guard))
     };
 
     // 3) Initialize OpenTelemetry.
@@ -75,9 +62,7 @@ pub fn init_logger(
     let telemetry = init_telemetry(telemetry_config);
 
     // Keep the provider alive for as long as the logger is alive.
-    let telemetry_provider = telemetry
-        .as_ref()
-        .map(|(provider, _)| provider.clone());
+    let telemetry_provider = telemetry.as_ref().map(|(provider, _)| provider.clone());
 
     // Extract the optional OpenTelemetry layer.
     let telemetry_layer = telemetry.map(|(_, layer)| layer);
@@ -110,9 +95,7 @@ pub fn init_logger(
             .with_current_span(true)
             .flatten_event(true);
 
-        tracing::Dispatch::new(
-            registry.with(Some(json_layer))
-        )
+        tracing::Dispatch::new(registry.with(Some(json_layer)))
     } else {
         let plain_layer = fmt::layer()
             .with_writer(writer)
@@ -122,9 +105,7 @@ pub fn init_logger(
             .with_line_number(true)
             .compact();
 
-        tracing::Dispatch::new(
-            registry.with(Some(plain_layer))
-        )
+        tracing::Dispatch::new(registry.with(Some(plain_layer)))
     };
 
     // 7) Install the single global tracing subscriber.

@@ -73,10 +73,7 @@ fn start_reverse_proxy() {
         }
     };
 
-    let _logger_guard = utils::log::init_logger(
-        rp_config.log.clone(),
-        rp_config.telemetry.clone(),
-    );
+    let _logger_guard = utils::log::init_logger(rp_config.log.clone(), rp_config.telemetry.clone());
 
     let mut server = Server::new(Some(Opt {
         conf: std::env::var("SERVER_CONF").ok(),
@@ -94,9 +91,11 @@ fn start_reverse_proxy() {
     let handle_healthcheck: APIHandler<Arc<ReverseHandler>> =
         Box::new(|h, ctx| async move { h.handle_healthcheck(ctx).await }.boxed());
 
-    let rp_handler = ReverseHandler::new(rp_config.clone()).map_err(|e| {
-        error!("Failed to create ReverseHandler: {}", e);
-    }).unwrap();
+    let rp_handler = ReverseHandler::new(rp_config.clone())
+        .map_err(|e| {
+            error!("Failed to create ReverseHandler: {}", e);
+        })
+        .unwrap();
 
     let rp_handler = Arc::new(rp_handler);
     let mut router: Router<Arc<ReverseHandler>> = Router::new(rp_handler);

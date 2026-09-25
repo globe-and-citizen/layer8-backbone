@@ -10,12 +10,12 @@ use futures::FutureExt;
 use pingora::server::Server;
 use pingora::server::configuration::Opt;
 use pingora::{listeners::tls::TlsSettings, prelude::http_proxy_service};
+use pingora_router::ctx::Layer8ContextConfig;
 use pingora_router::handler::APIHandler;
 use pingora_router::router::Router;
 use std::sync::Arc;
 use tokio::runtime::Runtime;
 use tracing::{debug, error, info};
-use pingora_router::ctx::Layer8ContextConfig;
 use utils::cert::{TLSCredentials, watch_tls};
 
 mod config;
@@ -46,10 +46,7 @@ fn main() {
 
     let rt = Runtime::new().unwrap();
     let _logger_guard = rt.block_on(async {
-        utils::log::init_logger(
-            rp_config.log.clone(),
-            rp_config.telemetry.clone(),
-        )
+        utils::log::init_logger(rp_config.log.clone(), rp_config.telemetry.clone())
     });
 
     let mut my_server = Server::new(Some(Opt {
@@ -68,10 +65,12 @@ fn main() {
     let handle_healthcheck: APIHandler<Arc<ReverseHandler>> =
         Box::new(|h, ctx| async move { h.handle_healthcheck(ctx).await }.boxed());
 
-    let rp_handler = ReverseHandler::new(rp_config.clone()).map_err(|e| {
-        error!("Failed to create ReverseHandler: {}", e);
-    }).unwrap();
-    
+    let rp_handler = ReverseHandler::new(rp_config.clone())
+        .map_err(|e| {
+            error!("Failed to create ReverseHandler: {}", e);
+        })
+        .unwrap();
+
     let rp_handler = Arc::new(rp_handler);
     let mut router: Router<Arc<ReverseHandler>> = Router::new(rp_handler);
     router.post("/init-tunnel".to_string(), Box::new([handle_init_tunnel]));

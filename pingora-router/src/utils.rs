@@ -4,12 +4,10 @@ pub(crate) async fn get_request_body(session: &mut Session) -> pingora::Result<V
     let mut body = Vec::new();
     loop {
         match session.read_request_body().await {
-            Ok(option) => {
-                match option {
-                    Some(chunk) => body.extend_from_slice(&chunk),
-                    None => break,
-                }
-            }
+            Ok(option) => match option {
+                Some(chunk) => body.extend_from_slice(&chunk),
+                None => break,
+            },
             Err(err) => {
                 return Err(err);
             }
@@ -66,9 +64,8 @@ use std::net::IpAddr;
 pub fn get_client_ip(session: &Session) -> Option<IpAddr> {
     let headers = &session.req_header().headers;
 
-    let parse_ip = |v: &str| -> Option<IpAddr> {
-        v.trim().trim_matches('"').parse::<IpAddr>().ok()
-    };
+    let parse_ip =
+        |v: &str| -> Option<IpAddr> { v.trim().trim_matches('"').parse::<IpAddr>().ok() };
 
     // 1. Akamai
     if let Some(ip) = headers
@@ -106,7 +103,10 @@ pub fn get_client_ip(session: &Session) -> Option<IpAddr> {
         let ip_str = if let Some(rest) = cleaned.strip_prefix('[') {
             rest.split_once(']').map(|(ip, _)| ip).unwrap_or(rest)
         } else {
-            cleaned.rsplit_once(':').map(|(ip, _)| ip).unwrap_or(cleaned)
+            cleaned
+                .rsplit_once(':')
+                .map(|(ip, _)| ip)
+                .unwrap_or(cleaned)
         };
         // guard against IPv6 addresses that contain multiple colons but no brackets
         if let Ok(ip) = ip_str.parse::<IpAddr>() {

@@ -1,15 +1,15 @@
 use crate::config::{HandlerConfig, RPConfig};
 use crate::handler::common::consts::LogTypes;
 use crate::handler::healthcheck::{RpHealthcheckError, RpHealthcheckSuccess};
-use init_tunnel::handler::InitTunnelHandler;
 use init_tunnel::InitEncryptedTunnelResponse;
+use init_tunnel::handler::InitTunnelHandler;
 use ntor::common::{InitSessionMessage, NTorParty};
 use ntor::server::NTorServer;
 use pingora::http::StatusCode;
 use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
 use pingora_router::handler::{APIHandlerResponse, ResponseBodyTrait};
 use proxy::handler::ProxyHandler;
-use tracing::{debug, error, Instrument};
+use tracing::{Instrument, debug, error};
 use utils::jwt::JWTClaims;
 use utils::new_uuid;
 

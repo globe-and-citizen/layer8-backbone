@@ -4,9 +4,9 @@ use ntor::common::{EncryptedMessage, NTorParty};
 use ntor::server::NTorServer;
 use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
 use pingora_router::handler::DefaultHandlerTrait;
-use reqwest::header::HeaderMap;
 use reqwest::Response;
-use tracing::{debug, info, Instrument};
+use reqwest::header::HeaderMap;
+use tracing::{Instrument, debug, info};
 use utils::jwt::JWTClaims;
 
 /// Struct containing only associated methods (no instance methods or fields)

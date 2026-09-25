@@ -1,7 +1,7 @@
-use std::time::Duration;
-use tokio::time::sleep;
 use crate::mock::backend::run_mock_be;
 use crate::mock::reverse_proxy::TEST_REVERSE_PROXY;
+use std::time::Duration;
+use tokio::time::sleep;
 
 pub mod backend;
 pub mod data;

@@ -75,10 +75,7 @@ fn start_forward_proxy() {
         }
     };
 
-    let _logger_guard = utils::log::init_logger(
-        fp_config.log,
-        fp_config.telemetry
-    );
+    let _logger_guard = utils::log::init_logger(fp_config.log, fp_config.telemetry);
 
     let mut server = Server::new(Some(Opt {
         conf: std::env::var("SERVER_CONF").ok(),

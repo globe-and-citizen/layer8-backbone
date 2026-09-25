@@ -1,16 +1,16 @@
 use crate::config::ProxyConfig;
+use crate::handler::ForwardHandler;
 use crate::handler::consts::{CtxKeys, HeaderKeys, LogTypes, RequestPaths};
 use crate::handler::types::response::ErrorResponse;
-use crate::handler::ForwardHandler;
 use crate::statistics::Statistics;
 use async_trait::async_trait;
 use bytes::Bytes;
 use opentelemetry::trace::Status;
+use pingora::OrErr;
 use pingora::http::{RequestHeader, ResponseHeader, StatusCode};
 use pingora::prelude::{HttpPeer, ProxyHttp, Session};
 use pingora::protocols::Digest;
 use pingora::upstreams::peer::PeerOptions;
-use pingora::OrErr;
 use pingora::{Error, ErrorType};
 use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
 use pingora_router::{handler::ResponseBodyTrait, utils as pingora_utils};
