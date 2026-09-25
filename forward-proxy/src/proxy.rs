@@ -831,7 +831,7 @@ impl ProxyHttp for ForwardProxy {
 
         if end_of_stream {
             // The response download process has been completed
-            ctx.end_upstream_ttfb_span();
+            ctx.end_upstream_response_span();
 
             if session.req_header().uri.path() != RequestPaths::INIT_TUNNEL {
                 ctx.info(|| {
