@@ -825,8 +825,11 @@ impl ProxyHttp for ForwardProxy {
         // Once we receive end_of_stream, we know we have the full response body and can process it accordingly.
         if let Some(b) = body {
             ctx.extend_response_body(b.to_vec());
-            // drop the body
-            b.clear();
+
+            if session.req_header().uri.path() == RequestPaths::INIT_TUNNEL {
+                // drop the body
+                b.clear();
+            }
         }
 
         if end_of_stream {
@@ -842,7 +845,6 @@ impl ProxyHttp for ForwardProxy {
                     );
                 });
 
-                *body = Some(Bytes::copy_from_slice(ctx.get_response_body().as_slice()));
                 return Ok(None);
             }
 
