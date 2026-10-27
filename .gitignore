@@ -26,7 +26,7 @@ node_modules/
 .env
 test/cypress/screenshots
 
-**/Cargo.lock
+
 
 docker/influxdb2-data
 docker/layer8-volumes/pg-data

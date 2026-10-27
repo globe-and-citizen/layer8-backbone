@@ -20,9 +20,11 @@ RUN apt-get update && apt-get install -y \
 WORKDIR /usr/src/app
 
 # Copy source code
+COPY Cargo.toml Cargo.lock ./
 COPY ./pingora-router ./pingora-router
 COPY ./utils ./utils
 COPY ./forward-proxy ./forward-proxy
+COPY ./reverse-proxy/Cargo.toml ./reverse-proxy/Cargo.toml
 COPY ./certs/scripts ./scripts
 
 # Set working directory to app crate
@@ -32,7 +34,7 @@ WORKDIR /usr/src/app/forward-proxy
 RUN cargo fetch
 
 # Build in release mode
-RUN cargo build --release
+RUN cargo build --release --locked -p forward-proxy
 
 # ------------------------------
 # Stage 2: Runtime stage
@@ -61,7 +63,7 @@ RUN apt-get update && apt-get install -y \
 RUN useradd -m layer8
 
 # Copy only the built binary from the builder stage
-COPY --from=builder /usr/src/app/forward-proxy/target/release/forward-proxy /usr/local/bin/forward-proxy
+COPY --from=builder /usr/src/app/target/release/forward-proxy /usr/local/bin/forward-proxy
 
 # Copy scripts
 COPY --from=builder /usr/src/app/scripts /scripts
