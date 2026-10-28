@@ -24,7 +24,7 @@ COPY Cargo.toml Cargo.lock ./
 COPY ./pingora-router ./pingora-router
 COPY ./utils ./utils
 COPY ./reverse-proxy ./reverse-proxy
-COPY ./forward-proxy/Cargo.toml ./forward-proxy/Cargo.toml
+COPY ./forward-proxy ./forward-proxy
 COPY ./certs/scripts ./scripts
 
 # Set working directory to app crate

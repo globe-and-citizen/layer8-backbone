@@ -160,11 +160,20 @@ impl<T: Sync> ProxyHttp for ReverseProxy<T> {
     {
         // create Context
         ctx.update(session, self.config.ctx.clone()).await?;
-        ctx.debug(|| {
-            debug!(
-                "Request Headers: {:#?}", session.req_header().headers
-            );
-        });
+
+        {
+            ctx.debug(|| {
+                debug!("Request Headers: {:#?}", session.req_header().headers);
+            });
+
+            // let ips = pingora_utils::get_client_ips(session);
+            // ctx.debug(|| {
+            //     debug!(
+            //         client_ip = pingora_utils::get_peer_ip(session),
+            //         client_ips = format!("{:?}", ips).to_string(),
+            //     );
+            // });
+        }
 
         // This proxy only accepts server-to-server traffic on 3 known routes.
         // OPTIONS/CORS preflight is intentionally not supported here — call_handler's
@@ -282,9 +291,9 @@ impl<T: Sync> ProxyHttp for ReverseProxy<T> {
                 log_type=LogTypes::ACCESS_LOG,
                 origin = ctx.request.header.get("origin"),
                 referer = ctx.request.header.get("referer"),
-                user_agent=ctx.request.header.get("User-Agent"),
-                client_ip = pingora_utils::get_client_ip(session).map(|ip| ip.to_string()).unwrap_or_default(),
-                error=?e,
+                user_agent=ctx.request.header.get("user-agent"),
+                client_ips=?pingora_utils::get_client_ips(session),
+                error=?e
             );
         });
     }

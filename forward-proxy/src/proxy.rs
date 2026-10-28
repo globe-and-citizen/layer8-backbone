@@ -336,7 +336,7 @@ impl ProxyHttp for ForwardProxy {
 
     /// Manages upstream connection with mTLS.
     ///
-    /// This performs step 4 of mTLS handshake (client certificate presentation).
+    /// This clears tcp peer client IP for anonymity and performs step 4 of mTLS handshake (client certificate presentation).
     /// The peer verification and certificate validation are handled by TLSCredentials.
     ///
     /// # Security & TLS Handshake
@@ -363,7 +363,7 @@ impl ProxyHttp for ForwardProxy {
     /// Returns `ConnectError` if no valid peer could be created for any address
     async fn upstream_peer(
         &self,
-        _session: &mut Session,
+        session: &mut Session,
         ctx: &mut Self::CTX,
     ) -> pingora::Result<Box<HttpPeer>> {
         let addrs = ctx
@@ -382,6 +382,25 @@ impl ProxyHttp for ForwardProxy {
                 sni = sni
             );
         });
+
+        // clear tcp peer clientIP
+        {
+            // let ips = pingora_utils::get_client_ips(session);
+            let tcp_peer_client_ip=  pingora_utils::get_peer_ip(session);
+            ctx.set(CtxKeys::PEER_CLIENT_IP.to_string(), tcp_peer_client_ip.clone());
+
+            // clear tcp peer client IP
+            if let Some(session_digest_mut) = session.digest_mut() {
+                session_digest_mut.socket_digest = None
+            }
+            //
+            // ctx.debug(|| {
+            //     debug!(
+            //         client_ip = tcp_peer_client_ip,
+            //         client_ips = format!("{:?}", ips).to_string(),
+            //     );
+            // });
+        }
 
         // HttpPeer cannot connect to upstream without a valid socket(IP:PORT) address.
         // A dns name can resolve to multiple socket addresses.
@@ -984,8 +1003,9 @@ impl ProxyHttp for ForwardProxy {
                 log_type=LogTypes::ACCESS_LOG,
                 origin = ctx.request.header.get("origin"),
                 referer = ctx.request.header.get("referer"),
-                user_agent=ctx.request.header.get("User-Agent"),
-                client_ip = pingora_utils::get_client_ip(session).map(|ip| ip.to_string()).unwrap_or_default(),
+                user_agent=ctx.request.header.get("user-agent"),
+                peer_ip=ctx.get(CtxKeys::PEER_CLIENT_IP).unwrap_or(&"".to_string()),
+                client_ips=?pingora_utils::get_client_ips(session),
                 error=?e,
             );
         });

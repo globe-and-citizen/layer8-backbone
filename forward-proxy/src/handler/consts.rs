@@ -21,6 +21,7 @@ impl CtxKeys {
     #[allow(dead_code)]
     pub const FP_RP_JWT: &'static str = "fp_rp_jwt";
     pub const BACKEND_AUTH_CLIENT_ID: &'static str = "backend_auth_client_id";
+    pub const PEER_CLIENT_IP: &'static str = "client_ip";
 }
 
 pub struct LogTypes;

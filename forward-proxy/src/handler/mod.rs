@@ -632,10 +632,11 @@ async fn fetch_auth_server_certificate(
             ),
         };
 
+        let err_msg = res.text().await.unwrap_or_default();
         ctx.error(|| {
             error!(
                 log_type = LogTypes::AUTHENTICATION_SERVER,
-                "Failed to get ntor certificate for {request_path}: {response_body:?}"
+                "Failed to get ntor certificate for {request_path}, response: {err_msg}"
             );
         });
 

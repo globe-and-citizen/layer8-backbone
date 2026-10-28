@@ -1,3 +1,4 @@
+use std::fmt;
 use pingora::prelude::Session;
 
 pub(crate) async fn get_request_body(session: &mut Session) -> pingora::Result<Vec<u8>> {
@@ -52,118 +53,178 @@ impl opentelemetry::propagation::Extractor for PingoraHeaderExtractor<'_> {
     }
 }
 
-use std::net::IpAddr;
+use std::net::{IpAddr, SocketAddr};
 
-/// Attempts to determine the "true" client IP by checking known CDN/edge
-/// headers in priority order, then falling back to the direct TCP peer.
-///
-/// SECURITY: none of these headers are trustworthy unless you know the
-/// direct TCP peer (session.client_addr()) is actually that provider's edge
-/// IP range. Otherwise a client can set any of these headers themselves.
-/// See the trusted-peer wrapper further down.
-pub fn get_client_ip(session: &Session) -> Option<IpAddr> {
-    let headers = &session.req_header().headers;
+/// Returns the client IP addresses from the TCP peer address.
+pub fn get_peer_ip(session: &Session) -> String {
+    let ip = session
+        .client_addr()
+        .and_then(|addr| addr.as_inet())
+        .map(|socket_addr| socket_addr.ip());
 
-    let parse_ip =
-        |v: &str| -> Option<IpAddr> { v.trim().trim_matches('"').parse::<IpAddr>().ok() };
+    ip.map(|ip| ip.to_string()).unwrap_or_default()
+}
 
-    // 1. Akamai
-    if let Some(ip) = headers
-        .get("True-Client-IP")
-        .and_then(|v| v.to_str().ok())
-        .and_then(parse_ip)
-    {
+#[derive(Clone, PartialEq, Eq)]
+pub struct ClientIP {
+    pub source: String,
+    pub ip: IpAddr,
+}
+
+impl fmt::Debug for ClientIP {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}:{}", self.source, self.ip)
+    }
+}
+
+fn parse_ip(value: &str) -> Option<IpAddr> {
+    let value = value.trim().trim_matches('"').trim();
+
+    // Bare IPv4 or IPv6.
+    if let Ok(ip) = value.parse::<IpAddr>() {
         return Some(ip);
     }
 
-    // 2. Fastly
-    if let Some(ip) = headers
-        .get("Fastly-Client-IP")
-        .and_then(|v| v.to_str().ok())
-        .and_then(parse_ip)
-    {
-        return Some(ip);
+    // IPv4:port or [IPv6]:port.
+    if let Ok(addr) = value.parse::<SocketAddr>() {
+        return Some(addr.ip());
     }
 
-    // 3. Cloudflare
-    if let Some(ip) = headers
-        .get("CF-Connecting-IP")
-        .and_then(|v| v.to_str().ok())
-        .and_then(parse_ip)
-    {
-        return Some(ip);
+    // Bracketed IPv6 without a port.
+    if value.starts_with('[') && value.ends_with(']') {
+        return value[1..value.len() - 1].parse::<IpAddr>().ok();
     }
 
-    // 4. AWS CloudFront (newer header, may include a port: "1.2.3.4:54321" or "[::1]:54321")
-    if let Some(raw) = headers
-        .get("CloudFront-Viewer-Address")
-        .and_then(|v| v.to_str().ok())
-    {
-        let cleaned = raw.trim().trim_matches('"');
-        let ip_str = if let Some(rest) = cleaned.strip_prefix('[') {
-            rest.split_once(']').map(|(ip, _)| ip).unwrap_or(rest)
-        } else {
-            cleaned
-                .rsplit_once(':')
-                .map(|(ip, _)| ip)
-                .unwrap_or(cleaned)
-        };
-        // guard against IPv6 addresses that contain multiple colons but no brackets
-        if let Ok(ip) = ip_str.parse::<IpAddr>() {
-            return Some(ip);
-        } else if let Ok(ip) = cleaned.parse::<IpAddr>() {
-            return Some(ip);
-        }
-    }
+    None
+}
 
-    // 5. Azure Front Door
-    if let Some(ip) = headers
-        .get("X-Azure-ClientIP")
-        .and_then(|v| v.to_str().ok())
-        .and_then(parse_ip)
-    {
-        return Some(ip);
-    }
+fn parse_forwarded_header(value: &str) -> Option<IpAddr> {
+    for element in value.split(',') {
+        for parameter in element.split(';') {
+            let Some((key, value)) = parameter.trim().split_once('=') else {
+                continue;
+            };
 
-    // 6. X-Real-IP (nginx and other common proxies)
-    if let Some(ip) = headers
-        .get("X-Real-IP")
-        .and_then(|v| v.to_str().ok())
-        .and_then(parse_ip)
-    {
-        return Some(ip);
-    }
+            if !key.trim().eq_ignore_ascii_case("for") {
+                continue;
+            }
 
-    // 7. X-Forwarded-For (generic; first entry = original client, in theory)
-    if let Some(xff) = headers.get("X-Forwarded-For").and_then(|v| v.to_str().ok()) {
-        if let Some(first) = xff.split(',').next() {
-            if let Some(ip) = parse_ip(first) {
+            let value = value.trim().trim_matches('"');
+
+            if value.starts_with('_') || value.eq_ignore_ascii_case("unknown") {
+                continue;
+            }
+
+            if let Some(ip) = parse_ip(value) {
                 return Some(ip);
             }
         }
     }
 
-    // 8. Standard "Forwarded" header (RFC 7239): Forwarded: for=1.2.3.4;proto=https
-    if let Some(fwd) = headers.get("Forwarded").and_then(|v| v.to_str().ok()) {
-        for part in fwd.split(';') {
-            let part = part.trim();
-            if let Some(rest) = part.strip_prefix("for=") {
-                let cleaned = rest.trim_matches('"');
-                let ip_str = cleaned
-                    .trim_start_matches('[')
-                    .split(&[']', ':'][..])
-                    .next()
-                    .unwrap_or(cleaned);
-                if let Some(ip) = parse_ip(ip_str) {
-                    return Some(ip);
-                }
+    None
+}
+
+pub fn get_client_ips(session: &Session) -> Vec<ClientIP> {
+    let headers = &session.req_header().headers;
+    let mut ips = Vec::new();
+
+    let single_ip_headers = [
+        // Akamai CDN: identifies the original client IP.
+        "True-Client-IP",
+
+        // Fastly CDN: identifies the client IP observed by Fastly.
+        "Fastly-Client-IP",
+
+        // Cloudflare: identifies the connecting client IP reported by Cloudflare.
+        "CF-Connecting-IP",
+
+        // Cloudflare: carries the client's IPv6 address in supported configurations.
+        "CF-Connecting-IPv6",
+
+        // AWS CloudFront: viewer IP address, commonly including the source port.
+        "CloudFront-Viewer-Address",
+
+        // Microsoft Azure Front Door: reports the client IP.
+        "X-Azure-ClientIP",
+
+        // Fly.io: reports the connecting client IP.
+        "Fly-Client-IP",
+
+        // Nginx and other reverse proxies: commonly contains the client IP
+        // forwarded by the proxy.
+        "X-Real-IP",
+
+        // Generic proxy header: may contain the client IP.
+        // Its meaning depends on the proxy configuration.
+        "X-Client-IP",
+
+        // Generic proxy header: commonly identifies the original client IP
+        // forwarded by an intermediary.
+        "X-Forwarded-Client-IP",
+
+        // Used by some proxy and cluster configurations to identify a client IP.
+        "X-Cluster-Client-IP",
+
+        // Envoy proxy: identifies the external client address as observed
+        // or determined by Envoy.
+        "X-Envoy-External-Address",
+
+        // Google App Engine: identifies the user IP reported by the platform.
+        "X-Appengine-User-IP",
+
+        // Used by some proxies to preserve an earlier X-Forwarded-For value
+        // before modifying or replacing the forwarding chain.
+        "X-Original-Forwarded-For",
+    ];
+
+    for name in single_ip_headers {
+        if let Some(ip) = headers
+            .get(name)
+            .and_then(|v| v.to_str().ok())
+            .and_then(parse_ip)
+        {
+            ips.push(ClientIP {
+                source: name.to_string(),
+                ip,
+            });
+        }
+    }
+
+    if let Some(ip) = headers
+        .get("Forwarded")
+        .and_then(|v| v.to_str().ok())
+        .and_then(parse_forwarded_header)
+    {
+        ips.push(ClientIP {
+            source: "Forwarded".to_string(),
+            ip,
+        });
+    }
+
+    if let Some(xff) = headers
+        .get("X-Forwarded-For")
+        .and_then(|v| v.to_str().ok())
+    {
+        for entry in xff.split(',') {
+            if let Some(ip) = parse_ip(entry) {
+                ips.push(ClientIP {
+                    source: "X-Forwarded-For".to_string(),
+                    ip,
+                });
             }
         }
     }
 
-    // 9. Fall back to direct TCP peer
-    session
+    if let Some(ip) = session
         .client_addr()
         .and_then(|addr| addr.as_inet())
         .map(|socket_addr| socket_addr.ip())
+    {
+        ips.push(ClientIP {
+            source: "pingora_tcp_peer".to_string(),
+            ip,
+        });
+    }
+
+    ips
 }
