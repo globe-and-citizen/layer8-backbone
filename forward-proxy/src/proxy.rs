@@ -721,6 +721,16 @@ impl ProxyHttp for ForwardProxy {
                 .unwrap_or_default();
         }
 
+        // print out all request headers
+        ctx.debug(|| {
+            debug!(
+                log_type = LogTypes::HANDLE_CLIENT_REQUEST,
+                request_summary = session.request_summary(),
+                "Upstream request headers: {:#?}",
+                upstream_request.headers
+            );
+        });
+
         // Inject OpenTelemetry span context into upstream request headers for distributed tracing
         let mut request_span = ctx.get_request_span().clone();
         ctx.inject_otel_pingora_header(&mut request_span, upstream_request);

@@ -160,6 +160,11 @@ impl<T: Sync> ProxyHttp for ReverseProxy<T> {
     {
         // create Context
         ctx.update(session, self.config.ctx.clone()).await?;
+        ctx.debug(|| {
+            debug!(
+                "Request Headers: {:#?}", session.req_header().headers
+            );
+        });
 
         // This proxy only accepts server-to-server traffic on 3 known routes.
         // OPTIONS/CORS preflight is intentionally not supported here — call_handler's
