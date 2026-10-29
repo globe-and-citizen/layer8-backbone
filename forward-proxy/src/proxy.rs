@@ -14,7 +14,7 @@ use pingora::upstreams::peer::PeerOptions;
 use pingora::{Error, ErrorType};
 use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
 use pingora_router::{handler::ResponseBodyTrait, utils as pingora_utils};
-use reqwest::header::{HeaderName, TRANSFER_ENCODING};
+use reqwest::header::{HeaderName, HeaderValue, TRANSFER_ENCODING};
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::{debug, error, info};
@@ -363,7 +363,7 @@ impl ProxyHttp for ForwardProxy {
     /// Returns `ConnectError` if no valid peer could be created for any address
     async fn upstream_peer(
         &self,
-        session: &mut Session,
+        _session: &mut Session,
         ctx: &mut Self::CTX,
     ) -> pingora::Result<Box<HttpPeer>> {
         let addrs = ctx
@@ -383,24 +383,24 @@ impl ProxyHttp for ForwardProxy {
             );
         });
 
-        // clear tcp peer clientIP
-        {
-            // let ips = pingora_utils::get_client_ips(session);
-            let tcp_peer_client_ip=  pingora_utils::get_peer_ip(session);
-            ctx.set(CtxKeys::PEER_CLIENT_IP.to_string(), tcp_peer_client_ip.clone());
-
-            // clear tcp peer client IP
-            if let Some(session_digest_mut) = session.digest_mut() {
-                session_digest_mut.socket_digest = None
-            }
-            //
-            // ctx.debug(|| {
-            //     debug!(
-            //         client_ip = tcp_peer_client_ip,
-            //         client_ips = format!("{:?}", ips).to_string(),
-            //     );
-            // });
-        }
+        // // clear tcp peer clientIP
+        // {
+        //     // let ips = pingora_utils::get_client_ips(session);
+        //     let tcp_peer_client_ip=  pingora_utils::get_peer_ip(session);
+        //     ctx.set(CtxKeys::PEER_CLIENT_IP.to_string(), tcp_peer_client_ip.clone());
+        //
+        //     // clear tcp peer client IP
+        //     if let Some(session_digest_mut) = session.digest_mut() {
+        //         session_digest_mut.socket_digest = None
+        //     }
+        //     //
+        //     // ctx.debug(|| {
+        //     //     debug!(
+        //     //         client_ip = tcp_peer_client_ip,
+        //     //         client_ips = format!("{:?}", ips).to_string(),
+        //     //     );
+        //     // });
+        // }
 
         // HttpPeer cannot connect to upstream without a valid socket(IP:PORT) address.
         // A dns name can resolve to multiple socket addresses.
@@ -698,30 +698,59 @@ impl ProxyHttp for ForwardProxy {
             );
         });
 
+        // Headers kept from the client, in the fixed order they are re-emitted upstream.
+        // Browsers send headers in different orders, so the original order is discarded.
         const KEEP: &[&str] = &[
             "host",
+            "user-agent",
+            "accept",
+            "accept-encoding",
+            "accept-language",
             "content-type",
             "content-length",     // keep body framing intact
             "transfer-encoding",
-            "accept",
-            "accept-encoding",
             "cookie",       // for login
             "x-empty-body",
             "int_fp_jwt", // internal token, will be removed before sending to upstream
             "int_rp_jwt",
         ];
 
+        // Replace identifying values with generic ones
+        const OVERRIDES: &[(&str, &str)] = &[
+            ("user-agent", "Mozilla/5.0"),
+            ("accept-encoding", "gzip, br"),
+            ("accept-language", "en-US,en;q=0.9"),
+        ];
+
+        let mut kept: Vec<(&str, Vec<HeaderValue>)> = Vec::with_capacity(KEEP.len());
+        for &name in KEEP {
+            let values = match OVERRIDES.iter().find(|(n, _)| *n == name) {
+                Some((_, value)) => vec![HeaderValue::from_static(value)],
+                None => upstream_request.headers.get_all(name).iter().cloned().collect(),
+            };
+            kept.push((name, values));
+        }
+
+        // Drop everything, then re-append in KEEP order so the wire order is fixed.
         // Collect first: you can't mutate while iterating
         let names: Vec<HeaderName> = upstream_request.headers.keys().cloned().collect();
         for name in names {
-            if !KEEP.contains(&name.as_str()) {
-                upstream_request.remove_header(&name); // updates both HeaderMap and case-map
+            upstream_request.remove_header(&name); // updates both HeaderMap and case-map
+        }
+        for (name, values) in kept {
+            for value in values {
+                upstream_request.append_header(name, value)?;
             }
         }
 
-        // Replace identifying values with generic ones
-        upstream_request.insert_header("user-agent", "Mozilla/5.0")?;
-        upstream_request.insert_header("accept-language", "en-US,en;q=0.9")?;
+        // The outer query string (e.g. backend_url) is meant for this proxy only; never forward it.
+        if upstream_request.uri.query().is_some() {
+            let path_only = upstream_request.uri.path().to_string();
+            upstream_request.set_uri(path_only.parse().or_err(
+                pingora::ErrorType::InvalidHTTPHeader,
+                "Failed to strip query string from upstream URI",
+            )?);
+        }
 
         if session.req_header().uri.path() == RequestPaths::PROXY {
             // get int_fp_jwt token for upstream request header manipulation,
@@ -836,13 +865,22 @@ impl ProxyHttp for ForwardProxy {
         ctx: &mut Self::CTX,
     ) -> pingora::Result<()> {
         self.set_response_header(ctx, upstream_response)?;
-        // if let Some(req_headers) = session
-        //     .req_header()
-        //     .headers
-        //     .get("Access-Control-Request-Headers")
-        // {
-        //     upstream_response.insert_header("Access-Control-Allow-Headers", req_headers)?;
-        // }
+
+        ctx.debug(|| {
+            debug!(
+                "Outgoing response headers: {:#?}",
+                upstream_response.headers
+            );
+        });
+
+        // remove
+        for h in [
+            "alt-svc", "nel", "report-to", "reporting-endpoints",
+            "accept-ch", "server", "x-powered-by", "via",
+        ] {
+            upstream_response.remove_header(h);
+        }
+        upstream_response.insert_header("referrer-policy", "no-referrer")?;
 
         if let Some(length) = upstream_response.headers.get("content-length") {
             if length != "0" {
@@ -850,6 +888,13 @@ impl ProxyHttp for ForwardProxy {
                 upstream_response.insert_header(TRANSFER_ENCODING.as_str(), "chunked")?;
             }
         }
+
+        ctx.debug(|| {
+            debug!(
+                "Outgoing response headers after filtering: {:#?}",
+                upstream_response.headers
+            );
+        });
 
         Ok(())
     }
@@ -1032,10 +1077,11 @@ impl ProxyHttp for ForwardProxy {
         ctx.info(|| {
             info!(
                 log_type=LogTypes::ACCESS_LOG,
+                request_summary = session.request_summary(),
                 origin = ctx.request.header.get("origin"),
                 referer = ctx.request.header.get("referer"),
                 user_agent=ctx.request.header.get("user-agent"),
-                peer_ip=ctx.get(CtxKeys::PEER_CLIENT_IP).unwrap_or(&"".to_string()),
+                // peer_ip=ctx.get(CtxKeys::PEER_CLIENT_IP).unwrap_or(&"".to_string()),
                 client_ips=?pingora_utils::get_client_ips(session),
                 error=?e,
             );

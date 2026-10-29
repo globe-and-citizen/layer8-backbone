@@ -8,6 +8,10 @@ use axum::{Json, Router};
 use forward_proxy::handler::types::response::InitTunnelResponseFromRP;
 use serde::Deserialize;
 use std::net::SocketAddr;
+use std::sync::Mutex;
+
+/// Headers of the last `/proxy` request the mock backend received, for tests that check what the FP forwards.
+pub(crate) static LAST_PROXY_REQUEST_HEADERS: Mutex<Option<HeaderMap>> = Mutex::new(None);
 
 pub(crate) async fn start_mock_backend_server() {
     let mut app = Router::new();
@@ -65,6 +69,8 @@ async fn proxy_handler(
     headers: HeaderMap,
     payload: axum::body::Bytes,
 ) -> (StatusCode, axum::body::Bytes) {
+    *LAST_PROXY_REQUEST_HEADERS.lock().unwrap() = Some(headers.clone());
+
     // Validate int_rp_jwt header
     let int_rp_jwt = headers
         .get("int_rp_jwt")

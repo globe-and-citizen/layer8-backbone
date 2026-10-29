@@ -2,7 +2,7 @@ use crate::mock::forward_proxy::TEST_FORWARD_PROXY;
 use ::forward_proxy::statistics::Statistics;
 
 mod auth_server;
-mod backend;
+pub mod backend;
 pub mod data;
 mod forward_proxy;
 pub(crate) mod stats;
