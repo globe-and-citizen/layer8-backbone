@@ -14,7 +14,7 @@ use pingora::upstreams::peer::PeerOptions;
 use pingora::{Error, ErrorType};
 use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
 use pingora_router::{handler::ResponseBodyTrait, utils as pingora_utils};
-use reqwest::header::TRANSFER_ENCODING;
+use reqwest::header::{HeaderName, TRANSFER_ENCODING};
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::{debug, error, info};
@@ -690,6 +690,39 @@ impl ProxyHttp for ForwardProxy {
     where
         Self::CTX: Send + Sync,
     {
+        // print out all request headers
+        ctx.debug(|| {
+            debug!(
+                "Incoming request headers: {:#?}",
+                upstream_request.headers
+            );
+        });
+
+        const KEEP: &[&str] = &[
+            "host",
+            "content-type",
+            "content-length",     // keep body framing intact
+            "transfer-encoding",
+            "accept",
+            "accept-encoding",
+            "cookie",       // for login
+            "x-empty-body",
+            "int_fp_jwt", // internal token, will be removed before sending to upstream
+            "int_rp_jwt",
+        ];
+
+        // Collect first: you can't mutate while iterating
+        let names: Vec<HeaderName> = upstream_request.headers.keys().cloned().collect();
+        for name in names {
+            if !KEEP.contains(&name.as_str()) {
+                upstream_request.remove_header(&name); // updates both HeaderMap and case-map
+            }
+        }
+
+        // Replace identifying values with generic ones
+        upstream_request.insert_header("user-agent", "Mozilla/5.0")?;
+        upstream_request.insert_header("accept-language", "en-US,en;q=0.9")?;
+
         if session.req_header().uri.path() == RequestPaths::PROXY {
             // get int_fp_jwt token for upstream request header manipulation,
             // cannot be done earlier in request_filter because it doesn't have access to upstream request header
@@ -743,9 +776,7 @@ impl ProxyHttp for ForwardProxy {
         // print out all request headers
         ctx.debug(|| {
             debug!(
-                log_type = LogTypes::HANDLE_CLIENT_REQUEST,
-                request_summary = session.request_summary(),
-                "Upstream request headers: {:#?}",
+                "Outgoing request headers: {:#?}",
                 upstream_request.headers
             );
         });
