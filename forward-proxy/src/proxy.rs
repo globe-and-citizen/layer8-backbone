@@ -836,13 +836,22 @@ impl ProxyHttp for ForwardProxy {
         ctx: &mut Self::CTX,
     ) -> pingora::Result<()> {
         self.set_response_header(ctx, upstream_response)?;
-        // if let Some(req_headers) = session
-        //     .req_header()
-        //     .headers
-        //     .get("Access-Control-Request-Headers")
-        // {
-        //     upstream_response.insert_header("Access-Control-Allow-Headers", req_headers)?;
-        // }
+
+        ctx.debug(|| {
+            debug!(
+                "Outgoing response headers: {:#?}",
+                upstream_response.headers
+            );
+        });
+
+        // remove
+        for h in [
+            "alt-svc", "nel", "report-to", "reporting-endpoints",
+            "accept-ch", "server", "x-powered-by", "via",
+        ] {
+            upstream_response.remove_header(h);
+        }
+        upstream_response.insert_header("referrer-policy", "no-referrer")?;
 
         if let Some(length) = upstream_response.headers.get("content-length") {
             if length != "0" {
@@ -850,6 +859,13 @@ impl ProxyHttp for ForwardProxy {
                 upstream_response.insert_header(TRANSFER_ENCODING.as_str(), "chunked")?;
             }
         }
+
+        ctx.debug(|| {
+            debug!(
+                "Outgoing response headers after filtering: {:#?}",
+                upstream_response.headers
+            );
+        });
 
         Ok(())
     }
