@@ -1,5 +1,5 @@
 use crate::handler::common::consts::{HeaderKeys, LogTypes};
-use crate::handler::proxy::{L8RequestObject, L8ResponseObject};
+use crate::handler::proxy::{L8Header, L8RequestObject, L8ResponseObject};
 use ntor::common::{EncryptedMessage, NTorParty};
 use ntor::server::NTorServer;
 use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
@@ -173,7 +173,7 @@ impl ProxyHandler {
         wrapped_request: L8RequestObject,
     ) -> Result<(Response, String), String> {
         // Reconstruct headers for the backend request, starting with headers from the wrapped request
-        let mut header_map = utils::hashmap_string_string_to_headermap(&wrapped_request.headers)
+        let mut header_map = wrapped_request.headers.to_headermap()
             .unwrap_or_else(|_| HeaderMap::new());
 
         // Append cookies from the original request context if present
@@ -241,7 +241,7 @@ impl ProxyHandler {
         let url = be_response.url().to_string();
         let redirected = be_response.url().as_str() != origin_url;
 
-        let serialized_headers = utils::headermap_to_hashmap_string_string(be_response.headers());
+        let serialized_headers = L8Header::from_headermap(be_response.headers());
         let be_response_span = tracing::info_span!("BE.response_body.download");
         let serialized_body = be_response
             .bytes()

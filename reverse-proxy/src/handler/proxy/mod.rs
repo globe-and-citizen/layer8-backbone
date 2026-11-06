@@ -1,13 +1,15 @@
 pub mod handler;
+mod header;
+
+pub use header::L8Header;
 
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, bincode::Encode, bincode::Decode)]
 pub struct L8RequestObject {
     pub uri: String,
     pub method: String,
-    pub headers: HashMap<String, String>,
+    pub headers: L8Header,
     pub body: Vec<u8>,
 }
 impl L8RequestObject {
@@ -26,7 +28,7 @@ impl L8RequestObject {
 pub struct L8ResponseObject {
     pub status: u16,
     pub status_text: String,
-    pub headers: HashMap<String, String>,
+    pub headers: L8Header,
     pub body: Vec<u8>,
     pub ok: bool,
     pub url: String,

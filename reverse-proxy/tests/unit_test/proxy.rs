@@ -406,9 +406,8 @@ mod test_proxy_handler {
     mod test_rebuild_user_request {
         use crate::mock;
         use pingora_router::ctx::{Layer8Context, Layer8ContextRequestSummary, Layer8ContextTrait};
-        use reverse_proxy::handler::proxy::L8RequestObject;
+        use reverse_proxy::handler::proxy::{L8Header, L8RequestObject};
         use reverse_proxy::handler::proxy::handler::ProxyHandler;
-        use std::collections::HashMap;
 
         #[tokio::test]
         async fn test_rebuild_user_request() {
@@ -428,7 +427,7 @@ mod test_proxy_handler {
             let l8_request = L8RequestObject {
                 method: "POST".parse().unwrap(),
                 uri: "/test/api".to_string(),
-                headers: HashMap::from([("Content-Type".to_string(), "application/json".into())]),
+                headers: L8Header::from_pairs([("Content-Type", "application/json")]),
                 body: b"{\"key\": \"value\"}".to_vec(),
             };
 
@@ -449,11 +448,11 @@ mod test_proxy_handler {
 
             assert_eq!(l8_response.status, 200);
 
-            assert!(
-                l8_response.headers.contains_key("set-cookie"),
-                "Response headers should contain 'set-cookie'"
-            );
-            let cookie = l8_response.headers.get("set-cookie").unwrap().to_string();
+            let cookie = l8_response
+                .headers
+                .get("set-cookie")
+                .expect("Response headers should contain 'set-cookie'")
+                .to_string();
             assert_eq!(
                 "session_id=abc123; HttpOnly; Path=/; Max-Age=3600".to_string(),
                 cookie,

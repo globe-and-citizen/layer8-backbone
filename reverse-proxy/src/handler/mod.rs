@@ -9,7 +9,7 @@ use pingora::http::StatusCode;
 use pingora_router::ctx::{Layer8Context, Layer8ContextTrait};
 use pingora_router::handler::{APIHandlerResponse, ResponseBodyTrait};
 use proxy::handler::ProxyHandler;
-use tracing::{Instrument, debug, error};
+use tracing::{Instrument, error};
 use utils::jwt::JWTClaims;
 use utils::new_uuid;
 
@@ -128,13 +128,6 @@ impl ReverseHandler {
             int_rp_jwt,
             fp_rp_jwt,
         };
-
-        ctx.debug(|| {
-            debug!(
-                log_type = LogTypes::HANDLE_INIT_TUNNEL_REQUEST,
-                "Save new nTor session: {}", ntor_session_id
-            );
-        });
 
         InMemorySecretsStorage::insert(
             ntor_session_id,
@@ -343,7 +336,7 @@ impl ReverseHandler {
         let cookies: Option<String> = wrapped_response
             .headers
             .get("set-cookie")
-            .and_then(|value| Some(value.to_string()));
+            .map(str::to_string);
 
         // encrypt backend response using nTor shared secret and return to client
         match ProxyHandler::encrypt_response_body(
